@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { useData } from "@/lib/store";
 
 const estimatorItems = [
-  { icon: BrickWall, label: "Civil Wall", href: "/estimators/civil-wall" },
+  { icon: BrickWall, label: "Civil ", href: "/estimators/civil-wall" },
   { icon: DoorOpen, label: "Doors", href: "/estimators/doors" },
   { icon: Cloud, label: "False Ceiling", href: "/estimators/false-ceiling" },
   { icon: Layers, label: "Flooring", href: "/estimators/flooring" },
@@ -37,9 +37,9 @@ const estimatorItems = [
   { icon: Blinds, label: "Blinds", href: "/estimators/blinds" },
   { icon: Zap, label: "Electrical", href: "/estimators/electrical" },
   { icon: Droplets, label: "Plumbing", href: "/estimators/plumbing" },
-  { icon: Hammer, label: "MS Work", href: "/estimators/ms-work" },
-  { icon: Hammer, label: "SS Work", href: "/estimators/ss-work" },
-  { icon: ShieldAlert, label: "Fire-Fighting", href: "/estimators/fire-fighting" },
+  //{ icon: Hammer, label: "MS Work", href: "/estimators/ms-work" },
+  //{ icon: Hammer, label: "SS Work", href: "/estimators/ss-work" },
+  //{ icon: ShieldAlert, label: "Fire-Fighting", href: "/estimators/fire-fighting" },
 ];
 
 export function Sidebar() {
@@ -223,6 +223,14 @@ export function Sidebar() {
               <div className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Supplier
               </div>
+              <Link href="/supplier/shops">
+                <span
+                  className={cn("flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer", location === "/supplier/shops" ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent")}
+                  onClick={() => setIsOpen(false)}
+                >
+                  <Building2 className="h-4 w-4" /> Add Shop
+                </span>
+              </Link>
               <Link href="/supplier/materials">
                 <span
                   className={cn("flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer", location === "/supplier/materials" ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent")}

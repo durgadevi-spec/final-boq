@@ -13,8 +13,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { motion, AnimatePresence } from "framer-motion";
-import { Download, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  Download,
+  Printer,
+} from "lucide-react";
 import { useData } from "@/lib/store";
+
+const ctintLogo = "/image.png";
+
+/* ================= TYPES ================= */
 
 interface SelectedMaterialConfig {
   materialId: string;
@@ -24,401 +34,610 @@ interface SelectedMaterialConfig {
 interface MaterialWithQuantity {
   id: string;
   name: string;
-  quantity: number;
   unit: string;
-  rate?: number;
-  shopName?: string;
-  available: boolean;
+  quantity: number;
+  rate: number;
+  shopName: string;
+  shopId: string;
+  code: string;
 }
 
-// ----- In-file ceiling compute helpers and constants -----
-export type CeilingTypeLocal =
-  | "gypsum-ceiling"
-  | "pop-ceiling"
-  | "grid-ceiling"
-  | "wooden-ceiling"
-  | "pvc-ceiling"
-  | "metal-ceiling";
-
-export type ChannelType =
-  | "main-runner"
-  | "cross-tee"
-  | "wall-angle"
-  | "suspension"
-  | "furring"
-  | "ceiling-track";
-
-export interface CeilingComputeResult {
-  area: number;
-  perimeter: number;
-  mainRunnerLength: number;
-  crossTeeLength: number;
-  wallAngleLength: number;
-  suspensionLength: number;
-  furringLength: number;
-  ceilingTrackLength: number;
-  panelCount: number;
-  hangerCount: number;
-  screwBoxes: number;
-  jointTapeRolls: number;
-  jointCompoundBags: number;
-}
-
-export const CHANNEL_TYPES_LOCAL = [
-  { value: "main-runner", label: "Main Runner Channels", rate: 165, unit: "rft", coveragePerUnit: 4 },
-  { value: "cross-tee", label: "Cross Tees / Secondary Channels", rate: 95, unit: "rft", coveragePerUnit: 2 },
-  { value: "wall-angle", label: "Wall Angles / Perimeter Channels", rate: 85, unit: "rft", coveragePerUnit: 1 },
-  { value: "suspension", label: "Suspension Channels", rate: 125, unit: "rft", coveragePerUnit: 16 },
-  { value: "furring", label: "Furring Channels", rate: 75, unit: "rft", coveragePerUnit: 1.5 },
-  { value: "ceiling-track", label: "Ceiling Track Channels", rate: 95, unit: "rft", coveragePerUnit: 1 },
-];
-
-export const computeCeilingRequired = (
-  ceilingType: CeilingTypeLocal | null,
-  length: number | null,
-  width: number | null,
-  gridSpacing: string = "2x2",
-  wastagePercent: number = 10
-): CeilingComputeResult | null => {
-  if (!ceilingType || !length || !width) return null;
-
-  const area = length * width;
-  const perimeter = 2 * (length + width);
-  const wastageFactor = 1 + wastagePercent / 100;
-
-  const mainRunnerChannel = CHANNEL_TYPES_LOCAL.find(c => c.value === "main-runner")!;
-  const crossTeeChannel = CHANNEL_TYPES_LOCAL.find(c => c.value === "cross-tee")!;
-  const wallAngleChannel = CHANNEL_TYPES_LOCAL.find(c => c.value === "wall-angle")!;
-  const suspensionChannel = CHANNEL_TYPES_LOCAL.find(c => c.value === "suspension")!;
-  const furringChannel = CHANNEL_TYPES_LOCAL.find(c => c.value === "furring")!;
-  const ceilingTrackChannel = CHANNEL_TYPES_LOCAL.find(c => c.value === "ceiling-track")!;
-
-  const mainRunnerSpacing = mainRunnerChannel.coveragePerUnit;
-  const mainRunnerRows = Math.ceil(width / mainRunnerSpacing);
-  const mainRunnerLength = mainRunnerRows * length * wastageFactor;
-
-  const crossTeeSpacing = crossTeeChannel.coveragePerUnit;
-  const crossTeesPerRow = Math.ceil(length / crossTeeSpacing);
-  const crossTeeLength = crossTeesPerRow * mainRunnerRows * width * wastageFactor / mainRunnerRows;
-
-  const wallAngleLength = perimeter * wastageFactor;
-
-  const suspensionPoints = Math.ceil(area / suspensionChannel.coveragePerUnit);
-  const avgDropHeight = 0.5;
-  const suspensionLength = suspensionPoints * avgDropHeight * wastageFactor;
-
-  const furringSpacing = furringChannel.coveragePerUnit;
-  const furringRows = Math.ceil(width / furringSpacing);
-  const furringLength = furringRows * length * wastageFactor;
-
-  const ceilingTrackLength = perimeter * wastageFactor;
-
-  let panelCount = 0;
-  const tileArea = gridSpacing === "2x4" ? 8 : 4;
-  if (ceilingType === "grid-ceiling") {
-    panelCount = Math.ceil((area / tileArea) * wastageFactor);
-  } else {
-    const boardArea = 24;
-    panelCount = Math.ceil((area / boardArea) * wastageFactor);
-  }
-
-  const hangerCount = Math.ceil(area / 16) * wastageFactor;
-
-  const screwsPerSqft = 4;
-  const screwsPerBox = 500;
-  const screwBoxes = Math.ceil((area * screwsPerSqft) / screwsPerBox);
-
-  const jointTapeRolls = Math.ceil(area / 200);
-  const jointCompoundBags = Math.ceil(area / 100);
-
-  return {
-    area,
-    perimeter,
-    mainRunnerLength,
-    crossTeeLength,
-    wallAngleLength,
-    suspensionLength,
-    furringLength,
-    ceilingTrackLength,
-    panelCount,
-    hangerCount,
-    screwBoxes,
-    jointTapeRolls,
-    jointCompoundBags,
-  };
-};
-
-// ----- end ceiling helpers -----
-
-// Ceiling types and required materials
-const CEILING_TYPES = {
-  gypsum: {
-    label: "Gypsum Board Ceiling",
-    materials: ["GYPSUM-001", "METAL-001", "HANGER-001", "COMPOUND-001"],
-  },
-  pop: {
-    label: "POP Ceiling",
-    materials: ["POP-001", "METAL-001", "HANGER-001", "COMPOUND-001"],
-  },
-  metal: {
-    label: "Metal Suspended Ceiling",
-    materials: ["METAL-002", "HANGER-001", "SCREWS-001"],
-  },
-};
+/* ================= COMPONENT ================= */
 
 export default function FalseCeilingEstimator() {
-  const { shops: storeShops, materials: storeMaterials } = useData();
+  const { materials: storeMaterials, shops: storeShops } = useData();
 
+  /* ===== STEPS ===== */
   const [step, setStep] = useState(1);
-  const [ceilingType, setCeilingType] = useState<keyof typeof CEILING_TYPES | null>(null);
+
+  /* ===== DIMENSIONS ===== */
   const [length, setLength] = useState<number | null>(null);
   const [width, setWidth] = useState<number | null>(null);
-  const [dropHeight, setDropHeight] = useState<number | null>(0.5);
-  const [selectedMaterials, setSelectedMaterials] = useState<SelectedMaterialConfig[]>([]);
+  const [dropHeight, setDropHeight] = useState<number>(0.5);
+  const [ceilingType, setCeilingType] = useState<string | null>(null);
 
-  const getCurrentCeilingConfig = () => ceilingType ? CEILING_TYPES[ceilingType] : null;
+  /* ===== MATERIAL SELECTION ===== */
+  const [selectedMaterials, setSelectedMaterials] = useState<
+    SelectedMaterialConfig[]
+  >([]);
 
-  const getAvailableMaterials = (): MaterialWithQuantity[] => {
-    const ceilingConfig = getCurrentCeilingConfig();
-    if (!ceilingConfig) return [];
-    return ceilingConfig.materials.map((code) => {
-      const mat = storeMaterials.find((m) => m.code === code);
-      if (!mat) return { id: code, name: code, quantity: 0, unit: "-", available: false };
+  const [editableMaterials, setEditableMaterials] = useState<
+    Record<string, { quantity?: number; rate?: number }>
+  >({});
 
-      const qty = calculateQuantity(mat.code, mat.unit);
-      const bestShop = getBestShop(mat.code);
-      return {
-        id: mat.id,
-        name: mat.name,
-        quantity: qty,
-        unit: mat.unit,
-        rate: bestShop?.rate,
-        shopName: bestShop?.shopName,
-        available: true,
-      };
-    });
-  };
+  /* ===== FINAL BOQ INPUTS ===== */
+  const [finalBillNo, setFinalBillNo] = useState("");
+  const [finalBillDate, setFinalBillDate] = useState("");
+  const [finalDueDate, setFinalDueDate] = useState("");
+  const [finalCustomerName, setFinalCustomerName] = useState("");
+  const [finalCustomerAddress, setFinalCustomerAddress] = useState("");
+  const [finalTerms, setFinalTerms] = useState("");
+  const [finalShopDetails, setFinalShopDetails] = useState("");
 
-  // Auto-select available materials on Step 3
-  useEffect(() => {
-    if (step === 3) {
-      const availableMats = getAvailableMaterials().filter((m) => m.available);
-      setSelectedMaterials(availableMats.map((m) => ({ materialId: m.id, selectedShopId: m.shopName ? storeShops.find(s => s.name === m.shopName)?.id : undefined })));
-    }
-  }, [step, ceilingType, length, width]);
+  /* ================= HELPERS ================= */
 
-  const getBestShop = (materialCode: string) => {
-    const mats = storeMaterials.filter((m) => m.code === materialCode);
-    if (!mats.length) return null;
-    const best = mats.reduce((prev, curr) => curr.rate < prev.rate ? curr : prev, mats[0]);
-    const shop = storeShops.find((s) => s.id === best.shopId);
-    return { shopId: best.shopId, shopName: shop?.name || "Unknown", rate: best.rate };
-  };
-
-  const calculateQuantity = (code: string, unit: string) => {
-    const l = length || 0;
-    const w = width || 0;
-    const area = l * w;
+  const calculateQuantity = (code: string) => {
+    const area = (length || 0) * (width || 0);
     switch (code) {
       case "GYPSUM-001":
-      case "POP-001": return Math.ceil(area / 48); // 4x12 ft board
+        return Math.ceil(area / 48);
       case "METAL-001":
-      case "METAL-002": return Math.ceil((l + w) * 2);
-      case "HANGER-001": return Math.ceil(area / 10);
-      case "COMPOUND-001": return Math.ceil(area / 100);
-      case "SCREWS-001": return Math.ceil(area / 5);
-      default: return 1;
+        return Math.ceil(area / 10);
+      case "HANGER-001":
+        return Math.ceil(area / 8);
+      default:
+        return Math.ceil(area / 10);
     }
   };
 
-  const handleToggleMaterial = (materialId: string) => {
-    const exists = selectedMaterials.find((m) => m.materialId === materialId);
-    if (exists) setSelectedMaterials((prev) => prev.filter((m) => m.materialId !== materialId));
-    else setSelectedMaterials((prev) => [...prev, { materialId }]);
-  };
-
-  const handleChangeShop = (materialId: string, shopId: string) => {
-    setSelectedMaterials((prev) =>
-      prev.map((m) => (m.materialId === materialId ? { ...m, selectedShopId: shopId } : m))
+  const getAvailableMaterials = () =>
+    storeMaterials.filter((m) =>
+      m.category?.toLowerCase().includes("ceiling")
     );
+
+  const getMaterialsWithDetails = (): MaterialWithQuantity[] =>
+    selectedMaterials
+      .map((sel) => {
+        const base = storeMaterials.find(
+          (m) => m.id === sel.materialId
+        );
+        if (!base) return null;
+
+        const shopMat = storeMaterials.find(
+          (m) =>
+            m.code === base.code &&
+            m.shopId === sel.selectedShopId
+        );
+
+        const shop = storeShops.find(
+          (s) => s.id === sel.selectedShopId
+        );
+
+        return {
+          id: base.id,
+          name: base.name,
+          unit: base.unit,
+          code: base.code,
+          quantity: calculateQuantity(base.code),
+          rate: shopMat?.rate || base.rate,
+          shopName: shop?.name || "Unknown",
+          shopId: sel.selectedShopId || "",
+        };
+      })
+      .filter(Boolean) as MaterialWithQuantity[];
+
+  /* ================= TOTALS ================= */
+
+  const subTotal = getMaterialsWithDetails().reduce((s, m) => {
+    const q = editableMaterials[m.id]?.quantity ?? m.quantity;
+    const r = editableMaterials[m.id]?.rate ?? m.rate;
+    return s + q * r;
+  }, 0);
+
+  const cgst = subTotal * 0.09;
+  const sgst = subTotal * 0.09;
+  const roundOff =
+    Math.round(subTotal + cgst + sgst) -
+    (subTotal + cgst + sgst);
+  const grandTotal = subTotal + cgst + sgst + roundOff;
+
+  const materials = getMaterialsWithDetails();
+
+  /* ================= EFFECT ================= */
+
+  useEffect(() => {
+    if (step === 9) {
+      const first = getMaterialsWithDetails()[0];
+      const shop = storeShops.find(
+        (s) => s.id === first?.shopId
+      );
+      if (shop) {
+        setFinalShopDetails(
+          `${shop.name}\n${shop.address || ""}\nGSTIN: ${
+            shop.gstin || "N/A"
+          }`
+        );
+      }
+    }
+  }, [step]);
+
+  const handleExportFinalBOQ = async () => {
+    const element = document.getElementById("boq-final-pdf");
+    if (!element) {
+      alert("Final BOQ content not found");
+      return;
+    }
+    const html2pdf = (await import("html2pdf.js")).default;
+    html2pdf()
+      .set({
+        margin: 10,
+        filename: `BOQ-FalseCeiling-${finalBillNo || new Date().getTime()}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, allowTaint: true, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      })
+      .from(element)
+      .save();
   };
 
-  const getMaterialsWithDetails = () => {
-    const mats = getAvailableMaterials();
-    return selectedMaterials.map((sel) => {
-      const mat = mats.find((m) => m.id === sel.materialId || m.id === sel.materialId);
-      if (!mat) return null;
-      return { ...mat, shopName: sel.selectedShopId ? storeShops.find((s) => s.id === sel.selectedShopId)?.name : mat.shopName };
-    }).filter((m): m is MaterialWithQuantity => m !== null);
-  };
-
-  const calculateTotalCost = () => getMaterialsWithDetails().reduce((sum, m) => m.rate ? sum + m.quantity * m.rate : sum, 0);
-
-  const handleExportBOQ = () => {
-    const materials = getMaterialsWithDetails();
-    const csvLines = [
-      "BILL OF QUANTITIES (FALSE CEILING)",
-      `Generated: ${new Date().toLocaleString()}`,
-      `Ceiling Type: ${getCurrentCeilingConfig()?.label}`,
-      `Dimensions: ${length}ft × ${width}ft, Drop Height: ${dropHeight}ft`,
-      "",
-      "MATERIALS SCHEDULE",
-      "S.No,Item,Unit,Quantity,Unit Rate,Shop,Total",
-    ];
-    materials.forEach((mat, idx) => {
-      const total = mat.rate ? mat.quantity * mat.rate : 0;
-      csvLines.push(`${idx + 1},"${mat.name}","${mat.unit}",${mat.quantity},${mat.rate || 0},"${mat.shopName || "-"}",${total}`);
-    });
-    csvLines.push("", `TOTAL COST,,,,,${calculateTotalCost().toFixed(2)}`);
-    const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `BOQ-FalseCeiling-${new Date().getTime()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  /* ================= RENDER ================= */
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">False Ceiling Estimator</h2>
-          <p className="text-muted-foreground mt-1">Generate BOQ for false ceilings using real construction calculations.</p>
-        </div>
+      <div className="max-w-6xl mx-auto p-4 space-y-6">
+        <h2 className="text-3xl font-bold">
+          False Ceiling Estimator
+        </h2>
 
-        <Card className="border-border/50">
-          <CardContent className="pt-8 min-h-96">
+        <Card>
+          <CardContent className="pt-8">
             <AnimatePresence mode="wait">
 
-              {/* STEP 1: Ceiling Type */}
+              {/* ================= STEP 1 ================= */}
               {step === 1 && (
-                <motion.div key="step1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                  <Label className="text-lg font-semibold">Select Ceiling Type</Label>
-                  <div className="grid gap-3">
-                    {Object.entries(CEILING_TYPES).map(([key, val]) => (
-                      <Button
-                        key={key}
-                        variant={ceilingType === key ? "default" : "outline"}
-                        onClick={() => { setCeilingType(key as any); setSelectedMaterials([]); }}
-                        className="justify-start h-auto py-4 text-left"
-                      >
-                        <div><div className="font-semibold">{val.label}</div></div>
-                      </Button>
-                    ))}
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <Label>Select Ceiling Type</Label>
+                  <div className="flex gap-4 mt-3">
+                    <Button variant={ceilingType === "GYPSUM" ? "default" : "outline"} onClick={() => setCeilingType("GYPSUM")}>Gypsum Ceiling</Button>
+                    <Button variant={ceilingType === "POP" ? "default" : "outline"} onClick={() => setCeilingType("POP")}>POP Ceiling</Button>
+                    <Button variant={ceilingType === "GRID" ? "default" : "outline"} onClick={() => setCeilingType("GRID")}>Grid Ceiling</Button>
                   </div>
-                  <div className="flex justify-end gap-2 pt-6">
-                    <Button disabled={!ceilingType} onClick={() => setStep(2)}>
-                      Next <ChevronRight className="ml-2 h-4 w-4" />
+                  <Button className="mt-6" onClick={() => setStep(2)}>Next</Button>
+                </motion.div>
+              )}
+
+              {/* ================= STEP 2 ================= */}
+              {step === 2 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="space-y-4"
+                >
+                  <Label>Select Materials</Label>
+
+                  {getAvailableMaterials().map((m) => {
+                    const selected = selectedMaterials.find(
+                      (s) => s.materialId === m.id
+                    );
+
+                    const shops = storeMaterials
+                      .filter((x) => x.code === m.code)
+                      .sort((a, b) => a.rate - b.rate);
+
+                    return (
+                      <div
+                        key={m.id}
+                        className="border p-3 rounded"
+                      >
+                        <Checkbox
+                          checked={!!selected}
+                          onCheckedChange={() => {
+                            if (selected) {
+                              setSelectedMaterials((p) =>
+                                p.filter(
+                                  (x) =>
+                                    x.materialId !== m.id
+                                )
+                              );
+                            } else {
+                              setSelectedMaterials((p) => [
+                                ...p,
+                                {
+                                  materialId: m.id,
+                                  selectedShopId:
+                                    shops[0]?.shopId,
+                                },
+                              ]);
+                            }
+                          }}
+                        />
+                        <span className="ml-2 font-medium">
+                          {m.name}
+                        </span>
+
+                        {selected && (
+                          <Select
+                            value={selected.selectedShopId}
+                            onValueChange={(v) =>
+                              setSelectedMaterials((p) =>
+                                p.map((x) =>
+                                  x.materialId === m.id
+                                    ? {
+                                        ...x,
+                                        selectedShopId: v,
+                                      }
+                                    : x
+                                )
+                              )
+                            }
+                          >
+                            <SelectTrigger className="mt-2">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {shops.map((s, i) => (
+                                <SelectItem
+                                  key={s.shopId}
+                                  value={s.shopId}
+                                >
+                                  {storeShops.find((sh) => sh.id === s.shopId)?.name} – ₹{s.rate} {i === 0 && "(Best)"}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <Button
+                    disabled={!selectedMaterials.length}
+                    onClick={() => setStep(4)}
+                  >
+                    Review Materials
+                  </Button>
+                </motion.div>
+              )}
+
+              {/* ================= STEP 4 – REVIEW & EDIT ================= */}
+              {step === 4 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="space-y-4"
+                >
+                  <h3 className="font-semibold">
+                    Review & Edit Materials
+                  </h3>
+
+                  <div className="grid grid-cols-7 font-semibold text-sm border-b pb-2">
+                    <div>S.No</div>
+                    <div>Item</div>
+                    <div>Unit</div>
+                    <div>Qty</div>
+                    <div>Rate</div>
+                    <div>Supplier</div>
+                    <div>Amount</div>
+                  </div>
+
+                  {getMaterialsWithDetails().map((m, i) => {
+                    const q =
+                      editableMaterials[m.id]?.quantity ??
+                      m.quantity;
+                    const r =
+                      editableMaterials[m.id]?.rate ?? m.rate;
+
+                    return (
+                      <div
+                        key={m.id}
+                        className="grid grid-cols-7 gap-2 items-center text-sm border-b py-2"
+                      >
+                        <div>{i + 1}</div>
+                        <div>{m.name}</div>
+                        <div>{m.unit}</div>
+                        <Input
+                          type="number"
+                          value={q}
+                          onChange={(e) =>
+                            setEditableMaterials((p) => ({
+                              ...p,
+                              [m.id]: {
+                                ...p[m.id],
+                                quantity: Number(
+                                  e.target.value
+                                ),
+                              },
+                            }))
+                          }
+                        />
+                        <Input
+                          type="number"
+                          value={r}
+                          onChange={(e) =>
+                            setEditableMaterials((p) => ({
+                              ...p,
+                              [m.id]: {
+                                ...p[m.id],
+                                rate: Number(
+                                  e.target.value
+                                ),
+                              },
+                            }))
+                          }
+                        />
+                        <div>{m.shopName}</div>
+                        <div className="font-bold text-right">
+                          ₹{(q * r).toFixed(2)}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="flex justify-between pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => setStep(2)}
+                    >
+                      Back
+                    </Button>
+                    <Button onClick={() => setStep(8)}>
+                      Generate BOM
                     </Button>
                   </div>
                 </motion.div>
               )}
 
-              {/* STEP 2: Dimensions */}
-              {step === 2 && ceilingType && (
-                <motion.div key="step2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                  <Label className="text-lg font-semibold">Enter Dimensions (ft)</Label>
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="space-y-2"><Label>Length</Label><Input type="number" value={length || ""} onChange={(e) => setLength(parseFloat(e.target.value) || null)} /></div>
-                    <div className="space-y-2"><Label>Width</Label><Input type="number" value={width || ""} onChange={(e) => setWidth(parseFloat(e.target.value) || null)} /></div>
-                    <div className="space-y-2"><Label>Drop Height</Label><Input type="number" value={dropHeight || ""} onChange={(e) => setDropHeight(parseFloat(e.target.value) || null)} /></div>
+              {/* ================= STEP 8 – BOM ================= */}
+              {step === 8 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="space-y-6"
+                >
+                  <div className="text-center">
+                    <CheckCircle2 className="mx-auto text-green-500" size={40} />
+                    <h2 className="text-xl font-bold">
+                      Bill of Materials (BOM)
+                    </h2>
                   </div>
-                  <div className="flex justify-between gap-2 pt-6">
-                    <Button variant="outline" onClick={() => setStep(1)}><ChevronLeft className="mr-2 h-4 w-4" /> Back</Button>
-                    <Button disabled={!length || !width} onClick={() => setStep(3)}>Next <ChevronRight className="ml-2 h-4 w-4" /></Button>
+
+                  <table className="w-full border text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        {[
+                          "S.No",
+                          "Item",
+                          "Unit",
+                          "Qty",
+                          "Rate",
+                          "Supplier",
+                          "Amount",
+                        ].map((h) => (
+                          <th key={h} className="border p-2">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getMaterialsWithDetails().map((m, i) => {
+                        const q =
+                          editableMaterials[m.id]?.quantity ??
+                          m.quantity;
+                        const r =
+                          editableMaterials[m.id]?.rate ??
+                          m.rate;
+                        return (
+                          <tr key={m.id}>
+                            <td className="border p-2">{i + 1}</td>
+                            <td className="border p-2">{m.name}</td>
+                            <td className="border p-2">{m.unit}</td>
+                            <td className="border p-2">{q}</td>
+                            <td className="border p-2">{r}</td>
+                            <td className="border p-2">{m.shopName}</td>
+                            <td className="border p-2 font-bold text-right">
+                              ₹{(q * r).toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setStep(4)}>
+                      Back
+                    </Button>
+                    <Button onClick={() => setStep(9)}>
+                      Finalize BOQ
+                    </Button>
                   </div>
                 </motion.div>
               )}
 
-              {/* STEP 3: Material Selection */}
-              {step === 3 && (
-                <motion.div key="step3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                  <Label className="text-lg font-semibold">Select Materials</Label>
-                  <p className="text-sm text-muted-foreground mb-4">Available materials are auto-selected. Missing items are highlighted.</p>
-                  <div className="space-y-3 max-h-64 overflow-y-auto border rounded-lg p-4">
-                    {getAvailableMaterials().map((mat) => {
-                      const isSelected = selectedMaterials.some((m) => m.materialId === mat.id);
-                      const currentSelection = selectedMaterials.find((m) => m.materialId === mat.id);
-                      const availableShops = storeMaterials
-                        .filter((m) => m.code === mat.id)
-                        .map((m) => ({ shopId: m.shopId, shopName: storeShops.find((s) => s.id === m.shopId)?.name || "Unknown", rate: m.rate }))
-                        .sort((a, b) => a.rate - b.rate);
+              {/* ================= STEP 9 – FINAL BOQ ================= */}
+              {step === 9 && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
 
-                      return (
-                        <div key={mat.id} className={`border rounded-lg p-3 ${!mat.available ? "bg-red-50" : "hover:bg-muted/50"} transition`}>
-                          <div className="flex items-start gap-3">
-                            <Checkbox
-                              id={mat.id}
-                              disabled={!mat.available}
-                              checked={isSelected}
-                              onCheckedChange={() => handleToggleMaterial(mat.id)}
-                            />
-                            <div className="flex-1">
-                              <label htmlFor={mat.id} className="font-medium cursor-pointer">
-                                {mat.name} {!mat.available && "(Required but not available)"}
-                              </label>
-                              <p className="text-xs text-muted-foreground">{mat.unit}</p>
+    {/* ================= MANUAL INPUTS ================= */}
+    <div className="grid grid-cols-3 gap-4">
+      <div>
+        <Label>Bill No</Label>
+        <Input
+          value={finalBillNo}
+          onChange={(e) => setFinalBillNo(e.target.value)}
+        />
+      </div>
 
-                              {isSelected && mat.available && availableShops.length > 0 && (
-                                <div className="mt-3 space-y-2">
-                                  <Label className="text-xs">Select Shop:</Label>
-                                  <Select
-                                    value={currentSelection?.selectedShopId || availableShops[0].shopId}
-                                    onValueChange={(shopId) => handleChangeShop(mat.id, shopId)}
-                                  >
-                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                      {availableShops.map((shop) => (
-                                        <SelectItem key={shop.shopId} value={shop.shopId}>
-                                          {shop.shopName} - ₹{shop.rate}/{mat.unit} {shop.rate === availableShops[0].rate && "(Best)"}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex justify-between gap-2 pt-6">
-                    <Button variant="outline" onClick={() => setStep(2)}><ChevronLeft className="mr-2 h-4 w-4" /> Back</Button>
-                    <Button disabled={selectedMaterials.length === 0} onClick={() => setStep(4)}>Generate BOQ <ChevronRight className="ml-2 h-4 w-4" /></Button>
-                  </div>
-                </motion.div>
-              )}
+      <div>
+        <Label>Bill Date</Label>
+        <Input
+          type="date"
+          value={finalBillDate}
+          onChange={(e) => setFinalBillDate(e.target.value)}
+        />
+      </div>
 
-              {/* STEP 4: BOQ Review */}
-              {step === 4 && (
-                <motion.div key="step4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-                  <div className="text-center space-y-2 mb-6">
-                    <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto text-green-500">
-                      <CheckCircle2 className="h-8 w-8" />
-                    </div>
-                    <h3 className="text-2xl font-bold">Bill of Quantities</h3>
-                  </div>
+      <div>
+        <Label>Due Date</Label>
+        <Input
+          type="date"
+          value={finalDueDate}
+          onChange={(e) => setFinalDueDate(e.target.value)}
+        />
+      </div>
+    </div>
 
-                  <div className="space-y-4">
-                    {getMaterialsWithDetails().map((mat, idx) => (
-                      <div key={mat.id} className="grid grid-cols-12 gap-2 text-xs p-2 bg-muted/30 rounded">
-                        <div className="col-span-3 font-medium">{mat.name}</div>
-                        <div className="col-span-2 text-right font-bold text-primary">{mat.quantity}</div>
-                        <div className="col-span-1 text-right text-muted-foreground">{mat.unit}</div>
-                        <div className="col-span-1 text-right text-muted-foreground">₹{mat.rate || "-"}</div>
-                        <div className="col-span-3 text-right font-semibold">{mat.shopName || "-"}</div>
-                        <div className="col-span-2 text-right font-semibold text-primary">{mat.rate ? (mat.quantity * mat.rate).toFixed(2) : "-"}</div>
-                      </div>
-                    ))}
-                  </div>
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <Label>Customer Name</Label>
+        <Input
+          value={finalCustomerName}
+          onChange={(e) => setFinalCustomerName(e.target.value)}
+        />
+      </div>
 
-                  <div className="flex justify-between pt-6">
-                    <Button variant="outline" onClick={() => setStep(3)}><ChevronLeft className="mr-2 h-4 w-4" /> Back</Button>
-                    <Button onClick={handleExportBOQ}><Download className="mr-2 h-4 w-4" /> Export BOQ</Button>
-                  </div>
-                </motion.div>
+      <div>
+        <Label>Customer Address</Label>
+        <Input
+          value={finalCustomerAddress}
+          onChange={(e) => setFinalCustomerAddress(e.target.value)}
+        />
+      </div>
+    </div>
+
+    <div>
+      <Label>Terms & Conditions</Label>
+      <Input
+        value={finalTerms}
+        onChange={(e) => setFinalTerms(e.target.value)}
+      />
+    </div>
+
+    {/* ================= PDF ================= */}
+    <div
+      id="boq-final-pdf"
+      style={{
+        width: "210mm",
+        minHeight: "297mm",
+        padding: "20mm",
+        background: "#fff",
+        color: "#000",
+        fontFamily: "Arial",
+        fontSize: 12
+      }}
+    >
+
+      {/* HEADER */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <img src={ctintLogo} alt="Concept Trunk Interiors" style={{ height: 60 }} />
+        <div style={{ textAlign: "right" }}>
+          <h2 style={{ margin: 0 }}>BILL</h2>
+          <div>Bill No: {finalBillNo}</div>
+        </div>
+      </div>
+
+      <hr style={{ margin: "10px 0" }} />
+
+      {/* COMPANY + META */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+
+        {/* LEFT */}
+        <div style={{ width: "55%", lineHeight: 1.5 }}>
+          <strong>Concept Trunk Interiors</strong><br />
+          12/36A, Indira Nagar<br />
+          Medavakkam<br />
+          Chennai – 600100<br />
+          GSTIN: 33ASOPS5560M1Z1
+
+          <br /><br />
+
+          <strong>Bill From</strong><br />
+          <pre style={{ margin: 0, fontFamily: "Arial", whiteSpace: "pre-wrap" }}>
+            {finalShopDetails}
+          </pre>
+        </div>
+
+        {/* RIGHT */}
+        <div style={{ width: "40%", lineHeight: "1.6" }}>
+          <div><strong>Bill Date</strong> : {finalBillDate}</div>
+          <div><strong>Due Date</strong> : {finalDueDate}</div>
+          <div style={{ marginTop: 6 }}>
+            <strong>Terms</strong> : {finalTerms}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <strong>Customer Name</strong> : {finalCustomerName}
+          </div>
+        </div>
+      </div>
+
+      {/* TABLE */}
+      <table style={{ width: "100%", marginTop: 20, borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            {["S.No", "Item", "Description", "HSN", "Qty", "Rate", "Supplier", "Customer", "Amount"].map(h => (
+              <th
+                key={h}
+                style={{
+                  border: "1px solid #000",
+                  padding: 6,
+                  background: "#000",
+                  color: "#fff",
+                  fontSize: 11
+                }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {materials.map((m, i) => (
+            <tr key={m.id}>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{i + 1}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{(m as any).description || "-"}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>7308</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.quantity}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.rate}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.shopName}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{finalCustomerName}</td>
+              <td style={{ border: "1px solid #000", padding: 6, textAlign: "right" }}>
+                {(m.quantity * m.rate).toFixed(2)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* TOTALS */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+        <table style={{ width: 300 }}>
+          <tbody>
+            <tr><td>Sub Total</td><td style={{ textAlign: "right" }}>{subTotal.toFixed(2)}</td></tr>
+            <tr><td>SGST 9%</td><td style={{ textAlign: "right" }}>{sgst.toFixed(2)}</td></tr>
+            <tr><td>CGST 9%</td><td style={{ textAlign: "right" }}>{cgst.toFixed(2)}</td></tr>
+            <tr><td>Round Off</td><td style={{ textAlign: "right" }}>{roundOff.toFixed(2)}</td></tr>
+            <tr><td><strong>Total</strong></td><td style={{ textAlign: "right" }}><strong>₹{grandTotal.toFixed(2)}</strong></td></tr>
+            <tr><td><strong>Balance Due</strong></td><td style={{ textAlign: "right" }}><strong>₹{grandTotal.toFixed(2)}</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* SIGNATURE */}
+      <div style={{ marginTop: 50 }}>
+        <div style={{ width: 200, borderTop: "1px solid #000" }} />
+        <div>Authorized Signature</div>
+      </div>
+    </div>
+
+    <div className="flex justify-end gap-2">
+      <Button onClick={() => setStep(8)} variant="outline">Back</Button>
+      <Button onClick={handleExportFinalBOQ}>Export PDF</Button>
+    </div>
+
+  </motion.div>
               )}
 
             </AnimatePresence>

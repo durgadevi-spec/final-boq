@@ -59,7 +59,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } catch (e) { console.warn('load shops failed', e); }
       try {
         const m = await getJSON('/materials');
-        if (mounted && m?.materials) setMaterials(m.materials);
+        if (mounted && m?.materials) {
+          // normalize server material keys (snake_case) to client camelCase
+          const normalize = (mat: any) => ({
+            id: mat.id,
+            name: mat.name,
+            code: mat.code,
+            rate: mat.rate,
+            shopId: mat.shop_id || mat.shopId || null,
+            unit: mat.unit,
+            category: mat.category,
+            brandName: mat.brandname || mat.brandName || "",
+            modelNumber: mat.modelnumber || mat.modelNumber || "",
+            subCategory: mat.subcategory || mat.subCategory || "",
+            technicalSpecification: mat.technicalspecification || mat.technicalSpecification || "",
+            image: mat.image,
+            attributes: mat.attributes || {},
+            disabled: mat.disabled || false,
+          });
+          setMaterials(m.materials.map(normalize));
+        }
       } catch (e) { console.warn('load materials failed', e); }
       // load server-side pending approval lists into central state
       try {
@@ -171,7 +190,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const addMaterial = async (mat: Partial<Material>) => {
     const data = await postJSON('/materials', mat);
     if (data?.material) {
-      setMaterials((p) => [data.material, ...p]);
+      // normalize server material
+      const matSrv = data.material;
+      const normalized = {
+        id: matSrv.id,
+        name: matSrv.name,
+        code: matSrv.code,
+        rate: matSrv.rate,
+        shopId: matSrv.shop_id || matSrv.shopId || null,
+        unit: matSrv.unit,
+        category: matSrv.category,
+        brandName: matSrv.brandname || matSrv.brandName || "",
+        modelNumber: matSrv.modelnumber || matSrv.modelNumber || "",
+        subCategory: matSrv.subcategory || matSrv.subCategory || "",
+        technicalSpecification: matSrv.technicalspecification || matSrv.technicalSpecification || "",
+        image: matSrv.image,
+        attributes: matSrv.attributes || {},
+        disabled: matSrv.disabled || false,
+      } as Material;
+      setMaterials((p) => [normalized, ...p]);
       return data.material;
     }
     throw new Error('addMaterial: server did not return created material');

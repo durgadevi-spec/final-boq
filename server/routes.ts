@@ -468,10 +468,9 @@ export async function registerRoutes(
   // GET /api/material-categories - List categories created by admin/software_team/purchase_team
   app.get('/api/material-categories', async (_req, res) => {
     try {
-      // Return only categories created by admin, software_team, or purchase_team
+      // Return all categories (including seeded ones)
       const result = await query(`
         SELECT DISTINCT name FROM material_categories
-        WHERE created_by IS NOT NULL
         ORDER BY name ASC
       `);
       const categories = result.rows.map(row => row.name).filter(Boolean);
@@ -486,10 +485,10 @@ export async function registerRoutes(
   app.get('/api/material-subcategories/:category', async (req: Request, res: Response) => {
     try {
       const { category } = req.params;
-      // Return only subcategories created by admin, software_team, or purchase_team
+      // Return all subcategories for a category (including seeded ones)
       const result = await query(`
         SELECT DISTINCT name FROM material_subcategories 
-        WHERE category = $1 AND created_by IS NOT NULL
+        WHERE category = $1
         ORDER BY name ASC
       `, [category]);
       const subcategories = result.rows.map(row => row.name).filter(Boolean);
@@ -575,6 +574,32 @@ export async function registerRoutes(
     }
   });
 
+  // DELETE /api/categories/:name - Delete a category and its subcategories (Admin/Software Team only)
+  app.delete('/api/categories/:name', authMiddleware, requireRole('admin', 'software_team'), async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name;
+      if (!name) return res.status(400).json({ message: 'category name required' });
+
+      // Delete subcategories for this category
+      await query('DELETE FROM material_subcategories WHERE category = $1', [name]);
+
+      // Optionally, remove any material_templates that reference this category
+      await query('DELETE FROM material_templates WHERE category = $1', [name]);
+
+      // Delete the category itself
+      const result = await query('DELETE FROM material_categories WHERE name = $1 RETURNING *', [name]);
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ message: 'Category not found' });
+      }
+
+      res.json({ message: 'Category deleted', category: result.rows[0] });
+    } catch (err) {
+      console.error('/api/categories/:name DELETE error', err);
+      res.status(500).json({ message: 'failed to delete category' });
+    }
+  });
+
   // GET /api/subcategories-admin - List all subcategories for admin (from DB)
   app.get('/api/subcategories-admin', async (_req, res) => {
     try {
@@ -616,6 +641,34 @@ export async function registerRoutes(
       } else {
         res.status(500).json({ message: 'failed to create material template' });
       }
+    }
+  });
+
+  // PUT /api/material-templates/:id - Update material template name (Admin/Software Team only)
+  app.put('/api/material-templates/:id', authMiddleware, requireRole('admin', 'software_team'), async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      const { name } = req.body;
+
+      if (!name || !name.trim()) {
+        res.status(400).json({ message: 'Material name is required' });
+        return;
+      }
+
+      const result = await query(
+        `UPDATE material_templates SET name = $1 WHERE id = $2 RETURNING *`,
+        [name.trim(), id]
+      );
+
+      if (result.rowCount === 0) {
+        res.status(404).json({ message: 'Template not found' });
+        return;
+      }
+
+      res.json({ template: result.rows[0] });
+    } catch (err: any) {
+      console.error('/api/material-templates/:id PUT error', err);
+      res.status(500).json({ message: 'failed to update material template' });
     }
   });
 
@@ -851,6 +904,23 @@ export async function registerRoutes(
     } catch (err) {
       console.error('/api/supplier/my-submissions error', err);
       res.status(500).json({ message: 'failed to get supplier submissions' });
+    }
+  });
+
+  // GET /api/supplier/my-shops - Get supplier's own shops (submitted and approved)
+  app.get('/api/supplier/my-shops', authMiddleware, requireRole('supplier'), async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user.id;
+
+      const result = await query(
+        `SELECT * FROM shops WHERE owner_id = $1 ORDER BY created_at DESC`,
+        [userId]
+      );
+
+      res.json({ shops: result.rows || [] });
+    } catch (err) {
+      console.error('/api/supplier/my-shops error', err);
+      res.status(500).json({ message: 'failed to get supplier shops' });
     }
   });
 

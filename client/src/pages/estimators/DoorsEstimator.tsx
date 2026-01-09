@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +23,8 @@ import {
 } from "@/lib/estimators/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, ChevronLeft, Download, CheckCircle2, Star } from "lucide-react";
+
+const ctintLogo = "/image.png";
 
 interface MaterialWithQuantity {
   id: string;
@@ -142,7 +144,7 @@ export const computeDoorRequired = (
 
 export type DoorTypeLocal = "flush-door" | "wpc-door" | "glass-door" | "wooden-door" | "stile-door";
 
-export const STANDARD_DOOR_SIZES_LOCAL = [
+ const STANDARD_DOOR_SIZES_LOCAL = [
   { label: "6'6\" x 2'6\" (Standard)", width: 2.5, height: 6.5 },
   { label: "7' x 3' (Common)", width: 3, height: 7 },
   { label: "7' x 3'6\" (Wide)", width: 3.5, height: 7 },
@@ -187,6 +189,15 @@ const DOOR_CONFIG = {
         requiresGlazing: false,
         materialRequirements: [
           { code: "DOOR-004", label: "UPVC Door" },
+          { code: "DOOR-001", label: "Door Frame" },
+          { code: "DOOR-005", label: "Door Hinges (SS)" },
+        ],
+      },
+      stile: {
+        label: "Stile Door",
+        requiresGlazing: true,
+        materialRequirements: [
+          { code: "GLASS-001", label: "Clear Tempered Glass" },
           { code: "DOOR-001", label: "Door Frame" },
           { code: "DOOR-005", label: "Door Hinges (SS)" },
         ],
@@ -259,34 +270,80 @@ export default function DoorsEstimator() {
     wpc: ["Solid Core", "Hollow Core"],
     glassdoor: ["Frameless", "Framed"],
     glasspanel: ["Frameless", "Framed"],
+    stile: ["Single Glazing", "Double Glazing"],
   };
 
   const VISION_PANEL_OPTIONS_LOCAL = ["Single Glass", "Double Glass"];
+
+  const DOOR_TYPES_LOCAL = [
+    { value: "flush", label: "Flush Doors" },
+    { value: "wpc", label: "WPC Doors" },
+    { value: "glassdoor", label: "Glass Door" },
+    { value: "teak", label: "Wooden Door" },
+    { value: "stile", label: "Stile Door" },
+  ];
 
   // Get materials for the selected door type (deduplicated by code)
   const getAvailableMaterials = () => {
     const doorConfig = getCurrentDoorConfig();
     if (!doorConfig) return [];
-
     const requiredCodes = doorConfig.materialRequirements.map((r) => r.code);
-    const allMaterials = storeMaterials.filter((m) => requiredCodes.includes(m.code));
+    const normalize = (c: string | undefined) => (c || "").toString().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const requiredNorm = requiredCodes.map(normalize);
+    const allMaterials = storeMaterials.filter((m) => requiredNorm.includes(normalize(m.code)));
     
     // Deduplicate by code - keep only one instance per material code (cheapest option)
     const uniqueMaterialsMap = new Map<string, typeof allMaterials[0]>();
     
     for (const material of allMaterials) {
-      const existing = uniqueMaterialsMap.get(material.code);
+      const codeKey = normalize(material.code);
+      const existing = uniqueMaterialsMap.get(codeKey);
       if (!existing || material.rate < existing.rate) {
-        uniqueMaterialsMap.set(material.code, material);
+        uniqueMaterialsMap.set(codeKey, material);
       }
     }
     
-    return Array.from(uniqueMaterialsMap.values());
+    const result = Array.from(uniqueMaterialsMap.values());
+    if (result.length > 0) return result;
+
+    // fallback
+    return getAvailableMaterialsFallback();
+  };
+
+  // If no materials matched DOOR codes, fallback to category/name-based selection
+  // to include all materials that belong to doors-related categories or names.
+  const getAvailableMaterialsFallback = () => {
+    const keywords = ["DOOR", "DOOR PANEL", "FRAME", "GLASS", "HINGE", "LOCK", "HARDWARE"];
+    const normalizeText = (s: string | undefined) => (s || "").toString().toUpperCase();
+
+    // pick materials whose category/subCategory/name contain keywords
+    const candidates = storeMaterials.filter((m) => {
+      const cat = normalizeText(m.category);
+      const sub = normalizeText(m.subCategory as string);
+      const name = normalizeText(m.name);
+      const code = normalizeText(m.code);
+      return (
+        keywords.some((kw) => cat.includes(kw) || sub.includes(kw) || name.includes(kw) || code.includes(kw))
+      );
+    });
+
+    // Deduplicate by code if present, otherwise by name
+    const map = new Map<string, typeof candidates[0]>();
+    for (const mat of candidates) {
+      const key = (mat.code && mat.code.trim()) ? mat.code.trim().toUpperCase() : mat.name.trim().toUpperCase();
+      const existing = map.get(key);
+      if (!existing || (mat.rate || 0) < (existing.rate || 0)) {
+        map.set(key, mat);
+      }
+    }
+    return Array.from(map.values());
   };
 
   // Find best (cheapest) shop for each material
   const getBestShop = (materialCode: string): { shopId: string; shopName: string; rate: number } | null => {
-    const materialsByCode = storeMaterials.filter((m) => m.code === materialCode);
+    const normalize = (c: string | undefined) => (c || "").toString().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const target = normalize(materialCode);
+    const materialsByCode = storeMaterials.filter((m) => normalize(m.code) === target);
     if (materialsByCode.length === 0) return null;
 
     let bestOption = materialsByCode[0];
@@ -350,26 +407,27 @@ export default function DoorsEstimator() {
 
   // Get materials with quantities and shop info
   const getMaterialsWithDetails = (): MaterialWithQuantity[] => {
-    const doorConfig = getCurrentDoorConfig();
-    if (!doorConfig) return [];
-
-    const requiredCodes = doorConfig.materialRequirements.map((r) => r.code);
-    const materials = storeMaterials.filter((m) => requiredCodes.includes(m.code));
-
+    // Use availableMaterials which includes both code-matched and fallback materials
     return selectedMaterials
       .map((selection) => {
-        const material = materials.find((m) => m.id === selection.materialId);
+        // Find material from availableMaterials (already filtered for this door type)
+        const material = availableMaterials.find((m) => m.id === selection.materialId);
         if (!material) return null;
 
         const shop = storeShops.find((s) => s.id === selection.selectedShopId);
-        const quantity = calculateQuantity(material.code, material.unit);
+
+        // allow editable overrides
+        const override = editableMaterials[material.id];
+        const computedQty = calculateQuantity(material.code, material.unit);
+        const quantity = override?.quantity ?? computedQty;
+        const rate = override?.rate ?? material.rate ?? 0;
 
         return {
           id: material.id,
           name: material.name,
           quantity,
-          unit: material.unit,
-          rate: material.rate,
+          unit: material.unit, 
+          rate,
           shopId: selection.selectedShopId,
           shopName: shop?.name || "Unknown",
         };
@@ -380,6 +438,66 @@ export default function DoorsEstimator() {
   const calculateTotalCost = (): number => {
     return getMaterialsWithDetails().reduce((sum, m) => sum + m.quantity * m.rate, 0);
   };
+
+  // materials available for current door (used in Step 6 render)
+  const availableMaterials = getAvailableMaterials();
+
+  // Editable materials for Step 7 (allow user to tweak qty/rate before BOQ)
+  const [editableMaterials, setEditableMaterials] = useState<Record<string, { quantity: number; rate: number }>>({});
+
+  // Final BOQ manual fields (Step 9)
+  const [finalCompanyName, setFinalCompanyName] = useState<string>("Concept Trunk Interiors");
+  const [finalCompanyAddress, setFinalCompanyAddress] = useState<string>(
+    "12/36A, Indira Nagar\nMedavakkam\nChennai Tamil Nadu 600100\nIndia"
+  );
+  const [finalCompanyGST, setFinalCompanyGST] = useState<string>("33ASOPS5560M1Z1");
+
+  const [finalBillNo, setFinalBillNo] = useState<string>("");
+  const [finalBillDate, setFinalBillDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [finalDueDate, setFinalDueDate] = useState<string>("");
+  const [finalTerms, setFinalTerms] = useState<string>("50% Advance and 50% on Completion");
+  const [finalCustomerName, setFinalCustomerName] = useState<string>("");
+  const [finalCustomerAddress, setFinalCustomerAddress] = useState<string>("");
+
+  const [finalShopDetails, setFinalShopDetails] = useState<string>("");
+
+  // Initialize editable materials when entering Step 7
+  useEffect(() => {
+    if (step === 7) {
+      const details = getMaterialsWithDetails();
+      const map: Record<string, { quantity: number; rate: number }> = {};
+      details.forEach((d) => {
+        map[d.id] = { quantity: d.quantity || 0, rate: d.rate || 0 };
+      });
+      setEditableMaterials(map);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedMaterials]);
+
+  // Prefill final shop/company details when opening final BOQ step
+  useEffect(() => {
+    if (step === 9) {
+      const details = getMaterialsWithDetails();
+      if (details.length > 0) {
+        const firstShopId = details[0].shopId;
+        const shop = storeShops.find((s) => s.id === firstShopId);
+        if (shop) {
+          const parts = [
+            shop.name || "",
+            shop.address || "",
+            shop.area || "",
+            shop.city || "",
+            shop.state || "",
+            shop.pincode || "",
+            shop.gstin ? `GSTIN: ${shop.gstin}` : "",
+            shop.phone ? `Ph: ${shop.phone}` : "",
+          ].filter(Boolean);
+          setFinalShopDetails(parts.join("\n"));
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedMaterials, storeShops]);
 
   const handleToggleMaterial = (materialId: string) => {
     const existingSelection = selectedMaterials.find((m) => m.materialId === materialId);
@@ -403,6 +521,19 @@ export default function DoorsEstimator() {
         m.materialId === materialId ? { ...m, selectedShopId: newShopId } : m
       )
     );
+  };
+  const setEditableQuantity = (materialId: string, quantity: number) => {
+    setEditableMaterials((prev) => ({
+      ...prev,
+      [materialId]: { ...(prev[materialId] || { rate: 0 }), quantity: Math.max(0, Math.ceil(quantity)) },
+    }));
+  };
+
+  const setEditableRate = (materialId: string, rate: number) => {
+    setEditableMaterials((prev) => ({
+      ...prev,
+      [materialId]: { ...(prev[materialId] || { quantity: 0 }), rate: Math.max(0, Number(rate)) },
+    }));
   };
 const handleExportPDF = async () => {
   const element = document.getElementById("boq-pdf");
@@ -430,6 +561,33 @@ const handleExportPDF = async () => {
     .from(element)
     .save();
 };
+ 
+ const handleExportFinalBOQ = async () => {
+   const element = document.getElementById("boq-final-pdf");
+ 
+   if (!element) {
+     alert("Final BOQ content not found");
+     return;
+   }
+ 
+   const html2pdf = (await import("html2pdf.js")).default;
+ 
+   html2pdf()
+     .set({
+       margin: 10,
+       filename: `BOQ-${finalBillNo || new Date().getTime()}.pdf`,
+       image: { type: "jpeg", quality: 0.98 },
+       html2canvas: {
+         scale: 2,
+         useCORS: true,
+         allowTaint: true,
+         backgroundColor: "#ffffff",
+       },
+       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+     })
+     .from(element)
+     .save();
+ };
 
 
   const handleExportBOQ = () => {
@@ -466,6 +624,23 @@ const handleExportPDF = async () => {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+    // ===== FINAL BOQ DATA (USED IN STEP 9) =====
+  const materials = getMaterialsWithDetails();
+
+  const subTotal = materials.reduce(
+    (sum, m) => sum + m.quantity * m.rate,
+    0
+  );
+
+  const sgst = subTotal * 0.09;
+  const cgst = subTotal * 0.09;
+
+  const roundOff =
+    Math.round(subTotal + sgst + cgst) - (subTotal + sgst + cgst);
+
+  const grandTotal = subTotal + sgst + cgst + roundOff;
+
 
   return (
     <Layout>
@@ -519,93 +694,100 @@ const handleExportPDF = async () => {
                 </motion.div>
               )}
 
-              {/* STEP 2: Panel Type */}
+              {/* STEP 2: Door Type (flat list) */}
               {step === 2 && (
                 <motion.div
-                  key="step1"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="space-y-4"
-                >
-                  <Label className="text-lg font-semibold">Select Panel Type</Label>
-                  <div className="grid gap-3">
-                    <Button
-                      variant={panelType === "panel" ? "default" : "outline"}
-                      onClick={() => {
-                        setPanelType("panel");
-                        setDoorType(null);
-                      }}
-                      className="justify-start h-auto py-4 text-left"
-                    >
-                      <div>
-                        <div className="font-semibold">Door With Panel</div>
-                        <div className="text-xs text-muted-foreground">
-                          Flush, Teak Wood, WPC
-                        </div>
-                      </div>
-                    </Button>
-                    <Button
-                      variant={panelType === "nopanel" ? "default" : "outline"}
-                      onClick={() => {
-                        setPanelType("nopanel");
-                        setDoorType(null);
-                      }}
-                      className="justify-start h-auto py-4 text-left"
-                    >
-                      <div>
-                        <div className="font-semibold">Door Without Panel (Glass)</div>
-                        <div className="text-xs text-muted-foreground">
-                          Glass Door, Glass Panel Door
-                        </div>
-                      </div>
-                    </Button>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-6">
-                    <Button disabled={!panelType} onClick={() => setStep(3)}>
-                      Next <ChevronRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* STEP 3: Door Type */}
-              {step === 3 && (
-                <motion.div
-                  key="step2"
+                  key="step-door-types"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="space-y-4"
                 >
                   <Label className="text-lg font-semibold">Select Door Type</Label>
+                  <p className="text-sm text-gray-400">Frame: {frameChoice === "with-frame" ? "With Frame" : "Without Frame"}</p>
                   <div className="grid gap-3">
-                    {getAvailableDoorTypes().map((opt) => (
+                    {DOOR_TYPES_LOCAL.map((type) => (
                       <Button
-                        key={opt.value}
-                        variant={doorType === opt.value ? "default" : "outline"}
+                        key={type.value}
                         onClick={() => {
-                          setDoorType(opt.value);
+                          setDoorType(type.value);
+                          // ensure panelType aligns with selected type
+                          if (["glassdoor", "glasspanel"].includes(type.value)) setPanelType("nopanel");
+                          else setPanelType("panel");
                           setSubOption(null);
                           setVisionPanel(null);
                           setGlazingType(null);
                         }}
-                        className="justify-start h-auto py-3"
+                        className={`w-full text-black ${doorType === type.value ? "bg-cyan-500" : "bg-white"}`}
                       >
-                        {opt.label}
+                        {type.label}
                       </Button>
                     ))}
                   </div>
+                  <div className="flex gap-2 mt-4">
+                    <Button onClick={() => setStep(1)} className="bg-gray-500 text-black w-1/2">
+                      Back
+                    </Button>
+                    <Button
+                      onClick={() => setStep(3)}
+                      disabled={!doorType}
+                      className={`bg-cyan-500 text-black w-1/2 ${!doorType ? "opacity-50" : ""}`}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* STEP 3: Sub Option */}
+              {step === 3 && doorType && (
+                <motion.div
+                  key="step-suboption"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="space-y-4"
+                >
+                  <Label className="text-lg font-semibold">Select Sub Option:</Label>
+                  <div className="flex flex-col gap-2">
+                    {(DOOR_SUB_OPTIONS_LOCAL[doorType] || []).map((opt) => (
+                      <Button
+                        key={opt}
+                        onClick={() => {
+                          setSubOption(opt);
+                          setVisionPanel(null);
+                          if (doorType === "stile") setGlazingType(opt === "Double Glazing" ? "double" : "single");
+                        }}
+                        className={`w-full text-black ${subOption === opt ? "bg-cyan-500" : "bg-white"}`}
+                      >
+                        {opt}
+                      </Button>
+                    ))}
+                  </div>
+
+                  {doorType === "flush" && (
+                    <div className="mt-4">
+                      <p className="font-semibold text-white mb-2">Vision Panel Type:</p>
+                      <div className="flex flex-col gap-2">
+                        {VISION_PANEL_OPTIONS_LOCAL.map((opt) => (
+                          <Button
+                            key={opt}
+                            onClick={() => setVisionPanel(opt)}
+                            className={`w-full text-black ${visionPanel === opt ? "bg-cyan-500" : "bg-white"}`}
+                          >
+                            {opt}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex justify-between gap-2 pt-6">
                     <Button variant="outline" onClick={() => setStep(2)}>
                       <ChevronLeft className="mr-2 h-4 w-4" /> Back
                     </Button>
-                    <Button disabled={!doorType} onClick={() => {
-                      const config = getCurrentDoorConfig();
-                      if (config?.requiresGlazing) {
-                        setStep(4);
-                      } else {
-                        setStep(5);
-                      }
-                    }}>
+                    <Button
+                      onClick={() => setStep(5)}
+                      disabled={!subOption || (doorType === "flush" && subOption === "With Vision Panel" && !visionPanel)}
+                    >
                       Next <ChevronRight className="ml-2 h-4 w-4" />
                     </Button>
                   </div>
@@ -777,68 +959,65 @@ const handleExportPDF = async () => {
                   </p>
 
                   <div className="space-y-3 max-h-64 overflow-y-auto border rounded-lg p-4">
-                    {getAvailableMaterials().map((mat) => {
-                      const isSelected = selectedMaterials.some(
-                        (m) => m.materialId === mat.id
-                      );
-                      const currentSelection = selectedMaterials.find(
-                        (m) => m.materialId === mat.id
-                      );
-                      const availableShops = storeMaterials
-                        .filter((m) => m.code === mat.code)
-                        .map((m) => ({
-                          shopId: m.shopId,
-                          rate: m.rate,
-                          shopName:
-                            storeShops.find((s) => s.id === m.shopId)?.name || "Unknown",
-                        }))
-                        .sort((a, b) => a.rate - b.rate);
+                    {availableMaterials.length === 0 ? (
+                      (() => {
+                        const doorCfg = getCurrentDoorConfig();
+                        const requiredCodes = doorCfg?.materialRequirements.map((r) => r.code) || [];
+                        const sampleCodes = storeMaterials.slice(0, 8).map((m) => m.code || m.id);
+                        return (
+                          <div className="p-4 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded">
+                            <div className="font-medium mb-2">No materials found for this door type.</div>
+                            <div>Required codes: {requiredCodes.join(", ") || "(none)"}</div>
+                            <div>Materials in store: {storeMaterials.length}</div>
+                            <div className="mt-2 text-xs text-muted-foreground">Sample store codes: {sampleCodes.join(", ")}</div>
+                            <div className="mt-2">Tip: ensure material code values in the database match the DOOR codes (case-insensitive, alphanumeric).</div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      availableMaterials.map((mat) => {
+                        const isSelected = selectedMaterials.some((m) => m.materialId === mat.id);
+                        const currentSelection = selectedMaterials.find((m) => m.materialId === mat.id);
+                        const normalize = (c: string | undefined) => (c || "").toString().toUpperCase().replace(/[^A-Z0-9]/g, "");
+                        const availableShops = storeMaterials
+                          .filter((m) => normalize(m.code) === normalize(mat.code))
+                          .map((m) => ({
+                            shopId: m.shopId,
+                            rate: m.rate,
+                            shopName: storeShops.find((s) => s.id === m.shopId)?.name || "Unknown",
+                          }))
+                          .sort((a, b) => a.rate - b.rate);
 
-                      return (
-                        <div
-                          key={mat.id}
-                          className="border rounded-lg p-3 hover:bg-muted/50 transition"
-                        >
-                          <div className="flex items-start gap-3">
-                            <Checkbox
-                              id={mat.id}
-                              checked={isSelected}
-                              onCheckedChange={() => handleToggleMaterial(mat.id)}
-                            />
-                            <div className="flex-1">
-                              <label htmlFor={mat.id} className="font-medium cursor-pointer">
-                                {mat.name}
-                              </label>
-                              <p className="text-xs text-muted-foreground">{mat.code}</p>
+                        return (
+                          <div key={mat.id} className="border rounded-lg p-3 hover:bg-muted/50 transition">
+                            <div className="flex items-start gap-3">
+                              <Checkbox id={mat.id} checked={isSelected} onCheckedChange={() => handleToggleMaterial(mat.id)} />
+                              <div className="flex-1">
+                                <label htmlFor={mat.id} className="font-medium cursor-pointer">{mat.name}</label>
+                                <p className="text-xs text-muted-foreground">{mat.code}</p>
 
-                              {isSelected && availableShops.length > 0 && (
-                                <div className="mt-3 space-y-2">
-                                  <Label className="text-xs">Select Shop:</Label>
-                                  <Select
-                                    value={currentSelection?.selectedShopId || availableShops[0].shopId}
-                                    onValueChange={(newShopId) =>
-                                      handleChangeShop(mat.id, newShopId)
-                                    }
-                                  >
-                                    <SelectTrigger className="h-8 text-xs">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {availableShops.map((shop) => (
-                                        <SelectItem key={shop.shopId} value={shop.shopId}>
-                                          {shop.shopName} - ₹{shop.rate}/{mat.unit}
-                                          {shop.rate === availableShops[0].rate && " (Best)"}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              )}
+                                {isSelected && availableShops.length > 0 && (
+                                  <div className="mt-3 space-y-2">
+                                    <Label className="text-xs">Select Shop:</Label>
+                                    <Select value={currentSelection?.selectedShopId || availableShops[0].shopId} onValueChange={(newShopId) => handleChangeShop(mat.id, newShopId)}>
+                                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        {availableShops.map((shop) => (
+                                          <SelectItem key={shop.shopId} value={shop.shopId}>
+                                            {shop.shopName} - ₹{shop.rate}/{mat.unit}
+                                            {shop.rate === availableShops[0].rate && " (Best)"}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })
+                    )}
                   </div>
 
                     <div className="flex justify-between gap-2 pt-6">
@@ -859,116 +1038,47 @@ const handleExportPDF = async () => {
               {/* STEP 7: Required Materials Check */}
 {/* STEP 7: Required Materials Check */}
 {step === 7 && (
-  <motion.div
-    key="step6-required"
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    className="space-y-4"
-  >
-    <Label className="text-lg font-semibold">Review Required Materials</Label>
-    <p className="text-sm text-muted-foreground mb-4">
-      Ensure all required materials are selected with correct quantities.
-    </p>
+  <motion.div key="step6-selected" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <Label className="text-lg font-semibold">Selected Materials</Label>
+    <p className="text-sm text-muted-foreground mb-4">Edit quantities or rates before generating BOQ.</p>
 
     <div className="space-y-2">
-    {getCurrentDoorConfig()?.materialRequirements.map((req) => {
-  const selected = selectedMaterials.find(
-    (m) => storeMaterials.find(mat => mat.id === m.materialId)?.code === req.code
-  );
-
-  const requiredQty = calculateQuantity(req.code);
-
-  let shopName = "Unknown";
-  let rate = 0;
-  let unit = "";
-
-  if (selected) {
-    // ✅ ALWAYS resolve using selected.materialId
-    const selectedMaterial = storeMaterials.find(
-      (m) => m.id === selected.materialId
-    );
-
-    if (selectedMaterial) {
-      unit = selectedMaterial.unit;
-      rate = selectedMaterial.rate;
-      shopName =
-        storeShops.find((s) => s.id === selected.selectedShopId)?.name ||
-        "Unknown";
-    }
-  } else {
-    // fallback → best shop
-    const bestShop = getBestShop(req.code);
-    const material = storeMaterials.find((m) => m.code === req.code);
-
-    unit = material?.unit || "";
-    rate = bestShop?.rate || 0;
-    shopName = bestShop?.shopName || "Unknown";
-  }
-
-  return (
-    <div
-      key={req.code}
-      className={cn(
-        "p-3 border rounded grid grid-cols-6 items-center",
-        !selected && "bg-red-100 border-red-400"
-      )}
-    >
-      <span className="col-span-2 font-medium">{req.label}</span>
-
-      <span className="col-span-1 text-center">
-        {requiredQty} {unit}
-      </span>
-
-      <span className="col-span-1 text-center font-semibold">
-        {shopName}
-      </span>
-
-      <span className="col-span-1 text-center font-semibold">
-        ₹{rate}
-      </span>
-
-      {selected ? (
-        <span className="col-span-1 text-green-600 font-semibold text-center">
-          Selected
-        </span>
+      {getMaterialsWithDetails().length > 0 ? (
+        <>
+          <div className="grid grid-cols-7 gap-2 p-2 text-sm text-muted-foreground">
+            <div className="col-span-2 font-medium">Item</div>
+            <div className="text-center">Qty</div>
+            <div className="text-center">Unit</div>
+            <div className="text-center">Shop</div>
+            <div className="text-center">Rate (₹)</div>
+            <div className="text-right">Amount (₹)</div>
+          </div>
+          {getMaterialsWithDetails().map((mat) => (
+            <div key={mat.id} className={cn("p-3 border rounded grid grid-cols-7 items-center")}>
+              <span className="col-span-2 font-medium">{mat.name}</span>
+              <div className="col-span-1 text-center">
+                <Input type="number" value={editableMaterials[mat.id]?.quantity ?? mat.quantity} onChange={(e) => setEditableQuantity(mat.id, parseInt(e.target.value || "0", 10))} className="w-20 mx-auto" />
+              </div>
+              <span className="col-span-1 text-center text-muted-foreground">{mat.unit}</span>
+              <div className="col-span-1 text-center font-semibold">{mat.shopName || "-"}</div>
+              <div className="col-span-1 text-center">
+                <Input type="number" value={editableMaterials[mat.id]?.rate ?? mat.rate} onChange={(e) => setEditableRate(mat.id, parseFloat(e.target.value || "0"))} className="w-20 mx-auto" />
+              </div>
+              <div className="col-span-1 text-right font-semibold">₹{((editableMaterials[mat.id]?.quantity ?? mat.quantity) * (editableMaterials[mat.id]?.rate ?? mat.rate)).toFixed(2)}</div>
+            </div>
+          ))}
+        </>
       ) : (
-        <Button
-          size="sm"
-          className="col-span-1"
-          onClick={() => {
-            const material = storeMaterials.find((m) => m.code === req.code);
-            const bestShop = getBestShop(req.code);
-
-            if (material && bestShop) {
-              setSelectedMaterials((prev) => [
-                ...prev,
-                {
-                  materialId: material.id,
-                  selectedShopId: bestShop.shopId,
-                },
-              ]);
-            }
-          }}
-        >
-          Add
-        </Button>
+        <p className="text-center text-muted-foreground py-4">No materials selected</p>
       )}
-    </div>
-  );
-})}
-
-
     </div>
 
     <div className="flex justify-between gap-2 pt-6">
       <Button variant="outline" onClick={() => setStep(6)}>
         <ChevronLeft className="mr-2 h-4 w-4" /> Back
       </Button>
-      <Button
-        disabled={selectedMaterials.length === 0}
-        onClick={() => setStep(8)}
-      >
-         Generate BOQ  <ChevronRight className="ml-2 h-4 w-4" />
+      <Button onClick={() => setStep(8)} disabled={getMaterialsWithDetails().length === 0}>
+        Next: Generate BOM <ChevronRight className="ml-2 h-4 w-4" />
       </Button>
     </div>
   </motion.div>
@@ -1001,7 +1111,7 @@ const handleExportPDF = async () => {
       >
         <CheckCircle2 style={{ width: "32px", height: "32px" }} />
       </div>
-      <h2 style={{ fontSize: "1.5rem", fontWeight: 700 }}>Bill of Quantities (BOQ)</h2>
+      <h2 style={{ fontSize: "1.5rem", fontWeight: 700 }}>Bill of Materials (BOM)</h2>
       <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>
         Generated on {new Date().toLocaleDateString()}
       </p>
@@ -1106,6 +1216,8 @@ const handleExportPDF = async () => {
     {/* ACTION BUTTONS */}
     {/* ACTION BUTTONS */}
 <div className="flex flex-wrap gap-4 justify-end pt-4">
+
+  <Button onClick={() => setStep(7)} variant="outline">Back</Button>
   {/* Export Excel */}
   <button
     onClick={handleExportBOQ}
@@ -1122,6 +1234,14 @@ const handleExportPDF = async () => {
   >
     <Download className="w-5 h-5 rotate-12" />
     Export PDF
+  </button>
+
+  {/* Finalize BOQ (open final template for manual fields + export) */}
+  <button
+    onClick={() => setStep(9)}
+    className="flex items-center gap-2 bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg shadow hover:bg-indigo-700 transition"
+  >
+    Finalize BOQ
   </button>
 
   {/* New Estimate */}
@@ -1147,6 +1267,192 @@ const handleExportPDF = async () => {
 
   </motion.div>
 )}
+
+
+             {step === 9 && (
+  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+
+    {/* ================= MANUAL INPUTS ================= */}
+    <div className="grid grid-cols-3 gap-4">
+      <div>
+        <Label>Bill No</Label>
+        <Input
+          value={finalBillNo}
+          onChange={(e) => setFinalBillNo(e.target.value)}
+        />
+      </div>
+
+      <div>
+        <Label>Bill Date</Label>
+        <Input
+          type="date"
+          value={finalBillDate}
+          onChange={(e) => setFinalBillDate(e.target.value)}
+        />
+      </div>
+
+      <div>
+        <Label>Due Date</Label>
+        <Input
+          type="date"
+          value={finalDueDate}
+          onChange={(e) => setFinalDueDate(e.target.value)}
+        />
+      </div>
+    </div>
+
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <Label>Customer Name</Label>
+        <Input
+          value={finalCustomerName}
+          onChange={(e) => setFinalCustomerName(e.target.value)}
+        />
+      </div>
+
+      <div>
+        <Label>Customer Address</Label>
+        <Input
+          value={finalCustomerAddress}
+          onChange={(e) => setFinalCustomerAddress(e.target.value)}
+        />
+      </div>
+    </div>
+
+    <div>
+      <Label>Terms & Conditions</Label>
+      <Input
+        value={finalTerms}
+        onChange={(e) => setFinalTerms(e.target.value)}
+      />
+    </div>
+
+    {/* ================= PDF ================= */}
+    <div
+      id="boq-final-pdf"
+      style={{
+        width: "210mm",
+        minHeight: "297mm",
+        padding: "20mm",
+        background: "#fff",
+        color: "#000",
+        fontFamily: "Arial",
+        fontSize: 12
+      }}
+    >
+
+      {/* HEADER */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <img src={ctintLogo} alt="Concept Trunk Interiors" style={{ height: 60 }} />
+        <div style={{ textAlign: "right" }}>
+          <h2 style={{ margin: 0 }}>BILL</h2>
+          <div>Bill No: {finalBillNo}</div>
+        </div>
+      </div>
+
+      <hr style={{ margin: "10px 0" }} />
+
+      {/* COMPANY + META */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+
+        {/* LEFT */}
+        <div style={{ width: "55%", lineHeight: 1.5 }}>
+          <strong>Concept Trunk Interiors</strong><br />
+          12/36A, Indira Nagar<br />
+          Medavakkam<br />
+          Chennai – 600100<br />
+          GSTIN: 33ASOPS5560M1Z1
+
+          <br /><br />
+
+          <strong>Bill From</strong><br />
+          <pre style={{ margin: 0, fontFamily: "Arial", whiteSpace: "pre-wrap" }}>
+            {finalShopDetails}
+          </pre>
+        </div>
+
+        {/* RIGHT */}
+        <div style={{ width: "40%", lineHeight: 1.6 }}>
+          <div><strong>Bill Date</strong> : {finalBillDate}</div>
+          <div><strong>Due Date</strong> : {finalDueDate}</div>
+          <div style={{ marginTop: 6 }}>
+            <strong>Terms</strong> : {finalTerms}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <strong>Customer Name</strong> : {finalCustomerName}
+          </div>
+        </div>
+      </div>
+
+      {/* TABLE */}
+      <table style={{ width: "100%", marginTop: 20, borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            {["S.No", "Item", "Description", "HSN", "Qty", "Rate", "Supplier", "Customer", "Amount"].map(h => (
+              <th
+                key={h}
+                style={{
+                  border: "1px solid #000",
+                  padding: 6,
+                  background: "#000",
+                  color: "#fff",
+                  fontSize: 11
+                }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {materials.map((m, i) => (
+            <tr key={m.id}>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{i + 1}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.description || "-"}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>7308</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.quantity}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.rate}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{m.shopName}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{finalCustomerName}</td>
+              <td style={{ border: "1px solid #000", padding: 6, textAlign: "right" }}>
+                {(m.quantity * m.rate).toFixed(2)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* TOTALS */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+        <table style={{ width: 300 }}>
+          <tbody>
+            <tr><td>Sub Total</td><td style={{ textAlign: "right" }}>{subTotal.toFixed(2)}</td></tr>
+            <tr><td>SGST 9%</td><td style={{ textAlign: "right" }}>{sgst.toFixed(2)}</td></tr>
+            <tr><td>CGST 9%</td><td style={{ textAlign: "right" }}>{cgst.toFixed(2)}</td></tr>
+            <tr><td>Round Off</td><td style={{ textAlign: "right" }}>{roundOff.toFixed(2)}</td></tr>
+            <tr><td><strong>Total</strong></td><td style={{ textAlign: "right" }}><strong>₹{grandTotal.toFixed(2)}</strong></td></tr>
+            <tr><td><strong>Balance Due</strong></td><td style={{ textAlign: "right" }}><strong>₹{grandTotal.toFixed(2)}</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* SIGNATURE */}
+      <div style={{ marginTop: 50 }}>
+        <div style={{ width: 200, borderTop: "1px solid #000" }} />
+        <div>Authorized Signature</div>
+      </div>
+    </div>
+
+    <div className="flex justify-end gap-2">
+      <Button onClick={() => setStep(8)} variant="outline">Back</Button>
+      <Button onClick={handleExportFinalBOQ}>Export PDF</Button>
+    </div>
+
+  </motion.div>
+)}
+
 
 
             </AnimatePresence>

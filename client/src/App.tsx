@@ -24,6 +24,7 @@ import FireFightingEstimator from "@/pages/estimators/FireFightingEstimator";
 import ItemMaster from "@/pages/ItemMaster";
 import Subscription from "@/pages/Subscription";
 import SupplierMaterials from "@/pages/supplier/SupplierMaterials";
+import SupplierShops from "@/pages/supplier/SupplierShops";
 import MaterialSubmissionApproval from "@/pages/admin/MaterialSubmissionApproval";
 
 function Router() {
@@ -48,6 +49,7 @@ function Router() {
       <Route path="/item-master" component={ItemMaster} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/material-submissions" component={MaterialSubmissionApproval} />
+      <Route path="/supplier/shops" component={SupplierShops} />
       <Route path="/supplier/materials" component={SupplierMaterials} />
       <Route component={NotFound} />
     </Switch>

@@ -7,11 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calculator, ChevronRight } from "lucide-react";
+import { useData } from "@/lib/store";
+import { FinalizeBoqStep } from "@/components/estimators/FinalizeBoqStep";
 
 export default function SSWorkEstimator() {
   const [step, setStep] = useState(1);
   const [length, setLength] = useState("");
   const [materials, setMaterials] = useState<any[]>([]);
+  const { shops: storeShops } = useData();
 
   const calculate = () => {
     const l = parseFloat(length) || 0;
@@ -73,9 +76,21 @@ export default function SSWorkEstimator() {
                   </div>
                    <div className="flex justify-between pt-6">
                     <Button variant="outline" onClick={() => setStep(1)} className="w-32">Start Over</Button>
-                    <Link href="/item-master"><Button className="w-48 bg-primary text-primary-foreground">Select Materials <ChevronRight className="ml-2 h-4 w-4" /></Button></Link>
+                    <div className="flex gap-2">
+                      <Link href="/item-master"><Button className="w-48 bg-primary text-primary-foreground">Select Materials <ChevronRight className="ml-2 h-4 w-4" /></Button></Link>
+                      <Button onClick={() => setStep(3)} className="w-40">Generate BOQ</Button>
+                    </div>
                   </div>
                 </motion.div>
+              )}
+              {step === 3 && (
+                <FinalizeBoqStep
+                  materials={materials.map((m, i) => ({ id: String(i), name: m.item, quantity: m.quantity, unit: m.unit, rate: 0, shopName: "Computed" }))}
+                  estimatorTitle="SS Work Estimator"
+                  onBack={() => setStep(2)}
+                  storeShops={storeShops}
+                  selectedMaterials={[]}
+                />
               )}
             </AnimatePresence>
           </CardContent>

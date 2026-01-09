@@ -60,6 +60,8 @@ export default function SupplierMaterials() {
   // Material Templates State
   const [templates, setTemplates] = useState<MaterialTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [templatesSearch, setTemplatesSearch] = useState("");
+  // list-only view: show a limited set of templates; use search to find others
 
   // Supplier Submissions State
   const [submissions, setSubmissions] = useState<any[]>([]);
@@ -337,8 +339,16 @@ export default function SupplierMaterials() {
           {/* Available Templates Section */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <Package className="w-5 h-5" />
-              <h2 className="text-2xl font-semibold">Available Material Templates</h2>
+              <Package className="w-4 h-4 text-muted-foreground" />
+              <h2 className="text-xl font-semibold">Available Material Templates</h2>
+            </div>
+
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Input value={templatesSearch} onChange={(e) => setTemplatesSearch(e.target.value)} placeholder="Search templates..." />
+                
+              </div>
+              <div />
             </div>
 
             {loadingTemplates ? (
@@ -354,33 +364,22 @@ export default function SupplierMaterials() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {templates.map((template) => (
-                  <Card
-                    key={template.id}
-                    className={`cursor-pointer transition-all p-3 ${
-                      selectedTemplate?.id === template.id
-                        ? "ring-2 ring-blue-500 bg-blue-50"
-                        : "hover:shadow-md"
-                    }`}
-                    onClick={() => handleSelectTemplate(template)}
-                  >
-                    <div className="space-y-1">
-                      <div className="text-xs font-medium truncate">{template.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{template.code}</div>
-                      {template.category && (
-                        <Badge variant="outline" className="text-xs mt-1">{template.category}</Badge>
-                      )}
-                      {selectedTemplate?.id === template.id && (
-                        <div className="mt-2 text-xs text-blue-600 font-semibold">
-                          ✓ Selected
-                        </div>
-                      )}
+                <div className="space-y-2">
+                  {templates.filter(t => (t.name + ' ' + t.code + ' ' + (t.category||'')).toLowerCase().includes(templatesSearch.toLowerCase())).slice(0,12).map((template) => (
+                    <div key={template.id} className="p-2 border rounded flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-sm">{template.name}</div>
+                        <div className="text-xs text-muted-foreground">{template.code} {template.category && (<span className="ml-2 text-[11px] text-gray-500">• {template.category}</span>)}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" onClick={() => handleSelectTemplate(template)}>Select</Button>
+                      </div>
                     </div>
-                  </Card>
-                ))}
-              </div>
-            )}
+                  ))}
+                  
+                </div>
+              )
+            }
           </div>
 
           {/* Submission Form Section */}

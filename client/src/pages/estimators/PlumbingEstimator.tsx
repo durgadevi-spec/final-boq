@@ -1,872 +1,361 @@
-import { useState } from "react";
-import { Layout } from "@/components/layout/Layout";
+import React, { useState, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  ChevronRight, 
+  ChevronLeft, 
+  Droplets, 
+  CheckCircle2, 
+  RotateCcw 
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useData, Material } from "@/lib/store";
-import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, ChevronLeft, Download, CheckCircle2, Star } from "lucide-react";
-import { StepIndicator } from "@/components/StepIndicator";
+import { useData } from "@/lib/store";
+import { Layout } from "@/components/layout/Layout";
 import html2pdf from "html2pdf.js";
 
-interface MaterialWithQuantity {
-  id: string;
-  name: string;
-  quantity: number;
-  unit: string;
-  rate: number;
-  shopId: string;
-  shopName: string;
-}
+// Logo placeholder
+const ctintLogo = "/image.png";
 
-interface SelectedMaterialConfig {
-  materialId: string;
-  selectedShopId: string;
-}
-
-// Plumbing configuration with material requirements
 const PLUMBING_CONFIG = {
-  hotwater: {
-    label: "Hot Water System",
-    materialRequirements: [
-      { code: "PLUMB-001", label: "PVC Pipe 20mm" },
-      { code: "PLUMB-002", label: "Sink Basin" },
-      { code: "PLUMB-005", label: "Water Tap" },
-    ],
-  },
-  coldwater: {
-    label: "Cold Water System",
-    materialRequirements: [
-      { code: "PLUMB-001", label: "PVC Pipe 20mm" },
-      { code: "PLUMB-003", label: "Sanitary Fittings" },
-      { code: "PLUMB-005", label: "Water Tap" },
-    ],
-  },
-  drainage: {
-    label: "Drainage System",
-    materialRequirements: [
-      { code: "PLUMB-004", label: "Drain Pipe" },
-      { code: "PLUMB-003", label: "Sanitary Fittings" },
-      { code: "PLUMB-008", label: "Plumbing Elbow" },
-    ],
-  },
-  complete: {
-    label: "Complete Plumbing Setup",
-    materialRequirements: [
-      { code: "PLUMB-001", label: "PVC Pipe 20mm" },
-      { code: "PLUMB-002", label: "Sink Basin" },
-      { code: "PLUMB-003", label: "Sanitary Fittings" },
-      { code: "PLUMB-004", label: "Drain Pipe" },
-      { code: "PLUMB-005", label: "Water Tap" },
-      { code: "PLUMB-006", label: "Toilet Seat" },
-      { code: "PLUMB-007", label: "Water Tank" },
-      { code: "PLUMB-008", label: "Plumbing Elbow" },
-    ],
-  },
+  hotwater: { label: "Hot Water System", requirements: [1, 2, 3, 4, 5] },
+  coldwater: { label: "Cold Water System", requirements: [1, 2, 3] },
+  drainage: { label: "Drainage System", requirements: [1, 2, 3, 4] },
+  complete: { label: "Complete Setup", requirements: [1, 2, 3, 4, 5, 6, 7, 8] },
 };
 
 export default function PlumbingEstimator() {
   const { shops: storeShops, materials: storeMaterials } = useData();
+  
+  // --- States ---
   const [step, setStep] = useState(1);
-  const [systemType, setSystemType] = useState<"hotwater" | "coldwater" | "drainage" | "complete" | null>(null);
-  const [pipeLengthMeters, setPipeLengthMeters] = useState<number | null>(50);
-  const [fixtureCount, setFixtureCount] = useState<number | null>(3);
-  const [selectedMaterials, setSelectedMaterials] = useState<SelectedMaterialConfig[]>([]);
-  const [customQuantities, setCustomQuantities] = useState<Map<string, number>>(new Map());
+  const [systemType, setSystemType] = useState<keyof typeof PLUMBING_CONFIG | null>(null);
+  const [pipeLength, setPipeLength] = useState(50);
+  const [fixtures, setFixtures] = useState(3);
+  
+  // Selection States
+  const [selectedMaterials, setSelectedMaterials] = useState<{ materialId: string; selectedShopId: string }[]>([]);
+  const [editableMaterials, setEditableMaterials] = useState<Record<string, { quantity: number; rate: number }>>({});
 
-  const steps = [
-    { number: 1, title: "System Type", description: "Choose plumbing system" },
-    { number: 2, title: "Specifications", description: "Enter dimensions" },
-    { number: 3, title: "Materials", description: "Select materials & shops" },
-    { number: 4, title: "Review", description: "Check required/missing" },
-    { number: 5, title: "BOQ", description: "Review & export" },
-  ];
+  // Final BOQ Manual Inputs (Step 9)
+  const [finalBillNo, setFinalBillNo] = useState(`CT-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [finalBillDate, setFinalBillDate] = useState(new Date().toISOString().split('T')[0]);
+  const [finalDueDate, setFinalDueDate] = useState("");
+  const [finalCustomerName, setFinalCustomerName] = useState("");
+  const [finalCustomerAddress, setFinalCustomerAddress] = useState("");
+  const [finalTerms, setFinalTerms] = useState("50% Advance, 50% on Delivery");
+  const [finalShopDetails, setFinalShopDetails] = useState("Primary Warehouse\nChennai District");
 
-  // Get config for selected system
-  const getCurrentConfig = () => {
-    if (!systemType) return null;
-    return PLUMBING_CONFIG[systemType];
+  // --- Logic Helpers ---
+
+  const availableMaterials = useMemo(() => {
+    return storeMaterials.filter(m => m.category === "Plumbing");
+  }, [storeMaterials]);
+
+  const getDefaultQty = (mat: any) => {
+    if (mat.code?.includes("PIPE")) return Math.ceil(pipeLength * 1.1);
+    if (mat.code?.includes("FIXT")) return fixtures;
+    return 1;
   };
 
-  // Get required material codes for the system
-  const getRequiredMaterialCodes = (): string[] => {
-    const config = getCurrentConfig();
-    if (!config) return [];
-    return config.materialRequirements.map((r) => r.code);
+  const getMaterialsWithDetails = () => {
+    return selectedMaterials.map((sel) => {
+      const mat = storeMaterials.find((m) => m.id === sel.materialId);
+      const shop = storeShops.find((s) => s.id === sel.selectedShopId);
+      const qty = editableMaterials[mat?.id]?.quantity ?? getDefaultQty(mat);
+      const rate = editableMaterials[mat?.id]?.rate ?? (mat?.rate || 0);
+      return { 
+        ...mat, 
+        quantity: qty, 
+        rate: rate, 
+        shopName: shop?.name || "Market", 
+        amount: qty * rate 
+      };
+    });
   };
 
-  // Get available materials for the system (ALL plumbing materials, not just required)
-  const getAvailableMaterials = () => {
-    // Show all plumbing materials (not just required ones for the system)
-    const allPlumbingMaterials = storeMaterials.filter((m) => m.category === "Plumbing");
+  const materials = getMaterialsWithDetails();
+  const subTotal = materials.reduce((sum, m) => sum + m.amount, 0);
+  const sgst = subTotal * 0.09;
+  const cgst = subTotal * 0.09;
+  const grandTotal = subTotal + sgst + cgst;
+  const roundOff = Math.round(grandTotal) - grandTotal;
 
-    // Deduplicate by code - return only ONE instance per material code (with ALL shops available)
-    const uniqueMaterialsMap = new Map<string, Material>();
-    
-    for (const material of allPlumbingMaterials) {
-      const key = material.code;
-      // Keep the first occurrence of each material code
-      if (!uniqueMaterialsMap.has(key)) {
-        uniqueMaterialsMap.set(key, material);
-      }
-    }
-    
-    return Array.from(uniqueMaterialsMap.values());
-  };
+  // --- Handlers ---
 
-  // Get all shops that have a specific material code
-  const getShopsForMaterial = (materialCode: string) => {
-    return storeMaterials.filter((m) => m.code === materialCode);
-  };
-
-  // Get the unit type for a material code
-  const getUnitForMaterial = (materialCode: string): string => {
-    const material = storeMaterials.find((m) => m.code === materialCode);
-    return material?.unit || "units";
-  };
-
-  // Find best shop for a material
-  const getBestShop = (materialCode: string): { shopId: string; shopName: string; rate: number } | null => {
-    const materialsByCode = storeMaterials.filter((m) => m.code === materialCode);
-    if (materialsByCode.length === 0) return null;
-
-    let bestOption = materialsByCode[0];
-    for (const mat of materialsByCode) {
-      if (mat.rate < bestOption.rate) {
-        bestOption = mat;
-      }
-    }
-
-    const shop = storeShops.find((s) => s.id === bestOption.shopId);
-    return {
-      shopId: bestOption.shopId,
-      shopName: shop?.name || "Unknown",
-      rate: bestOption.rate,
-    };
-  };
-
-  // Real-world plumbing calculations
-  const calculateQuantity = (materialCode: string, materialUnit: string): number => {
-    const pipeLength = pipeLengthMeters || 50;
-    const fixtures = fixtureCount || 3;
-
-    let quantity = 0;
-
-    switch (materialCode) {
-      case "PLUMB-001": // PVC Pipe 20mm - based on total pipe run
-        quantity = pipeLength * 1.15; // 15% wastage
-        break;
-      case "PLUMB-002": // Sink Basin - 1 per 2 fixtures
-        quantity = Math.ceil(fixtures / 2);
-        break;
-      case "PLUMB-003": // Sanitary Fittings - 4-5 per fixture
-        quantity = fixtures * 4;
-        break;
-      case "PLUMB-004": // Drain Pipe - similar to supply pipe
-        quantity = pipeLength * 1.15;
-        break;
-      case "PLUMB-005": // Water Tap - 1 per fixture
-        quantity = fixtures;
-        break;
-      case "PLUMB-006": // Toilet Seat - 1 per 3 fixtures
-        quantity = Math.ceil(fixtures / 3);
-        break;
-      case "PLUMB-007": // Water Tank - 1000L per 3-4 fixtures
-        quantity = 1; // typically one tank
-        break;
-      case "PLUMB-008": // Plumbing Elbow - 2-3 per fixture connection
-        quantity = fixtures * 2;
-        break;
-      default:
-        quantity = 1;
-    }
-
-    return Math.max(1, Math.ceil(quantity));
-  };
-
-  // Get materials with quantities and shop info
-  const getMaterialsWithDetails = (): MaterialWithQuantity[] => {
-    const materials = storeMaterials;
-
-    return selectedMaterials
-      .map((selection) => {
-        const material = materials.find((m) => m.id === selection.materialId);
-        if (!material) return null;
-
-        const shop = storeShops.find((s) => s.id === selection.selectedShopId);
-        const quantity = calculateQuantity(material.code, material.unit);
-
-        return {
-          id: material.id,
-          name: material.name,
-          quantity,
-          unit: material.unit,
-          rate: material.rate,
-          shopId: selection.selectedShopId,
-          shopName: shop?.name || "Unknown",
-        };
-      })
-      .filter((m): m is MaterialWithQuantity => m !== null);
-  };
-
-  // Get required materials and their selection status
-  const getRequiredMaterialsStatus = () => {
-    const requiredCodes = getRequiredMaterialCodes();
-    const selectedCodes = new Set(
-      selectedMaterials
-        .map((sel) => storeMaterials.find((m) => m.id === sel.materialId)?.code)
-        .filter(Boolean)
-    );
-
-    const selected = requiredCodes.filter((code) => selectedCodes.has(code));
-    const missing = requiredCodes.filter((code) => !selectedCodes.has(code));
-
-    return { selected, missing };
-  };
-
-  // Get extra materials (selected but not required)
-  const getExtraMaterials = (): MaterialWithQuantity[] => {
-    const requiredCodes = getRequiredMaterialCodes();
-    return getMaterialsWithDetails().filter(
-      (mat) => !requiredCodes.includes(storeMaterials.find((m) => m.id === mat.id)?.code || "")
-    );
-  };
-
-  const calculateTotalCost = (): number => {
-    return getMaterialsWithDetails().reduce((sum, m) => sum + m.quantity * m.rate, 0);
-  };
-
-  const handleToggleMaterial = (materialId: string) => {
-    const existingSelection = selectedMaterials.find((m) => m.materialId === materialId);
-
-    if (existingSelection) {
-      setSelectedMaterials((prev) => prev.filter((m) => m.materialId !== materialId));
+  const handleToggleMaterial = (matId: string) => {
+    const isSelected = selectedMaterials.find(s => s.materialId === matId);
+    if (isSelected) {
+      setSelectedMaterials(prev => prev.filter(s => s.materialId !== matId));
     } else {
-      const bestShop = getBestShop(storeMaterials.find((m) => m.id === materialId)?.code || "");
-      if (bestShop) {
-        setSelectedMaterials((prev) => [
-          ...prev,
-          { materialId, selectedShopId: bestShop.shopId },
-        ]);
-      }
+      const mat = storeMaterials.find(m => m.id === matId);
+      setSelectedMaterials(prev => [...prev, { materialId: matId, selectedShopId: mat?.shopId || "" }]);
     }
   };
 
-  const handleChangeShop = (materialId: string, newShopId: string) => {
-    setSelectedMaterials((prev) =>
-      prev.map((m) =>
-        m.materialId === materialId ? { ...m, selectedShopId: newShopId } : m
-      )
-    );
-  };
-
-  const handleExportPDF = async () => {
-    const element = document.getElementById("boq-pdf");
-
-    if (!element) {
-      alert("BOQ content not found");
-      return;
-    }
-
-    const html2pdf = (await import("html2pdf.js")).default;
-
-    html2pdf()
-      .set({
-        margin: 10,
-        filename: "Plumbing_BOQ.pdf",
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: "#ffffff",
-        },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      })
-      .from(element)
-      .save();
+  const handleExportFinalBOQ = () => {
+    const element = document.getElementById("boq-final-pdf");
+    const opt = {
+      margin: 0,
+      filename: `BOQ_${finalBillNo}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    html2pdf().from(element).set(opt).save();
   };
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Plumbing Estimator</h2>
-          <p className="text-muted-foreground mt-1">Complete plumbing system estimation with material selection</p>
-        </div>
-
-        <StepIndicator steps={steps} currentStep={step} onStepClick={(s) => s <= step && setStep(s)} />
-
-        <Card className="border-border/50">
-          <CardContent className="pt-8 min-h-96">
-            <AnimatePresence mode="wait">
-              {/* STEP 1: System Type Selection */}
-              {step === 1 && (
-                <motion.div key="step1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                  <div>
-                    <Label className="text-lg font-semibold mb-4 block">Select Plumbing System Type</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {Object.entries(PLUMBING_CONFIG).map(([key, config]) => (
-                        <Card
-                          key={key}
-                          className={cn(
-                            "cursor-pointer border-2 transition-all hover:shadow-md",
-                            systemType === key ? "border-primary bg-primary/5" : "border-border/50"
-                          )}
-                          onClick={() => setSystemType(key as any)}
-                        >
-                          <CardContent className="pt-6">
-                            <h3 className="font-semibold text-base">{config.label}</h3>
-                            <p className="text-xs text-muted-foreground mt-2">
-                              {config.materialRequirements.length} materials included
-                            </p>
-                          </CardContent>
-                        </Card>
-                      ))}
+      <div className="max-w-6xl mx-auto p-4 space-y-8">
+        
+        <AnimatePresence mode="wait">
+          
+          {/* STEP 1: SYSTEM SELECTION */}
+          {step === 1 && (
+            <motion.div key="s1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.entries(PLUMBING_CONFIG).map(([key, config]) => (
+                <Card key={key} className={cn("cursor-pointer border-2 transition-all", systemType === key ? "border-primary bg-primary/5" : "")} onClick={() => setSystemType(key as any)}>
+                  <CardContent className="p-6 flex items-center gap-4">
+                    <Droplets className="text-primary" />
+                    <div>
+                      <p className="font-bold">{config.label}</p>
+                      <p className="text-xs text-muted-foreground">{config.requirements.length} Required Items</p>
                     </div>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-6">
-                    <Button disabled={!systemType} onClick={() => setStep(2)}>
-                      Next <ChevronRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
+                  </CardContent>
+                </Card>
+              ))}
+              <Button className="md:col-span-2 mt-4" disabled={!systemType} onClick={() => setStep(2)}>Next <ChevronRight className="ml-2 h-4 w-4" /></Button>
+            </motion.div>
+          )}
 
-              {/* STEP 2: Specifications */}
-              {step === 2 && (
-                <motion.div key="step2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label className="text-base font-semibold">Total Pipe Length (meters)</Label>
-                      <Input
-                        type="number"
-                        placeholder="e.g., 50"
-                        value={pipeLengthMeters || ""}
-                        onChange={(e) => setPipeLengthMeters(e.target.value ? parseFloat(e.target.value) : null)}
-                        className="text-base"
-                      />
-                      <p className="text-xs text-muted-foreground">Including horizontal and vertical runs, with 15% wastage</p>
+          {/* STEP 2: SPECS */}
+          {step === 2 && (
+            <motion.div key="s2" className="max-w-md mx-auto space-y-4 bg-white p-6 border rounded-xl shadow-sm">
+              <h2 className="font-bold text-lg">System Specs</h2>
+              <div className="space-y-2"><Label>Pipe Run (Meters)</Label><Input type="number" value={pipeLength} onChange={e => setPipeLength(Number(e.target.value))} /></div>
+              <div className="space-y-2"><Label>Fixtures</Label><Input type="number" value={fixtures} onChange={e => setFixtures(Number(e.target.value))} /></div>
+              <div className="flex gap-2 pt-4">
+                <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>Back</Button>
+                <Button className="flex-1" onClick={() => setStep(6)}>Next</Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* STEP 6: MATERIAL & SHOP SELECTION */}
+          {step === 6 && (
+            <motion.div key="s6" className="space-y-4">
+               <Label className="text-xl font-bold">Select Materials & Shops</Label>
+              <div className="grid grid-cols-1 gap-3 max-h-[500px] overflow-y-auto p-2">
+                {availableMaterials.map((mat) => {
+                  const isSelected = selectedMaterials.some(m => m.materialId === mat.id);
+                  const currentSelection = selectedMaterials.find(m => m.materialId === mat.id);
+                  const shops = storeMaterials.filter(m => m.code === mat.code);
+
+                  return (
+                    <div key={mat.id} className={cn("p-4 border rounded-xl flex items-center gap-4 transition-all", isSelected ? "border-primary bg-primary/5" : "bg-white")}>
+                      <Checkbox checked={isSelected} onCheckedChange={() => handleToggleMaterial(mat.id)} />
+                      <div className="flex-1">
+                        <p className="font-bold">{mat.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{mat.code}</p>
+                      </div>
+                      {isSelected && (
+                        <Select value={currentSelection?.selectedShopId} onValueChange={(val) => setSelectedMaterials(prev => prev.map(s => s.materialId === mat.id ? {...s, selectedShopId: val} : s))}>
+                          <SelectTrigger className="w-48 bg-white"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {shops.map(s => (
+                              <SelectItem key={s.shopId} value={s.shopId}>
+                                {storeShops.find(sh => sh.id === s.shopId)?.name} — ₹{s.rate}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-base font-semibold">Number of Fixtures</Label>
-                      <Input
-                        type="number"
-                        placeholder="e.g., 3"
-                        value={fixtureCount || ""}
-                        onChange={(e) => setFixtureCount(e.target.value ? parseFloat(e.target.value) : null)}
-                        className="text-base"
-                      />
-                      <p className="text-xs text-muted-foreground">Sinks, toilets, showers, etc.</p>
-                    </div>
-                  </div>
-                  <div className="flex justify-between gap-2 pt-6">
-                    <Button variant="outline" onClick={() => setStep(1)}>
-                      <ChevronLeft className="mr-2 h-4 w-4" /> Back
-                    </Button>
-                    <Button disabled={!pipeLengthMeters || !fixtureCount} onClick={() => setStep(3)}>
-                      Next <ChevronRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* STEP 3: Material Selection */}
-              {step === 3 && (
-                <motion.div key="step3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                  <Label className="text-lg font-semibold mb-4 block">Select Materials & Suppliers</Label>
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {getAvailableMaterials().map((mat) => {
-                      const isSelected = selectedMaterials.find((m) => storeMaterials.find((x) => x.id === m.materialId)?.code === mat.code);
-                      const availableShops = getShopsForMaterial(mat.code);
-
-                      return (
-                        <Card key={mat.code} className={cn("border", isSelected ? "border-primary bg-primary/5" : "border-border/50")}>
-                          <CardContent className="pt-4 pb-4">
-                            <div className="flex items-start gap-3">
-                              <Checkbox
-                                id={mat.code}
-                                checked={!!isSelected}
-                                onCheckedChange={() => {
-                                  // Find and toggle based on material code
-                                  const selectedWithCode = selectedMaterials.find((m) => storeMaterials.find((x) => x.id === m.materialId)?.code === mat.code);
-                                  if (selectedWithCode) {
-                                    setSelectedMaterials((prev) => prev.filter((m) => m !== selectedWithCode));
-                                  } else {
-                                    // Auto-select first material with this code from best shop
-                                    const bestShop = availableShops.reduce((best, current) => 
-                                      current.rate < best.rate ? current : best
-                                    );
-                                    setSelectedMaterials((prev) => [
-                                      ...prev,
-                                      { materialId: bestShop.id, selectedShopId: bestShop.shopId },
-                                    ]);
-                                  }
-                                }}
-                                className="mt-1"
-                              />
-                              <div className="flex-1">
-                                <label htmlFor={mat.code} className="font-semibold cursor-pointer block">
-                                  {mat.name}
-                                </label>
-                                <p className="text-xs text-muted-foreground mt-1">{mat.code}</p>
-
-                                {isSelected && (
-                                  <div className="mt-3 space-y-2">
-                                    <p className="text-xs font-semibold text-muted-foreground">Select Supplier:</p>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                      {availableShops.map((option) => {
-                                        const shop = storeShops.find((s) => s.id === option.shopId);
-                                        const isThisShopSelected = isSelected?.selectedShopId === option.shopId;
-                                        return (
-                                          <Button
-                                            key={option.id}
-                                            variant={isThisShopSelected ? "default" : "outline"}
-                                            size="sm"
-                                            onClick={() => {
-                                              const selectedWithCode = selectedMaterials.find((m) => storeMaterials.find((x) => x.id === m.materialId)?.code === mat.code);
-                                              if (selectedWithCode) {
-                                                handleChangeShop(selectedWithCode.materialId, option.shopId);
-                                              }
-                                            }}
-                                            className="justify-between text-xs"
-                                          >
-                                            <span>{shop?.name}</span>
-                                            <span className="font-bold">₹{option.rate}</span>
-                                          </Button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                  <div className="flex justify-between gap-2 pt-6">
-                    <Button variant="outline" onClick={() => setStep(2)}>
-                      <ChevronLeft className="mr-2 h-4 w-4" /> Back
-                    </Button>
-                    <Button disabled={selectedMaterials.length === 0} onClick={() => setStep(4)}>
-                      Review Required <ChevronRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* STEP 4: Review Required/Missing Materials */}
-              {step === 4 && (
-                <motion.div key="step4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Review Material Status</h3>
-                  </div>
-
-                  <div className="space-y-4">
-                    {/* Selected Required Materials */}
-                    {getRequiredMaterialsStatus().selected.length > 0 && (
-                      <Card className="border-green-200 bg-green-50/50">
-                        <CardHeader>
-                          <CardTitle className="text-base text-green-700 flex items-center gap-2">
-                            <CheckCircle2 className="h-5 w-5" /> Selected Required Materials ({getRequiredMaterialsStatus().selected.length})
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          {getRequiredMaterialsStatus().selected.map((code) => {
-                            const label = getCurrentConfig()?.materialRequirements.find((r) => r.code === code)?.label || code;
-                            const baseQuantity = calculateQuantity(code, "");
-                            const customQty = customQuantities.get(code);
-                            const finalQuantity = customQty !== undefined ? customQty : baseQuantity;
-                            const unit = getUnitForMaterial(code);
-                            return (
-                              <div key={code} className="flex items-center justify-between gap-2 p-3 bg-white rounded border border-green-200 text-sm">
-                                <div className="flex items-center gap-2 flex-1">
-                                  <span className="text-green-600 font-bold">✓</span>
-                                  <div>
-                                    <p className="font-medium">{label}</p>
-                                    <p className="text-xs text-muted-foreground">{code}</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 w-7 p-0"
-                                    onClick={() => {
-                                      const newQty = Math.max(1, finalQuantity - 1);
-                                      setCustomQuantities(new Map(customQuantities.set(code, newQty)));
-                                    }}
-                                  >
-                                    −
-                                  </Button>
-                                  <div className="text-center min-w-16">
-                                    <p className="font-bold text-primary">{finalQuantity}</p>
-                                    <p className="text-xs text-muted-foreground">{unit}</p>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 w-7 p-0"
-                                    onClick={() => {
-                                      const newQty = finalQuantity + 1;
-                                      setCustomQuantities(new Map(customQuantities.set(code, newQty)));
-                                    }}
-                                  >
-                                    +
-                                  </Button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {/* Missing Required Materials */}
-                    {getRequiredMaterialsStatus().missing.length > 0 && (
-                      <Card className="border-red-200 bg-red-50/50">
-                        <CardHeader>
-                          <CardTitle className="text-base text-red-700 flex items-center gap-2">
-                            <span className="text-lg">⚠️</span> Missing Required Materials ({getRequiredMaterialsStatus().missing.length})
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          {getRequiredMaterialsStatus().missing.map((code) => {
-                            const label = getCurrentConfig()?.materialRequirements.find((r) => r.code === code)?.label || code;
-                            const material = getAvailableMaterials().find((m) => m.code === code);
-                            const quantity = calculateQuantity(code, "");
-                            const unit = getUnitForMaterial(code);
-                            return (
-                              <div key={code} className="p-3 bg-white rounded border border-red-200 space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2 font-medium text-red-700">
-                                    <span>✗</span>
-                                    {label}
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="font-bold text-red-600">{quantity}</p>
-                                    <p className="text-xs text-muted-foreground">{unit}</p>
-                                  </div>
-                                </div>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-xs border-red-300 hover:bg-red-100 w-full"
-                                  onClick={() => {
-                                    if (material) {
-                                      const bestShop = getShopsForMaterial(code).reduce((best, current) => 
-                                        current.rate < best.rate ? current : best
-                                      );
-                                      setSelectedMaterials((prev) => [
-                                        ...prev,
-                                        { materialId: bestShop.id, selectedShopId: bestShop.shopId },
-                                      ]);
-                                    }
-                                  }}
-                                >
-                                  + Add this material
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {/* Extra Materials */}
-                    {getExtraMaterials().length > 0 && (
-                      <Card className="border-blue-200 bg-blue-50/50">
-                        <CardHeader>
-                          <CardTitle className="text-base text-blue-700 flex items-center gap-2">
-                            <Star className="h-5 w-5" /> Extra Materials ({getExtraMaterials().length})
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-2">
-                          {getExtraMaterials().map((mat) => (
-                            <div key={mat.id} className="flex items-center justify-between gap-2 text-sm p-2 bg-white rounded border border-blue-200">
-                              <div>
-                                <p className="font-medium">{mat.name}</p>
-                                <p className="text-xs text-muted-foreground">{storeMaterials.find((m) => m.id === mat.id)?.code}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-bold text-blue-700">{mat.quantity}</p>
-                                <p className="text-xs text-muted-foreground">{mat.unit}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </CardContent>
-                      </Card>
-                    )}
-                  </div>
-
-                  <div className="flex justify-between gap-2 pt-6">
-                    <Button variant="outline" onClick={() => setStep(3)}>
-                      <ChevronLeft className="mr-2 h-4 w-4" /> Back to Materials
-                    </Button>
-                    <Button 
-                      onClick={() => setStep(5)}
-                      disabled={getRequiredMaterialsStatus().missing.length > 0}
-                    >
-                      Proceed to BOQ <ChevronRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* STEP 5: BOQ Review - Real-world Professional Format */}
-              {step === 5 && (
-  <motion.div
-    key="step5"
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    className="space-y-6"
-  >
-    <div id="boq-pdf" className="space-y-6 bg-white">
-
-      {/* BOQ Header */}
-      <div className="text-center space-y-1 pb-6 border-b-2">
-        <h1 className="text-2xl font-bold">BILL OF QUANTITIES (BOQ)</h1>
-        <p className="text-sm text-muted-foreground">
-          Plumbing Installation System
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Date: {new Date().toLocaleDateString()}
-        </p>
-      </div>
-
-      {/* ================= CONTENT START ================= */}
-      <div className="space-y-6">
-
-        {/* Project Specifications */}
-        <Card className="border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold uppercase">
-              Project Specifications
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-xs">
-              <div className="space-y-1">
-                <p className="text-muted-foreground font-semibold">
-                  System Type
-                </p>
-                <p className="font-bold text-sm">
-                  {getCurrentConfig()?.label}
-                </p>
+                  );
+                })}
               </div>
-              <div className="space-y-1">
-                <p className="text-muted-foreground font-semibold">
-                  Total Pipe Length
-                </p>
-                <p className="font-bold text-sm">
-                  {pipeLengthMeters} meters
-                </p>
+              <div className="flex justify-between border-t pt-4">
+                <Button variant="outline" onClick={() => setStep(2)}>Back</Button>
+                <Button disabled={selectedMaterials.length === 0} onClick={() => setStep(7)}>Review Selection</Button>
               </div>
-              <div className="space-y-1">
-                <p className="text-muted-foreground font-semibold">
-                  No. of Fixtures
-                </p>
-                <p className="font-bold text-sm">
-                  {fixtureCount}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </motion.div>
+          )}
 
-        {/* Materials Table */}
-        <Card className="border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold uppercase">
-              Materials & Specifications
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-slate-100 border-b-2">
-                    <th className="p-2 text-left font-bold">S.No</th>
-                    <th className="p-2 text-left font-bold">
-                      Material Description
-                    </th>
-                    <th className="p-2 text-left font-bold">Code</th>
-                    <th className="p-2 text-center font-bold">Qty</th>
-                    <th className="p-2 text-center font-bold">Unit</th>
-                    <th className="p-2 text-right font-bold">Rate (₹)</th>
-                    <th className="p-2 text-right font-bold">
-                      Amount (₹)
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {getMaterialsWithDetails().map((mat, idx) => (
-                    <tr
-                      key={mat.id}
-                      className="border-b hover:bg-slate-50"
-                    >
-                      <td className="p-2 text-center font-semibold">
-                        {idx + 1}
-                      </td>
-                      <td className="p-2">
-                        <p className="font-semibold">{mat.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Supplier: {mat.shopName}
-                        </p>
-                      </td>
-                      <td className="p-2 font-mono text-xs text-muted-foreground">
-                        {
-                          storeMaterials.find(
-                            (x) => x.id === mat.id
-                          )?.code
-                        }
-                      </td>
-                      <td className="p-2 text-center font-bold">
-                        {mat.quantity}
-                      </td>
-                      <td className="p-2 text-center text-muted-foreground">
-                        {mat.unit}
-                      </td>
-                      <td className="p-2 text-right">
-                        ₹{mat.rate.toFixed(2)}
-                      </td>
-                      <td className="p-2 text-right font-semibold">
-                        ₹{(mat.quantity * mat.rate).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Inline Summary (PDF-safe) */}
-            <div className="mt-6 space-y-2 border-t-2 pt-4 ml-auto w-80">
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="text-right font-semibold">
-                  Subtotal:
+          {/* STEP 7: EDIT QUANTITIES */}
+          {step === 7 && (
+            <motion.div key="s7" className="space-y-4">
+               <Label className="text-lg font-semibold">Review and Edit Selection</Label>
+              <div className="bg-white border rounded-lg overflow-hidden">
+                <div className="grid grid-cols-7 gap-2 p-3 bg-slate-900 text-white text-[10px] font-bold uppercase">
+                  <div className="col-span-2">Item</div><div>Qty</div><div>Unit</div><div>Shop</div><div>Rate</div><div className="text-right">Total</div>
                 </div>
-                <div className="text-right">
-                  ₹{calculateTotalCost().toFixed(2)}
-                </div>
+                {materials.map((m) => (
+                  <div key={m.id} className="grid grid-cols-7 gap-2 p-3 items-center border-b">
+                    <div className="col-span-2 font-bold text-sm">{m.name}</div>
+                    <Input type="number" className="h-8 text-center" value={m.quantity} onChange={e => setEditableMaterials(p => ({...p, [m.id!]: {...p[m.id!], quantity: Number(e.target.value)}}))} />
+                    <div className="text-center text-xs text-slate-500">{m.unit}</div>
+                    <div className="text-center text-[10px] font-bold text-blue-600">{m.shopName}</div>
+                    <Input type="number" className="h-8 text-center" value={m.rate} onChange={e => setEditableMaterials(p => ({...p, [m.id!]: {...p[m.id!], rate: Number(e.target.value)}}))} />
+                    <div className="text-right font-bold">₹{m.amount.toFixed(2)}</div>
+                  </div>
+                ))}
               </div>
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="text-right text-muted-foreground">
-                  GST (18%):
-                </div>
-                <div className="text-right text-muted-foreground">
-                  ₹{(calculateTotalCost() * 0.18).toFixed(2)}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4 font-bold text-sm bg-primary/10 p-2 rounded border">
-                <div className="text-right">TOTAL AMOUNT:</div>
-                <div className="text-right">
-                  ₹{(calculateTotalCost() * 1.18).toFixed(2)}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Terms */}
-        <Card className="border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold uppercase">
-              Terms & Conditions
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs space-y-2 text-muted-foreground">
-            <p>• This BOQ is valid for 30 days</p>
-            <p>• Prices include delivery within city limits</p>
-            <p>• Payment: 50% advance, 50% on delivery</p>
-            <p>• GST as applicable</p>
-          </CardContent>
-        </Card>
-
-        {/* COST SUMMARY – BOTTOM */}
-        <Card className="border bg-gradient-to-br from-primary/5 to-primary/10">
-          <div className="p-6 space-y-6 max-w-md ml-auto">
-            <div className="text-center space-y-2">
-              <p className="text-xs text-muted-foreground font-semibold uppercase">
-                Estimated Total Cost
-              </p>
-              <p className="text-4xl font-bold text-primary">
-                ₹{(calculateTotalCost() * 1.18).toFixed(2)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                (Incl. 18% GST)
-              </p>
-            </div>
-
-            <div className="space-y-3 text-xs bg-white p-3 rounded border">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">
-                  Subtotal:
-                </span>
-                <span className="font-semibold">
-                  ₹{calculateTotalCost().toFixed(2)}
-                </span>
+                <Button variant="outline" onClick={() => setStep(6)}>Back</Button>
+                <Button onClick={() => setStep(8)}>Generate BOM</Button>
               </div>
-              <div className="flex justify-between pb-2 border-b">
-                <span className="text-muted-foreground">
-                  GST (18%):
-                </span>
-                <span className="font-semibold">
-                  ₹{(calculateTotalCost() * 0.18).toFixed(2)}
-                </span>
+            </motion.div>
+          )}
+
+          {/* STEP 8: BOM SUMMARY */}
+          {step === 8 && (
+            <motion.div key="s8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                          <div className="text-center space-y-2">
+                            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto"><CheckCircle2 size={32} /></div>
+                            <h2 className="text-2xl font-bold">Bill of Materials (BOM)</h2>
+                            <p className="text-sm text-slate-400">Generated on {new Date().toLocaleDateString()}</p>
+                          </div>
+            
+                          <div id="boq-pdf" className="bg-white border rounded-lg p-6 shadow-sm font-sans">
+                            <div className="grid grid-cols-2 gap-4 mb-4 border p-4 rounded bg-slate-50 text-sm">
+                              <div><p className="text-slate-500 text-[10px] uppercase font-bold">Project</p><p className="font-bold">{systemType} Plumbing</p></div>
+                              <div><p className="text-slate-500 text-[10px] uppercase font-bold">Scope</p><p className="font-bold">{pipeLength}m / {fixtures} Fix</p></div>
+                            </div>
+                            <table className="w-full border-collapse border border-slate-300 text-sm">
+                              <thead className="bg-slate-100 font-bold uppercase text-[10px]">
+                                <tr>{["S.No", "Description", "Unit", "Qty", "Rate", "Supplier", "Amount"].map(h => <th className="border p-2 text-left" key={h}>{h}</th>)}</tr>
+                              </thead>
+                              <tbody>
+                                {getMaterialsWithDetails().map((m, i) => (
+                                  <tr key={i} className="border-b">
+                                    <td className="border p-2">{i+1}</td><td className="border p-2 font-medium">{m.name}</td><td className="border p-2">{m.unit}</td><td className="border p-2">{m.quantity}</td><td className="border p-2">{m.rate}</td><td className="border p-2 text-xs">{m.shopName}</td><td className="border p-2 text-right font-bold">{m.amount.toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            <div className="mt-4 p-4 bg-blue-50 flex justify-between rounded items-center">
+                              <p className="font-bold text-blue-700">Total Material Cost</p>
+                              <p className="text-2xl font-black text-blue-700">₹{subTotal.toFixed(2)}</p>
+                            </div>
+                          </div>
+            
+                          <div className="flex gap-4 justify-end pt-4">
+                            <Button onClick={() => setStep(7)} variant="outline">Back</Button>
+                            <Button onClick={() => setStep(9)} className="bg-indigo-600">Finalize BOQ</Button>
+                          </div>
+                        </motion.div>
+                      )}
+            
+                     
+          {/* STEP 9: FINALIZE BOQ (User Provided Template) */}
+          {step === 9 && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+              {/* MANUAL INPUTS */}
+              <div className="grid grid-cols-3 gap-4">
+                <div><Label>Bill No</Label><Input value={finalBillNo} onChange={(e) => setFinalBillNo(e.target.value)} /></div>
+                <div><Label>Bill Date</Label><Input type="date" value={finalBillDate} onChange={(e) => setFinalBillDate(e.target.value)} /></div>
+                <div><Label>Due Date</Label><Input type="date" value={finalDueDate} onChange={(e) => setFinalDueDate(e.target.value)} /></div>
               </div>
-              <div className="flex justify-between font-bold">
-                <span>Total:</span>
-                <span>
-                  ₹{(calculateTotalCost() * 1.18).toFixed(2)}
-                </span>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Customer Name</Label><Input value={finalCustomerName} onChange={(e) => setFinalCustomerName(e.target.value)} /></div>
+                <div><Label>Customer Address</Label><Input value={finalCustomerAddress} onChange={(e) => setFinalCustomerAddress(e.target.value)} /></div>
               </div>
-            </div>
 
-            {/* Actions */}
-            <div className="space-y-2 pt-4">
-              <Button onClick={handleExportPDF} className="w-full">
-                <Download className="mr-2 h-4 w-4" />
-                Export PDF
-              </Button>
+              <div><Label>Terms & Conditions</Label><Input value={finalTerms} onChange={(e) => setFinalTerms(e.target.value)} /></div>
 
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  setStep(1);
-                  setSystemType(null);
-                  setPipeLengthMeters(50);
-                  setFixtureCount(3);
-                  setSelectedMaterials([]);
-                }}
-              >
-                New Estimate
-              </Button>
-            </div>
-          </div>
-        </Card>
+              {/* PDF VIEW */}
+              <div id="boq-final-pdf" style={{ width: "210mm", minHeight: "297mm", padding: "20mm", background: "#fff", color: "#000", fontFamily: "Arial", fontSize: 12 }}>
+                
+                {/* HEADER */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <img src={ctintLogo} alt="Concept Trunk Interiors" style={{ height: 60 }} />
+                  <div style={{ textAlign: "right" }}>
+                    <h2 style={{ margin: 0 }}>BILL</h2>
+                    <div>Bill No: {finalBillNo}</div>
+                  </div>
+                </div>
 
-      </div>
-      {/* ================= CONTENT END ================= */}
-    </div>
+                <hr style={{ margin: "10px 0" }} />
 
-    {/* Back Button */}
-    <div className="flex justify-start gap-2 pt-6">
-      <Button variant="outline" onClick={() => setStep(4)}>
-        <ChevronLeft className="mr-2 h-4 w-4" /> Back
-      </Button>
-    </div>
-  </motion.div>
-)}
+                {/* COMPANY + META */}
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+                  <div style={{ width: "55%", lineHeight: 1.5 }}>
+                    <strong>Concept Trunk Interiors</strong><br />
+                    12/36A, Indira Nagar, Medavakkam, Chennai – 600100<br />
+                    GSTIN: 33ASOPS5560M1Z1<br /><br />
+                    <strong>Bill From</strong><br />
+                    <pre style={{ margin: 0, fontFamily: "Arial", whiteSpace: "pre-wrap" }}>{finalShopDetails}</pre>
+                  </div>
 
-            </AnimatePresence>
-          </CardContent>
-        </Card>
+                  <div style={{ width: "40%", lineHeight: 1.6 }}>
+                    <div><strong>Bill Date</strong> : {finalBillDate}</div>
+                    <div><strong>Due Date</strong> : {finalDueDate}</div>
+                    <div style={{ marginTop: 6 }}><strong>Terms</strong> : {finalTerms}</div>
+                    <div style={{ marginTop: 6 }}><strong>Customer Name</strong> : {finalCustomerName}</div>
+                  </div>
+                </div>
+
+                {/* TABLE */}
+                <table style={{ width: "100%", marginTop: 20, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["S.No", "Item", "Description", "HSN", "Qty", "Rate", "Supplier", "Customer", "Amount"].map(h => (
+                        <th key={h} style={{ border: "1px solid #000", padding: 6, background: "#000", color: "#fff", fontSize: 11 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {materials.map((m, i) => (
+                      <tr key={m.id}>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{i + 1}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{m.description || "-"}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>7308</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{m.quantity}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{m.rate}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{m.shopName}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{finalCustomerName}</td>
+                        <td style={{ border: "1px solid #000", padding: 6, textAlign: "right" }}>{(m.quantity * m.rate).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* TOTALS */}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                  <table style={{ width: 300 }}>
+                    <tbody>
+                      <tr><td>Sub Total</td><td style={{ textAlign: "right" }}>{subTotal.toFixed(2)}</td></tr>
+                      <tr><td>SGST 9%</td><td style={{ textAlign: "right" }}>{sgst.toFixed(2)}</td></tr>
+                      <tr><td>CGST 9%</td><td style={{ textAlign: "right" }}>{cgst.toFixed(2)}</td></tr>
+                      <tr><td>Round Off</td><td style={{ textAlign: "right" }}>{roundOff.toFixed(2)}</td></tr>
+                      <tr><td><strong>Total</strong></td><td style={{ textAlign: "right" }}><strong>₹{grandTotal.toFixed(2)}</strong></td></tr>
+                      <tr><td><strong>Balance Due</strong></td><td style={{ textAlign: "right" }}><strong>₹{grandTotal.toFixed(2)}</strong></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* SIGNATURE */}
+                <div style={{ marginTop: 50 }}>
+                  <div style={{ width: 200, borderTop: "1px solid #000" }} />
+                  <div>Authorized Signature</div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button onClick={() => setStep(8)} variant="outline">Back</Button>
+                <Button onClick={handleExportFinalBOQ}>Export PDF</Button>
+              </div>
+            </motion.div>
+          )}
+
+        </AnimatePresence>
       </div>
     </Layout>
   );

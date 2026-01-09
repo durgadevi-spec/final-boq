@@ -12,8 +12,9 @@ import { ChevronRight, ChevronLeft, Download } from "lucide-react";
 import { useData } from "@/lib/store";
 import { WallType, wallOptions, subOptionsMap } from "@/lib/constants";
 import { computeRequired, ComputedMaterials } from "./computeRequired";
-import { StepIndicator } from "@/components/StepIndicator";
 import { CheckCircle2 } from "lucide-react";
+
+const ctintLogo = "/image.png";
 
 interface MaterialWithQuantity {
   id: string;
@@ -41,6 +42,18 @@ export default function CivilWallEstimator() {
 
   const [computed, setComputed] = useState<ComputedMaterials | null>(null);
 
+  // Editable materials state used in Step 5 (rate/quantity editable by user)
+  const [editableMaterials, setEditableMaterials] = useState<Record<string, { quantity: number; rate: number }>>({});
+  // Step 4: per-material shop selection (keyed by material code)
+  const [step4ShopSelection, setStep4ShopSelection] = useState<Record<string, string>>({});
+  // Final BOQ manual fields
+  const [finalBillNo, setFinalBillNo] = useState<string>("");
+  const [finalBillDate, setFinalBillDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [finalDueDate, setFinalDueDate] = useState<string>("");
+  const [finalTerms, setFinalTerms] = useState<string>("50% Advance and 50% on Completion");
+  const [finalCustomerName, setFinalCustomerName] = useState<string>("");
+  const [finalCustomerAddress, setFinalCustomerAddress] = useState<string>("");
+  const [finalShopDetails, setFinalShopDetails] = useState<string>("");
   // Compute materials automatically
   useEffect(() => {
     if (length && height && wallType && subOption) {
@@ -52,10 +65,70 @@ export default function CivilWallEstimator() {
   // Get available materials filtered by wall type
   const getAvailableMaterials = () => {
     if (!wallType) return [];
-    // For now, show all available materials
-    // TODO: Update materials database with proper categories
-    return storeMaterials;
+
+    const keywordsMap: Record<string, string[]> = {
+      civil: ["BRICK", "CEMENT", "SAND", "MORTAR", "AGGREGATE", "MASON", "STEEL"],
+      gypsum: ["GYPSUM", "PLASTER", "ROCKWOOL", "STUD", "FURRING", "BOARD", "DRYWALL"],
+      plywood: ["PLYWOOD", "LAMINATE", "ALUMINIUM", "CHANNEL", "ROCKWOOL", "BOARD"],
+      "gypsum-plywood": ["GYPSUM", "PLASTER", "ROCKWOOL", "STUD", "FURRING", "BOARD", "DRYWALL", "PLYWOOD", "LAMINATE", "ALUMINIUM", "CHANNEL"],
+      "gypsum-glass": ["GYPSUM", "PLASTER", "ROCKWOOL", "STUD", "FURRING", "BOARD", "DRYWALL", "GLASS", "ALUMINIUM", "FRAME"],
+      "plywood-glass": ["PLYWOOD", "LAMINATE", "ALUMINIUM", "CHANNEL", "ROCKWOOL", "BOARD", "GLASS", "FRAME"],
+    };
+
+    const kws = keywordsMap[wallType] || [wallType.toUpperCase()];
+    const normalize = (s: string | undefined) => (s || "").toString().toUpperCase();
+
+    // Filter materials whose category/subCategory/name/code include any keyword
+    const candidates = storeMaterials.filter((m) => {
+      const cat = normalize(m.category);
+      const sub = normalize(m.subCategory as string);
+      const name = normalize(m.name);
+      const code = normalize(m.code);
+      // Exclude obvious non-wall hardware for civil walls
+      const excludeForCivil = ["DOOR", "HINGE", "LOCK", "HANDLE", "HARDWARE", "GLASS", "FRAME-001"];
+      if (wallType === "civil") {
+        const isExcluded = excludeForCivil.some((ex) => cat.includes(ex) || sub.includes(ex) || name.includes(ex) || code.includes(ex));
+        if (isExcluded) return false;
+      }
+      return kws.some((kw) => cat.includes(kw) || sub.includes(kw) || name.includes(kw) || code.includes(kw));
+    });
+
+    return candidates;
   };
+
+  // Unique materials by code for step 4 listing
+  const getUniqueMaterials = () => {
+    const mats = getAvailableMaterials();
+    const map = new Map<string, typeof mats[0]>();
+
+    // Deduplicate by normalized code if available, otherwise by name
+    const normalizeKey = (m: typeof mats[0]) => (m.code && m.code.toString().trim()) ? m.code.trim().toUpperCase() : m.name.trim().toUpperCase();
+
+    for (const m of mats) {
+      const key = normalizeKey(m);
+      const existing = map.get(key);
+      // Prefer the lowest-rate representative for the unique list
+      if (!existing || (m.rate || 0) < (existing.rate || 0)) {
+        map.set(key, m);
+      }
+    }
+
+    return Array.from(map.values());
+  };
+
+  // Initialize default shop selection (lowest-rate) for step 4
+  useEffect(() => {
+    const unique = getUniqueMaterials();
+    const map: Record<string, string> = {};
+    unique.forEach((mat) => {
+      const shops = storeMaterials
+        .filter((m) => (m.code || m.id) === (mat.code || mat.id) && m.shopId)
+        .map((m) => ({ shopId: m.shopId as string, rate: m.rate }))
+        .sort((a, b) => a.rate - b.rate);
+      if (shops.length > 0) map[mat.code || mat.id] = shops[0].shopId;
+    });
+    setStep4ShopSelection((prev) => ({ ...map, ...prev }));
+  }, [storeMaterials]);
 
   // Toggle material selection with optional shopId
   const handleToggleMaterial = (materialId: string, shopId?: string) => {
@@ -68,8 +141,11 @@ export default function CivilWallEstimator() {
         // Toggle on - add to selection
         let selectedShopId = shopId;
         if (!selectedShopId) {
+          // find material code for this materialId and pick lowest-rate shop for that code
+          const mat = storeMaterials.find((m) => m.id === materialId);
+          const codeKey = mat ? (mat.code || mat.id) : materialId;
           const availableShops = storeMaterials
-            .filter((m) => m.id === materialId)
+            .filter((m) => (m.code || m.id) === codeKey && m.shopId)
             .sort((a, b) => a.rate - b.rate);
           selectedShopId = availableShops[0]?.shopId || "";
         }
@@ -154,20 +230,22 @@ export default function CivilWallEstimator() {
   // Get materials with quantities and shop info
   const getMaterialsWithDetails = (): MaterialWithQuantity[] => {
     return selectedMaterials.map(({ materialId, selectedShopId }) => {
-      const mat = storeMaterials.find((m) => m.id === materialId);
-      if (!mat) return null;
+      // materialId refers to the unique representative id (from getUniqueMaterials)
+      const rep = storeMaterials.find((m) => m.id === materialId) || storeMaterials.find((m) => (m.code || m.id) === materialId);
+      if (!rep) return null;
 
       let quantity = 0;
-      let unit = mat.unit || "pcs";
-      
-      // Get rate from selected shop
+      let unit = rep.unit || "pcs";
+
+      // Find the selected shop's material record by matching code and shopId
+      const codeKey = (rep.code || rep.id).toString();
       const selectedMat = storeMaterials.find(
-        (m) => m.id === materialId && m.shopId === selectedShopId
+        (m) => ((m.code || m.id).toString() === codeKey) && m.shopId === selectedShopId
       );
-      const rate = selectedMat?.rate || mat.rate || 0;
+      const rate = selectedMat?.rate ?? rep.rate ?? 0;
 
       // Calculate quantity based on material name keywords
-      const nameLower = mat.name.toLowerCase();
+      const nameLower = (rep.name || "").toLowerCase();
       if (wallType === "civil" && computed) {
         if (nameLower.includes("brick")) quantity = computed.roundedBricks || 0;
         else if (nameLower.includes("cement")) {
@@ -191,20 +269,55 @@ export default function CivilWallEstimator() {
       }
 
       return {
-        id: mat.id,
-        name: mat.name,
+        id: rep.id,
+        name: rep.name,
         quantity: Math.ceil(quantity),
         unit,
         rate,
         shopId: selectedShopId,
-        shopName:
-          storeShops.find((s) => s.id === selectedShopId)?.name || "Unknown",
+        shopName: storeShops.find((s) => s.id === selectedShopId)?.name || "Unknown",
       };
     }).filter(Boolean) as MaterialWithQuantity[];
   };
 
+  // Initialize editable materials when entering Step 5 or when selection changes
+  useEffect(() => {
+    if (step === 5) {
+      const details = getMaterialsWithDetails();
+      const map: Record<string, { quantity: number; rate: number }> = {};
+      details.forEach((d) => {
+        map[d.id] = { quantity: d.quantity || 0, rate: d.rate || 0 };
+      });
+      setEditableMaterials(map);
+    }
+  }, [step, selectedMaterials, computed]);
+
+  const setEditableQuantity = (materialId: string, quantity: number) => {
+    setEditableMaterials((prev) => ({
+      ...prev,
+      [materialId]: { ...(prev[materialId] || { rate: 0 }), quantity: Math.max(0, Math.ceil(quantity)) },
+    }));
+  };
+
+  const changeEditableRate = (materialId: string, delta: number) => {
+    setEditableMaterials((prev) => {
+      const cur = prev[materialId] || { quantity: 0, rate: 0 };
+      const newRate = Math.max(0, Math.round((cur.rate + delta) * 100) / 100);
+      return { ...prev, [materialId]: { ...cur, rate: newRate } };
+    });
+  };
+
+  // Final materials used for BOQ and totals (take editable overrides when available)
+  const getFinalMaterials = (): MaterialWithQuantity[] => {
+    return getMaterialsWithDetails().map((m) => {
+      const override = editableMaterials[m.id];
+      if (!override) return m;
+      return { ...m, quantity: override.quantity, rate: override.rate };
+    });
+  };
+
   const calculateTotalCost = () =>
-    getMaterialsWithDetails().reduce((sum, m) => sum + m.quantity * m.rate, 0);
+    getFinalMaterials().reduce((sum, m) => sum + m.quantity * m.rate, 0);
 
   const handleExportBOQ = () => {
     const materials = getMaterialsWithDetails();
@@ -235,6 +348,58 @@ export default function CivilWallEstimator() {
     URL.revokeObjectURL(url);
   };
 
+  // Prefill final shop/company details when opening final BOQ step
+  useEffect(() => {
+    if (step === 7) {
+      const details = getMaterialsWithDetails();
+      if (details.length > 0) {
+        const firstShopId = details[0].shopId;
+        const shop = storeShops.find((s) => s.id === firstShopId);
+        if (shop) {
+          const parts = [
+            shop.name || "",
+            shop.address || "",
+            shop.area || "",
+            shop.city || "",
+            shop.state || "",
+            shop.pincode || "",
+            shop.gstin ? `GSTIN: ${shop.gstin}` : "",
+            shop.phone ? `Ph: ${shop.phone}` : "",
+          ].filter(Boolean);
+          setFinalShopDetails(parts.join("\n"));
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedMaterials, storeShops]);
+
+  const handleExportFinalBOQ = async () => {
+    const element = document.getElementById("boq-final-pdf");
+
+    if (!element) {
+      alert("Final BOQ content not found");
+      return;
+    }
+
+    const html2pdf = (await import("html2pdf.js")).default;
+
+    html2pdf()
+      .set({
+        margin: 10,
+        filename: `BOQ-${finalBillNo || new Date().getTime()}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: "#ffffff",
+        },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      })
+      .from(element)
+      .save();
+  };
+
   const steps = [
     { number: 1, title: "Type", description: "Select wall type" },
     { number: 2, title: "Specifications", description: "Choose thickness/config" },
@@ -255,12 +420,6 @@ export default function CivilWallEstimator() {
             Complete 5-step process to generate your Bill of Quantities
           </p>
         </div>
-
-        <StepIndicator
-          steps={steps}
-          currentStep={step}
-          onStepClick={(s) => s <= step && setStep(s)}
-        />
 
         <Card className="border-border/50">
           <CardContent className="pt-8 min-h-96">
@@ -495,7 +654,7 @@ export default function CivilWallEstimator() {
                         <p className="text-xs">Materials will be added to the shop master soon</p>
                       </div>
                     ) : (
-                      getAvailableMaterials().map((mat) => {
+                      getUniqueMaterials().map((mat) => {
                         const isSelected = selectedMaterials.some(
                           (m) => m.materialId === mat.id
                         );
@@ -504,7 +663,7 @@ export default function CivilWallEstimator() {
                         );
 
                         const availableShops = storeMaterials
-                          .filter((m) => m.code === mat.code && m.shopId)
+                          .filter((m) => (m.code || m.id) === (mat.code || mat.id) && m.shopId)
                           .map((m) => ({
                             shopId: m.shopId as string,
                             rate: m.rate,
@@ -513,6 +672,9 @@ export default function CivilWallEstimator() {
                               "Unknown",
                           }))
                           .sort((a, b) => a.rate - b.rate);
+
+                        const codeKey = mat.code || mat.id;
+                        const selectedShopForRow = step4ShopSelection[codeKey] || availableShops[0]?.shopId;
 
                         return (
                           <div
@@ -536,17 +698,16 @@ export default function CivilWallEstimator() {
                                   {mat.code || mat.brandName}
                                 </p>
 
-                                {isSelected && availableShops.length > 0 && (
+                                {availableShops.length > 0 ? (
                                   <div className="mt-3 space-y-2">
                                     <Label className="text-xs">Select Shop:</Label>
                                     <Select
-                                      value={
-                                        currentSelection?.selectedShopId ||
-                                        availableShops[0].shopId
-                                      }
-                                      onValueChange={(newShopId) =>
-                                        handleChangeShop(mat.id, newShopId)
-                                      }
+                                      value={selectedShopForRow}
+                                      onValueChange={(newShopId) => {
+                                        setStep4ShopSelection((p) => ({ ...p, [codeKey]: newShopId }));
+                                        // if already selected, just change shop for that material
+                                        if (isSelected) handleChangeShop(mat.id, newShopId);
+                                      }}
                                     >
                                       <SelectTrigger className="h-8 text-xs">
                                         <SelectValue />
@@ -561,6 +722,8 @@ export default function CivilWallEstimator() {
                                       </SelectContent>
                                     </Select>
                                   </div>
+                                ) : (
+                                  <div className="mt-3 text-xs text-red-600">No shops available</div>
                                 )}
                               </div>
                             </div>
@@ -573,9 +736,11 @@ export default function CivilWallEstimator() {
                     <Button variant="outline" onClick={() => setStep(3)}>
                       <ChevronLeft className="mr-2 h-4 w-4" /> Back
                     </Button>
-                    <Button onClick={() => setStep(5)}>
-                      Next: Review Requirements <ChevronRight className="ml-2 h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-3">
+                      <Button onClick={() => setStep(5)}>
+                        Next: Review Requirements <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -595,118 +760,42 @@ export default function CivilWallEstimator() {
                   </p>
 
                   <div className="space-y-2">
-                    {wallType === "civil" && computed ? (
+                    {getFinalMaterials().length > 0 ? (
                       <>
-                        {computed.roundedBricks && computed.roundedBricks > 0 && (() => {
-                          const isSelected = isMaterialTypeSelected(["brick", "clay"]);
-                          const selectedMat = selectedMaterials.find(m => {
-                            const mat = storeMaterials.find(x => x.id === m.materialId);
-                            return mat && mat.name?.toLowerCase().includes("brick");
-                          });
-                          const selectedMaterial = selectedMat ? storeMaterials.find(m => m.id === selectedMat.materialId) : null;
-                          const selectedShop = selectedMat && selectedMaterial ? storeShops.find(s => s.id === selectedMat.selectedShopId) : null;
-                          const shopName = selectedShop?.name || "-";
-                          const rate = selectedMaterial?.rate || 0;
-                          return (
-                            <div key="brick" className={cn("p-3 border rounded grid grid-cols-6 items-center", !isSelected && "bg-red-100 border-red-400")}>
-                              <span className="col-span-2 font-medium">Red Clay Brick</span>
-                              <span className="col-span-1 text-center">{Math.ceil(computed.roundedBricks)} pcs</span>
-                              <span className="col-span-1 text-center font-semibold">{shopName}</span>
-                              <span className="col-span-1 text-center font-semibold">₹{rate}</span>
-                              {isSelected ? (
-                                <span className="col-span-1 text-green-600 font-semibold text-center">Selected</span>
-                              ) : (
-                                <Button size="sm" className="col-span-1" onClick={() => handleToggleMaterial(storeMaterials.find(m => m.name?.toLowerCase().includes("brick"))?.id || "")}>
-                                  Add
-                                </Button>
-                              )}
+                        <div className="grid grid-cols-7 gap-2 p-2 text-sm text-muted-foreground">
+                          <div className="col-span-2 font-medium">Item</div>
+                          <div className="text-center">Qty</div>
+                          <div className="text-center">Unit</div>
+                          <div className="text-center">Shop</div>
+                          <div className="text-center">Rate (₹)</div>
+                          <div className="text-right">Amount (₹)</div>
+                        </div>
+                        {getFinalMaterials().map((mat) => (
+                          <div key={mat.id} className={cn("p-3 border rounded grid grid-cols-7 items-center")}>
+                            <span className="col-span-2 font-medium">{mat.name}</span>
+                            <div className="col-span-1 text-center">
+                              <Input
+                                type="number"
+                                value={editableMaterials[mat.id]?.quantity ?? mat.quantity}
+                                onChange={(e) => setEditableQuantity(mat.id, parseInt(e.target.value || "0", 10))}
+                                className="w-20 mx-auto"
+                              />
                             </div>
-                          );
-                        })()}
-                        {computed.roundedCementBags && computed.roundedCementBags > 0 && (() => {
-                          const isSelected = isMaterialTypeSelected(["cement"]);
-                          const selectedMat = selectedMaterials.find(m => {
-                            const mat = storeMaterials.find(x => x.id === m.materialId);
-                            return mat && mat.name?.toLowerCase().includes("cement");
-                          });
-                          const selectedMaterial = selectedMat ? storeMaterials.find(m => m.id === selectedMat.materialId) : null;
-                          const selectedShop = selectedMat && selectedMaterial ? storeShops.find(s => s.id === selectedMat.selectedShopId) : null;
-                          const shopName = selectedShop?.name || "-";
-                          const rate = selectedMaterial?.rate || 0;
-                          return (
-                            <div key="cement" className={cn("p-3 border rounded grid grid-cols-6 items-center", !isSelected && "bg-red-100 border-red-400")}>
-                              <span className="col-span-2 font-medium">Cement</span>
-                              <span className="col-span-1 text-center">{Math.ceil(computed.roundedCementBags)} bags</span>
-                              <span className="col-span-1 text-center font-semibold">{shopName}</span>
-                              <span className="col-span-1 text-center font-semibold">₹{rate}</span>
-                              {isSelected ? (
-                                <span className="col-span-1 text-green-600 font-semibold text-center">Selected</span>
-                              ) : (
-                                <Button size="sm" className="col-span-1" onClick={() => handleToggleMaterial(storeMaterials.find(m => m.name?.toLowerCase().includes("cement"))?.id || "")}>
-                                  Add
-                                </Button>
-                              )}
+                            <span className="col-span-1 text-center text-muted-foreground">{mat.unit}</span>
+                            <div className="col-span-1 text-center font-semibold">{mat.shopName || "-"}</div>
+                            <div className="col-span-1 text-center">
+                              <div className="inline-flex items-center justify-center gap-2">
+                                <Button size="sm" onClick={() => changeEditableRate(mat.id, -1)}>-</Button>
+                                <div className="font-semibold">₹{editableMaterials[mat.id]?.rate ?? mat.rate}</div>
+                                <Button size="sm" onClick={() => changeEditableRate(mat.id, 1)}>+</Button>
+                              </div>
                             </div>
-                          );
-                        })()}
-                        {computed.roundedSandCubicFt && computed.roundedSandCubicFt > 0 && (() => {
-                          const isSelected = isMaterialTypeSelected(["sand"]);
-                          const selectedMat = selectedMaterials.find(m => {
-                            const mat = storeMaterials.find(x => x.id === m.materialId);
-                            return mat && mat.name?.toLowerCase().includes("sand");
-                          });
-                          const selectedMaterial = selectedMat ? storeMaterials.find(m => m.id === selectedMat.materialId) : null;
-                          const selectedShop = selectedMat && selectedMaterial ? storeShops.find(s => s.id === selectedMat.selectedShopId) : null;
-                          const shopName = selectedShop?.name || "-";
-                          const rate = selectedMaterial?.rate || 0;
-                          return (
-                            <div key="sand" className={cn("p-3 border rounded grid grid-cols-6 items-center", !isSelected && "bg-red-100 border-red-400")}>
-                              <span className="col-span-2 font-medium">Sand</span>
-                              <span className="col-span-1 text-center">{Math.ceil(computed.roundedSandCubicFt)} cft</span>
-                              <span className="col-span-1 text-center font-semibold">{shopName}</span>
-                              <span className="col-span-1 text-center font-semibold">₹{rate}</span>
-                              {isSelected ? (
-                                <span className="col-span-1 text-green-600 font-semibold text-center">Selected</span>
-                              ) : (
-                                <Button size="sm" className="col-span-1" onClick={() => handleToggleMaterial(storeMaterials.find(m => m.name?.toLowerCase().includes("sand"))?.id || "")}>
-                                  Add
-                                </Button>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </>
-                    ) : wallType === "gypsum" && computed ? (
-                      <>
-                        {computed.boards && computed.boards > 0 && (() => {
-                          const isSelected = isMaterialTypeSelected(["gypsum"]);
-                          const selectedMat = selectedMaterials.find(m => {
-                            const mat = storeMaterials.find(x => x.id === m.materialId);
-                            return mat && mat.name?.toLowerCase().includes("gypsum");
-                          });
-                          const selectedMaterial = selectedMat ? storeMaterials.find(m => m.id === selectedMat.materialId) : null;
-                          const selectedShop = selectedMat && selectedMaterial ? storeShops.find(s => s.id === selectedMat.selectedShopId) : null;
-                          const shopName = selectedShop?.name || "-";
-                          const rate = selectedMaterial?.rate || 0;
-                          return (
-                            <div key="gypsum" className={cn("p-3 border rounded grid grid-cols-6 items-center", !isSelected && "bg-red-100 border-red-400")}>
-                              <span className="col-span-2 font-medium">Gypsum Board</span>
-                              <span className="col-span-1 text-center">{Math.ceil(computed.boards)} pcs</span>
-                              <span className="col-span-1 text-center font-semibold">{shopName}</span>
-                              <span className="col-span-1 text-center font-semibold">₹{rate}</span>
-                              {isSelected ? (
-                                <span className="col-span-1 text-green-600 font-semibold text-center">Selected</span>
-                              ) : (
-                                <Button size="sm" className="col-span-1" onClick={() => handleToggleMaterial(storeMaterials.find(m => m.name?.toLowerCase().includes("gypsum"))?.id || "")}>
-                                  Add
-                                </Button>
-                              )}
-                            </div>
-                          );
-                        })()}
+                            <div className="col-span-1 text-right font-semibold">₹{((editableMaterials[mat.id]?.quantity ?? mat.quantity) * (editableMaterials[mat.id]?.rate ?? mat.rate)).toFixed(2)}</div>
+                          </div>
+                        ))}
                       </>
                     ) : (
-                      <p className="text-center text-muted-foreground py-4">No required materials for this type</p>
+                      <p className="text-center text-muted-foreground py-4">No materials selected</p>
                     )}
                   </div>
 
@@ -796,8 +885,8 @@ export default function CivilWallEstimator() {
                             </tr>
                           </thead>
                           <tbody>
-                            {getMaterialsWithDetails().length > 0 ? (
-                              getMaterialsWithDetails().map((mat, index) => (
+                            {getFinalMaterials().length > 0 ? (
+                              getFinalMaterials().map((mat, index) => (
                                 <tr key={mat.id}>
                                   <td style={{ border: "1px solid #d1d5db", padding: "8px" }}>{index + 1}</td>
                                   <td style={{ border: "1px solid #d1d5db", padding: "8px", fontWeight: 500 }}>{mat.name}</td>
@@ -823,7 +912,7 @@ export default function CivilWallEstimator() {
                     </div>
 
                     {/* Total Summary */}
-                    {getMaterialsWithDetails().length > 0 && (
+                    {getFinalMaterials().length > 0 && (
                       <div style={{ border: "1px solid #d1d5db", borderRadius: "8px", padding: "16px", display: "flex", justifyContent: "space-between", backgroundColor: "#eff6ff" }}>
                         <div>
                           <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>Total Materials</p>
@@ -831,7 +920,7 @@ export default function CivilWallEstimator() {
                         </div>
                         <div>
                           <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>Total Quantity</p>
-                          <p style={{ fontWeight: 600 }}>{getMaterialsWithDetails().reduce((s, m) => s + Math.ceil(m.quantity), 0)}</p>
+                          <p style={{ fontWeight: 600 }}>{getFinalMaterials().reduce((s, m) => s + Math.ceil(m.quantity), 0)}</p>
                         </div>
                         <div>
                           <p style={{ fontSize: "0.875rem", color: "#6b7280" }}>Grand Total</p>
@@ -850,6 +939,13 @@ export default function CivilWallEstimator() {
                         <Download className="mr-2 h-4 w-4" /> Export BOQ
                       </Button>
                       <Button
+                        className="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg"
+                        onClick={() => setStep(7)}
+                        disabled={getFinalMaterials().length === 0}
+                      >
+                        Finalize BOQ
+                      </Button>
+                      <Button
                         variant="outline"
                         onClick={() => {
                           setStep(1);
@@ -865,6 +961,140 @@ export default function CivilWallEstimator() {
                         New Estimate
                       </Button>
                     </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* STEP 7: Finalize BOQ (manual fields + export) */}
+              {step === 7 && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label>Bill No</Label>
+                      <Input value={finalBillNo} onChange={(e) => setFinalBillNo(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Bill Date</Label>
+                      <Input type="date" value={finalBillDate} onChange={(e) => setFinalBillDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Due Date</Label>
+                      <Input type="date" value={finalDueDate} onChange={(e) => setFinalDueDate(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Customer Name</Label>
+                      <Input value={finalCustomerName} onChange={(e) => setFinalCustomerName(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Terms & Conditions</Label>
+                      <Input value={finalTerms} onChange={(e) => setFinalTerms(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div id="boq-final-pdf" style={{ width: "210mm", minHeight: "297mm", padding: "20mm", background: "#fff", color: "#000", fontFamily: "Arial", fontSize: 12 }}>
+                    {/* HEADER: logo left, company block + bill info right (match Doors layout) */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ width: "55%", display: "flex", gap: 12 }}>
+                        <img src={ctintLogo} alt="Concept Trunk Interiors" style={{ height: 60, flexShrink: 0 }} />
+                        <div style={{ lineHeight: 1.4 }}>
+                          <strong>Concept Trunk Interiors</strong><br />
+                          12/36A, Indira Nagar<br />
+                          Medavakkam<br />
+                          Chennai – 600100<br />
+                          GSTIN: 33ASOPS5560M1Z1
+                          <br /><br />
+                          <strong>Bill From</strong><br />
+                          <pre style={{ margin: 0, fontFamily: "Arial", whiteSpace: "pre-wrap", fontSize: 11 }}>{finalShopDetails}</pre>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: "right", width: "40%" }}>
+                        <div style={{ fontWeight: "bold", fontSize: 16 }}>BILL</div>
+                        <div>Bill No: {finalBillNo || "-"}</div>
+                        <div>Bill Date: {finalBillDate && new Date(finalBillDate).toLocaleDateString("en-GB")}</div>
+                        <div>Due Date: {finalDueDate && new Date(finalDueDate).toLocaleDateString("en-GB")}</div>
+                        <div style={{ marginTop: 6 }}>Terms: {finalTerms}</div>
+                        <div style={{ marginTop: 6 }}>Customer: {finalCustomerName}</div>
+                      </div>
+                    </div>
+
+                    <hr style={{ margin: "10px 0" }} />
+
+                    <div style={{ marginBottom: 12, lineHeight: 1.5 }}>
+                      <strong style={{ fontSize: 12 }}>Bill To:</strong>
+                      <div style={{ fontSize: 11, marginTop: 4 }}>{finalCustomerName}<br />{finalCustomerAddress}</div>
+                    </div>
+
+                    <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
+                      <thead>
+                        <tr>
+                          {["#","Item","Unit","Qty","Rate","Supplier","Amount"].map((h) => (
+                            <th key={h} style={{ border: "1px solid #000", padding: 6, background: "#000", color: "#fff", fontSize: 10, textAlign: h === "Qty" || h === "Rate" || h === "Amount" ? "right" : "left", fontWeight: "bold" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {getFinalMaterials().map((m, i) => (
+                          <tr key={m.id}>
+                            <td style={{ border: "1px solid #000", padding: 6, textAlign: "center" }}>{i+1}</td>
+                            <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
+                            <td style={{ border: "1px solid #000", padding: 6, textAlign: "center" }}>{m.unit}</td>
+                            <td style={{ border: "1px solid #000", padding: 6, textAlign: "right" }}>{m.quantity}</td>
+                            <td style={{ border: "1px solid #000", padding: 6, textAlign: "right" }}>{Number(m.rate || 0).toFixed(2)}</td>
+                            <td style={{ border: "1px solid #000", padding: 6 }}>{m.shopName}</td>
+                            <td style={{ border: "1px solid #000", padding: 6, textAlign: "right", fontWeight: 600 }}>{(Number(m.quantity || 0) * Number(m.rate || 0)).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    {(() => {
+                      const subTotal = calculateTotalCost();
+                      const sgst = subTotal * 0.09;
+                      const cgst = subTotal * 0.09;
+                      const roundOff = Math.round((subTotal + sgst + cgst) * 100) / 100 - (subTotal + sgst + cgst);
+                      const total = subTotal + sgst + cgst + roundOff;
+
+                      return (
+                        <table style={{ width: 300, marginLeft: "auto", marginTop: 12, borderCollapse: "collapse" }}>
+                          <tbody>
+                            <tr>
+                              <td style={{ padding: "6px 8px", textAlign: "left", fontSize: 11 }}>Sub Total</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 11 }}>{Number(subTotal || 0).toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: "6px 8px", textAlign: "left", fontSize: 11 }}>SGST 9%</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 11 }}>{Number(sgst || 0).toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: "6px 8px", textAlign: "left", fontSize: 11 }}>CGST 9%</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 11 }}>{Number(cgst || 0).toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style={{ padding: "6px 8px", textAlign: "left", fontSize: 11 }}>Round Off</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 11 }}>{Number(roundOff || 0).toFixed(2)}</td>
+                            </tr>
+                            <tr style={{ borderTop: "2px solid #000", borderBottom: "2px solid #000" }}>
+                              <td style={{ padding: "6px 8px", textAlign: "left", fontSize: 11, fontWeight: "bold" }}>Total</td>
+                              <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12, fontWeight: "bold" }}>₹{Number(total || 0).toFixed(2)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+
+                    <div style={{ marginTop: 50 }}>
+                      <div style={{ width: 200, borderTop: "1px solid #000" }} />
+                      <div>Authorized Signature</div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setStep(6)}>Back</Button>
+                    <Button onClick={handleExportFinalBOQ}>Export PDF</Button>
                   </div>
                 </motion.div>
               )}

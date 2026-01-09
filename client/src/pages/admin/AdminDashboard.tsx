@@ -34,7 +34,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { postJSON } from "@/lib/api";
+import { postJSON, apiFetch } from "@/lib/api";
 import { Link, useLocation } from "wouter";
 
 /* 🔴 REQUIRED ASTERISK */
@@ -248,6 +248,8 @@ export default function AdminDashboard() {
   // Local managed copies so admin can edit/delete/disable items in UI
   const [localMaterials, setLocalMaterials] = useState(() => [] as Array<any>);
   const [localShops, setLocalShops] = useState(() => [] as Array<any>);
+  const [masterSearch, setMasterSearch] = useState("");
+  const [masterView, setMasterView] = useState<'grid'|'list'>('grid');
 
   // Search inputs for dashboard lists
   const [shopSearch, setShopSearch] = useState<string>("");
@@ -543,6 +545,55 @@ export default function AdminDashboard() {
     setSelectedMasterId("");
   };
 
+  const handleEditMaterial = (mat: any) => {
+    setEditingMaterialId(mat.id);
+    setNewMaterial({
+      name: mat.name,
+      code: mat.code,
+      rate: mat.rate,
+      unit: mat.unit,
+      category: mat.category || "",
+      subCategory: mat.subCategory || "",
+      brandName: mat.brandName || "",
+      modelNumber: mat.modelNumber || "",
+      technicalSpecification: mat.technicalSpecification || "",
+      dimensions: mat.dimensions || "",
+      finish: mat.finish || "",
+      metalType: mat.metalType || "",
+    });
+    // stay on the dashboard and allow inline editing
+  };
+
+  const handleUpdateMaterial = async () => {
+    if (!editingMaterialId) return;
+    try {
+      // try server update using PUT (server expects PUT /api/materials/:id)
+      try {
+        const res = await apiFetch(`/materials/${editingMaterialId}`, { method: 'PUT', body: JSON.stringify(newMaterial) });
+        if (res.ok) {
+          const data = await res.json();
+          const updated = data?.material || data;
+          // update local UI state with server response (prefer server fields)
+          setLocalMaterials((prev: any[]) => prev.map((m: any) => (m.id === editingMaterialId ? { ...m, ...updated } : m)));
+        } else {
+          // log server error body
+          try { const txt = await res.text(); console.warn('[handleUpdateMaterial] server responded non-ok', res.status, txt); } catch { console.warn('[handleUpdateMaterial] server responded non-ok', res.status); }
+          // fallback to applying locally
+          setLocalMaterials((prev: any[]) => prev.map((m: any) => (m.id === editingMaterialId ? { ...m, ...newMaterial } : m)));
+        }
+      } catch (e) {
+        console.warn('[handleUpdateMaterial] server update failed, applying locally', e);
+        setLocalMaterials((prev: any[]) => prev.map((m: any) => (m.id === editingMaterialId ? { ...m, ...newMaterial } : m)));
+      }
+
+      toast({ title: 'Updated', description: 'Material details updated' });
+      setEditingMaterialId(null);
+      setNewMaterial({ name: '', code: '', rate: 0, unit: 'pcs', category: '', subCategory: '', brandName: '', modelNumber: '', technicalSpecification: '', dimensions: '', finish: '', metalType: '' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: 'Failed to update material', variant: 'destructive' });
+    }
+  };
+
   // State for new shop
   const [newShop, setNewShop] = useState<Partial<Shop>>({
     name: "",
@@ -555,6 +606,10 @@ export default function AdminDashboard() {
     gstNo: "",
     rating: 5,
   });
+
+  // Editing states
+  const [editingShopId, setEditingShopId] = useState<string | null>(null);
+  const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null);
 
   // State for support message
   const [supportMsg, setSupportMsg] = useState("");
@@ -639,9 +694,52 @@ export default function AdminDashboard() {
           pincode: "",
           gstNo: "",
         });
+        setEditingShopId(null);
       }
     })();
   };
+
+  const handleEditShop = (shop: any) => {
+    setEditingShopId(shop.id);
+    setNewShop({
+      name: shop.name,
+      location: shop.location,
+      city: shop.city,
+      state: shop.state,
+      country: shop.country,
+      pincode: shop.pincode,
+      phoneCountryCode: shop.phoneCountryCode || "+91",
+      gstNo: shop.gstNo || "",
+      rating: shop.rating || 5,
+    });
+    // open shops tab
+    setActiveTab("shops");
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", "shops");
+      window.history.replaceState({}, "", url.toString());
+    }
+  };
+
+  const handleUpdateShop = async () => {
+    if (!editingShopId) return;
+    try {
+      // try server update
+      try {
+        await postJSON(`/shops/${editingShopId}`, newShop);
+      } catch (e) {
+        console.warn('[handleUpdateShop] server update failed, applying locally', e);
+      }
+      // update local UI state
+      setLocalShops((prev: any[]) => prev.map((s: any) => (s.id === editingShopId ? { ...s, ...newShop } : s)));
+      toast({ title: 'Updated', description: 'Shop details updated' });
+      setEditingShopId(null);
+      setNewShop({ name: '', location: '', city: '', phoneCountryCode: '+91', state: '', country: '', pincode: '', gstNo: '' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: 'Failed to update shop', variant: 'destructive' });
+    }
+  };
+
 
   const handleApproveShop = (request: any) => {
     (async () => {
@@ -913,46 +1011,7 @@ export default function AdminDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle>All Shops</CardTitle>
-                  <div className="flex items-center justify-between">
-                    <CardDescription className="text-sm">List of shops (compact)</CardDescription>
-                    <div>
-                      <Button size="sm" onClick={async () => {
-                        try {
-                          // fetch approved shops
-                          const res = await fetch('/api/shops');
-                          if (!res.ok) throw new Error('failed to fetch approved shops');
-                          const data = await res.json();
-                          const approved = data?.shops || [];
-
-                          // fetch pending shop requests (admin view)
-                          let pending: any[] = [];
-                          try {
-                            const pres = await fetch('/api/shops-pending-approval');
-                            if (pres.ok) {
-                              const pdata = await pres.json();
-                              // api returns { shops: [{ id, status, shop }] }
-                              pending = (pdata?.shops || []).map((r: any) => ({ ...r.shop, _pendingRequestId: r.id }));
-                            }
-                          } catch (err) {
-                            // ignore pending fetch errors
-                            console.warn('fetch pending shops failed', err);
-                          }
-
-                          // merge approved + pending (avoid duplicates by id)
-                          const merged = [...approved];
-                          for (const p of pending) {
-                            if (!merged.some((a: any) => a.id === p.id)) merged.push(p);
-                          }
-
-                          setLocalShops(merged);
-                          toast({ title: 'Refreshed', description: 'Shops refreshed from server (approved + pending)' });
-                        } catch (e) {
-                          console.warn('refresh shops failed', e);
-                          toast({ title: 'Error', description: 'Failed to refresh shops', variant: 'destructive' });
-                        }
-                      }}>Refresh</Button>
-                    </div>
-                  </div>
+                  <CardDescription className="text-sm">List of shops (compact)</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <div className="mb-2">
@@ -975,6 +1034,7 @@ export default function AdminDashboard() {
                           <div className="flex items-center gap-2">
                             {canEditDelete && (
                               <>
+                                <Button size="sm" onClick={() => handleEditShop(shop)}>Edit</Button>
                                 <Button size="sm" onClick={() => setLocalShops((prev: any[]) => prev.map((s: any) => s.id === shop.id ? { ...s, disabled: !s.disabled } : s))}>
                                   {shop.disabled ? 'Enable' : 'Disable'}
                                 </Button>
@@ -1023,34 +1083,111 @@ export default function AdminDashboard() {
                       <p className="text-muted-foreground">No materials available</p>
                     ) : (
                       filteredMaterials.map((mat: any) => (
-                        <div key={mat.id} className="flex items-center justify-between p-2 border-b">
-                          <div>
-                            <div className="font-medium text-sm">{mat.name}</div>
-                            <div className="text-xs text-muted-foreground">{mat.code} • ₹{mat.rate}/{mat.unit}</div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button size="sm" onClick={() => setLocalMaterials((prev: any[]) => prev.map((m: any) => m.id === mat.id ? { ...m, disabled: !m.disabled } : m))}>
-                              {mat.disabled ? 'Enable' : 'Disable'}
-                            </Button>
-                            {canEditDelete && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-destructive"
-                                onClick={() => {
-                                  deleteMaterial(mat.id).then(() => {
-                                    setLocalMaterials((prev: any[]) => prev.filter((p: any) => p.id !== mat.id));
-                                    toast({ title: 'Deleted', description: `${mat.name} removed` });
-                                  }).catch(() => {
-                                    setLocalMaterials((prev: any[]) => prev.filter((p: any) => p.id !== mat.id));
-                                    toast({ title: 'Deleted', description: `${mat.name} removed` });
-                                  });
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
+                        <div key={mat.id} className="p-2 border-b">
+                          {editingMaterialId === mat.id ? (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div>
+                                  <Label>Name</Label>
+                                  <Input value={newMaterial.name || ''} onChange={(e) => setNewMaterial({ ...newMaterial, name: e.target.value })} />
+                                </div>
+                                <div>
+                                  <Label>Code</Label>
+                                  <Input value={newMaterial.code || ''} onChange={(e) => setNewMaterial({ ...newMaterial, code: e.target.value })} />
+                                </div>
+                                <div>
+                                  <Label>Rate</Label>
+                                  <Input type="number" value={newMaterial.rate || ''} onChange={(e) => setNewMaterial({ ...newMaterial, rate: parseFloat(e.target.value) || 0 })} />
+                                </div>
+                                <div>
+                                  <Label>Unit</Label>
+                                  <Select value={newMaterial.unit || ''} onValueChange={(v) => setNewMaterial({ ...newMaterial, unit: v })}>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {UNIT_OPTIONS.map((c) => (
+                                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label>Category</Label>
+                                  <Select value={newMaterial.category || ''} onValueChange={(v) => setNewMaterial({ ...newMaterial, category: v, subCategory: '' })}>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {categories.map((c: string) => (
+                                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label>Sub Category</Label>
+                                  <Select value={newMaterial.subCategory || ''} onValueChange={(v) => setNewMaterial({ ...newMaterial, subCategory: v })}>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {getSubCategoriesForCategory(newMaterial.category || '').map((sc: any) => (
+                                        <SelectItem key={sc.id} value={sc.name}>{sc.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label>Brand Name</Label>
+                                  <Input value={newMaterial.brandName || ''} onChange={(e) => setNewMaterial({ ...newMaterial, brandName: e.target.value })} />
+                                </div>
+                                <div>
+                                  <Label>Model Number</Label>
+                                  <Input value={newMaterial.modelNumber || ''} onChange={(e) => setNewMaterial({ ...newMaterial, modelNumber: e.target.value })} />
+                                </div>
+                              </div>
+                              <div>
+                                <Label>Technical Specification</Label>
+                                <Textarea value={newMaterial.technicalSpecification || ''} onChange={(e) => setNewMaterial({ ...newMaterial, technicalSpecification: e.target.value })} />
+                              </div>
+                              <div className="flex gap-2">
+                                <Button size="sm" onClick={handleUpdateMaterial}>Save Changes</Button>
+                                <Button size="sm" variant="ghost" onClick={() => { setEditingMaterialId(null); setNewMaterial({ name: '', code: '', rate: 0, unit: 'pcs', category: '', subCategory: '', brandName: '', modelNumber: '', technicalSpecification: '', dimensions: '', finish: '', metalType: '' }); }}>Cancel</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="font-medium text-sm">{mat.name}</div>
+                                <div className="text-xs text-muted-foreground">{mat.code} • ₹{mat.rate}/{mat.unit}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button size="sm" onClick={() => setLocalMaterials((prev: any[]) => prev.map((m: any) => m.id === mat.id ? { ...m, disabled: !m.disabled } : m))}>
+                                  {mat.disabled ? 'Enable' : 'Disable'}
+                                </Button>
+                                <Button size="sm" onClick={() => handleEditMaterial(mat)}>Edit</Button>
+                                {canEditDelete && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-destructive"
+                                    onClick={() => {
+                                      deleteMaterial(mat.id).then(() => {
+                                        setLocalMaterials((prev: any[]) => prev.filter((p: any) => p.id !== mat.id));
+                                        toast({ title: 'Deleted', description: `${mat.name} removed` });
+                                      }).catch(() => {
+                                        setLocalMaterials((prev: any[]) => prev.filter((p: any) => p.id !== mat.id));
+                                        toast({ title: 'Deleted', description: `${mat.name} removed` });
+                                      });
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))
                     )}
@@ -1068,6 +1205,17 @@ export default function AdminDashboard() {
                   <CardDescription className="text-sm">Select a material </CardDescription>
                 </CardHeader>
                 <CardContent>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Input value={(typeof masterSearch !== 'undefined') ? masterSearch : ''} onChange={(e) => setMasterSearch(e.target.value)} placeholder="Search templates..." />
+                      <div className="inline-flex rounded-md shadow-sm" role="group">
+                        <Button size="sm" variant={masterView==='grid' ? undefined : 'ghost'} onClick={() => setMasterView('grid')}>Grid</Button>
+                        <Button size="sm" variant={masterView==='list' ? undefined : 'ghost'} onClick={() => setMasterView('list')}>List</Button>
+                      </div>
+                    </div>
+                    <div />
+                  </div>
+                  
                   {masterMaterials.length === 0 ? (
                     <p className="text-muted-foreground">No master materials yet</p>
                   ) : (
@@ -1182,28 +1330,29 @@ export default function AdminDashboard() {
                                   <span className="text-xs text-muted-foreground">(disabled)</span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-1">
-                                {canManageCategories && (
-                                  <>
-                                    <Button size="sm" variant="ghost" onClick={() => {
-                                      setEditingCategory(cat);
-                                      setEditingCategoryValue(cat);
-                                    }}>
-                                      <span className="text-xs">Edit</span>
-                                    </Button>
-                                    <Button size="sm" variant="ghost" onClick={() => {
-                                      setDisabledCategories((prev: string[]) => prev.includes(cat) ? prev.filter((c: string) => c !== cat) : [...prev, cat]);
-                                    }}>
-                                      {disabledCategories.includes(cat) ? <span className="text-xs">Enable</span> : <span className="text-xs">Disable</span>}
-                                    </Button>
-                                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => {
-                                      setCategories((prev: string[]) => prev.filter((c: string) => c !== cat));
-                                      setSubCategories((prev: any[]) => prev.filter((s: any) => s.category !== cat));
-                                    }}>
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </>
-                                )}
+                              <div className="flex items-center gap-2">
+                                <Button size="sm" onClick={() => { setEditingCategory(cat); setEditingCategoryValue(cat); }}>Edit</Button>
+                                <Button size="sm" onClick={() => setDisabledCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])}>
+                                  {disabledCategories.includes(cat) ? 'Enable' : 'Disable'}
+                                </Button>
+                                <Button size="sm" variant="destructive" onClick={async () => {
+                                  if (!window.confirm(`Delete category "${cat}" and its subcategories? This cannot be undone.`)) return;
+                                  try {
+                                    const token = localStorage.getItem('authToken');
+                                    const res = await fetch(`/api/categories/${encodeURIComponent(cat)}`, { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+                                    if (!res.ok) {
+                                      const txt = await res.text();
+                                      throw new Error(txt || `delete failed ${res.status}`);
+                                    }
+                                    // remove locally
+                                    setCategories(prev => prev.filter(c => c !== cat));
+                                    setSubCategories(prev => prev.filter(s => s.category !== cat));
+                                    toast({ title: 'Deleted', description: `Category ${cat} removed` });
+                                  } catch (err) {
+                                    console.error('delete category error', err);
+                                    toast({ title: 'Error', description: 'Failed to delete category', variant: 'destructive' });
+                                  }
+                                }}>Delete</Button>
                               </div>
                             </div>
                             {subCats.length > 0 && (
@@ -1283,14 +1432,14 @@ export default function AdminDashboard() {
             {/* ADMIN/SOFTWARE/PURCHASE_TEAM: Create Master Material */}
             {(isAdminOrSoftwareTeam || user?.role === "purchase_team") && (
               <Card className="border-blue-200 bg-blue-50">
-                <CardHeader>
-                  <CardTitle className="text-blue-900">
-                    📋 Create  Material
-                  </CardTitle>
-                  <CardDescription className="text-blue-800">
-                     Add new material templates for suppliers to use
-                  </CardDescription>
-                </CardHeader>
+                  <CardHeader>
+                    <CardTitle className="text-blue-900">
+                      <Package className="inline-block mr-2 h-4 w-4 text-blue-900" /> Create Material
+                    </CardTitle>
+                    <CardDescription className="text-blue-800">
+                       Add new material templates for suppliers to use
+                    </CardDescription>
+                  </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -1354,6 +1503,25 @@ export default function AdminDashboard() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={async () => {
+                      try {
+                        const res = await fetch('/api/categories');
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data?.categories) setCategories(data.categories);
+                        }
+                      } catch (e) { console.warn('refresh categories failed', e); }
+                      try {
+                        const res2 = await fetch('/api/subcategories-admin');
+                        if (res2.ok) {
+                          const data2 = await res2.json();
+                          if (data2?.subcategories) setSubCategories(data2.subcategories);
+                        }
+                      } catch (e) { console.warn('refresh subcategories failed', e); }
+                      toast({ title: 'Refreshed', description: 'Categories and subcategories reloaded' });
+                    }}>Refresh categories</Button>
+                  </div>
                   {masterMaterials.length === 0 ? (
                     <div className="p-4 bg-yellow-50 border border-yellow-200 rounded text-yellow-800">
                       ⚠️ No master materials available yet. Admin/Software Team will add them soon.
@@ -1578,10 +1746,14 @@ export default function AdminDashboard() {
                             </Button>
 
                             <Button
-                              onClick={handleAddMaterial}
+                              onClick={editingMaterialId ? handleUpdateMaterial : handleAddMaterial}
                               className="w-full md:w-auto"
                             >
-                              <Plus className="mr-2 h-4 w-4" /> Add Material
+                              {editingMaterialId ? (
+                                <>Save Changes</>
+                              ) : (
+                                <><Plus className="mr-2 h-4 w-4" /> Add Material</>
+                              )}
                             </Button>
                           </div>
                         </>
@@ -1600,6 +1772,14 @@ export default function AdminDashboard() {
                   <CardDescription>
                     Manage all material templates created for suppliers
                   </CardDescription>
+                  <div className="mt-4">
+                    <Input
+                      placeholder="Search materials..."
+                      value={masterSearch}
+                      onChange={(e) => setMasterSearch(e.target.value)}
+                      className="max-w-sm"
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {masterMaterials.length === 0 ? (
@@ -1607,70 +1787,68 @@ export default function AdminDashboard() {
                       No material templates created yet. Create one above.
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                      {masterMaterials.map((template: any) => (
-                        <div
-                          key={template.id}
-                          className="p-3 border rounded-lg hover:shadow-md transition-shadow bg-white flex flex-col"
-                        >
+                    <div className="space-y-2">
+                      {masterMaterials.filter((t: any) => (t.name + ' ' + t.code + ' ' + (t.category || '')).toLowerCase().includes(masterSearch.toLowerCase())).slice(0,12).map((template: any) => (
+                        <div key={template.id} className="p-2 border rounded flex items-center justify-between">
                           <div className="flex-1">
-                            <div className="font-medium text-sm truncate">{template.name}</div>
-                            <div className="text-xs text-muted-foreground truncate">{template.code}</div>
-                            {template.category && (
-                              <div className="text-xs text-gray-500 mt-1">{template.category}</div>
+                            {editingMaterialId === template.id ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={newMaterial.name}
+                                  onChange={(e) => setNewMaterial({ ...newMaterial, name: e.target.value })}
+                                  placeholder="Enter material name"
+                                  className="max-w-xs"
+                                />
+                                <Button size="sm" onClick={async () => {
+                                  if (!newMaterial.name.trim()) {
+                                    toast({ title: 'Error', description: 'Material name is required', variant: 'destructive' });
+                                    return;
+                                  }
+                                  try {
+                                    const token = localStorage.getItem('authToken');
+                                    const res = await fetch(`/api/material-templates/${template.id}`, {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+                                      body: JSON.stringify({ name: newMaterial.name })
+                                    });
+                                    if (!res.ok) throw new Error('update failed');
+                                    setMasterMaterials(prev => prev.map(m => m.id === template.id ? { ...m, name: newMaterial.name } : m));
+                                    setEditingMaterialId(null);
+                                    toast({ title: 'Success', description: 'Material name updated' });
+                                  } catch (err) {
+                                    console.error('update error', err);
+                                    toast({ title: 'Error', description: 'Failed to update material', variant: 'destructive' });
+                                  }
+                                }}>Save</Button>
+                                <Button size="sm" variant="ghost" onClick={() => setEditingMaterialId(null)}>Cancel</Button>
+                              </div>
+                            ) : (
+                              <div>
+                                <div className="font-medium text-sm">{template.name}</div>
+                                <div className="text-xs text-muted-foreground">{template.code} {template.category && (<span className="ml-2 text-[11px] text-gray-500">• {template.category}</span>)}</div>
+                              </div>
                             )}
                           </div>
-                          {/* Delete button - only for admin and software_team */}
-                          {canEditDelete && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="mt-2 text-red-600 hover:text-red-700 hover:bg-red-50 w-full"
-                              onClick={async () => {
-                                if (
-                                  window.confirm(
-                                    `Delete template "${template.name}"? This cannot be undone.`
-                                  )
-                                ) {
-                                  try {
-                                    const token = localStorage.getItem("authToken");
-                                    console.log('[Delete Template] ID:', template.id, 'Token:', !!token);
-                                    const response = await fetch(
-                                      `/api/material-templates/${template.id}`,
-                                      {
-                                        method: "DELETE",
-                                        headers: token
-                                          ? { Authorization: `Bearer ${token}` }
-                                          : {},
-                                      }
-                                    );
-                                    console.log('[Delete Template] Response status:', response.status, 'OK:', response.ok);
-                                    if (response.ok) {
-                                      setMasterMaterials((prev: any[]) =>
-                                        prev.filter((m: any) => m.id !== template.id)
-                                      );
-                                      toast({
-                                        title: "Success",
-                                        description: "Template deleted successfully",
-                                      });
-                                    } else {
-                                      const errorData = await response.json();
-                                      console.error('[Delete Template] Error response:', errorData);
-                                      throw new Error(errorData.message || "Delete failed");
-                                    }
-                                  } catch (err) {
-                                    console.error('[Delete Template] Catch error:', err);
-                                    toast({
-                                      title: "Error",
-                                      description: "Failed to delete template",
-                                      variant: "destructive",
-                                    });
-                                  }
+                          {editingMaterialId !== template.id && (
+                            <div className="flex items-center gap-2">
+                              <Button size="sm" onClick={() => {
+                                setEditingMaterialId(template.id);
+                                setNewMaterial({ ...newMaterial, name: template.name });
+                              }}>Edit</Button>
+                              <Button size="sm" variant="destructive" onClick={async () => {
+                                if (!window.confirm(`Delete "${template.name}"? This cannot be undone.`)) return;
+                                try {
+                                  const token = localStorage.getItem('authToken');
+                                  const res = await fetch(`/api/material-templates/${template.id}`, { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+                                  if (!res.ok) throw new Error('delete failed');
+                                  setMasterMaterials(prev => prev.filter(m => m.id !== template.id));
+                                  toast({ title: 'Success', description: 'Material deleted' });
+                                } catch (err) {
+                                  console.error('delete error', err);
+                                  toast({ title: 'Error', description: 'Failed to delete material', variant: 'destructive' });
                                 }
-                              }}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" /> Delete
-                            </Button>
+                              }}>Delete</Button>
+                            </div>
                           )}
                         </div>
                       ))}
@@ -1796,7 +1974,7 @@ export default function AdminDashboard() {
                     />
                   </div>
                 </div>
-                <Button onClick={handleAddShop}>Add Shop</Button>
+                <Button onClick={editingShopId ? handleUpdateShop : handleAddShop}>{editingShopId ? 'Save Changes' : 'Add Shop'}</Button>
               </CardContent>
             </Card>
             )}
