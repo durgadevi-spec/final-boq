@@ -73,7 +73,7 @@ export default function BlindsEstimator() {
         quantity: override?.quantity ?? Math.ceil(calculatedQty),
         rate: override?.rate ?? mat?.rate ?? 0,
         shopName: shop?.name || "Market Price",
-        description: mat?.description || "Window Blinds Component"
+        description: mat?.name || "Window Blinds Component"
       };
     }).filter(m => m.id);
   };
@@ -86,10 +86,11 @@ export default function BlindsEstimator() {
 
   const handleExportPDF = (elementId: string) => {
     const element = document.getElementById(elementId);
+    if (!element) return;
     const opt = {
       margin: 10,
       filename: `Blinds_BOQ_${Date.now()}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
+      image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { scale: 2 },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
@@ -193,7 +194,7 @@ export default function BlindsEstimator() {
                   {getMaterialsWithDetails().map(mat => (
                     <div key={mat.id} className="grid grid-cols-5 gap-4 items-center p-3 border rounded-lg bg-card shadow-sm">
                       <span className="text-sm font-medium">{mat.name}</span>
-                      <span className="text-xs">{materialDescriptions[mat.id] || mat.name}</span>
+                      <span className="text-xs">{mat.id ? (materialDescriptions[mat.id] || mat.name) : mat.name}</span>
                       <Input type="number" value={mat.quantity} onChange={e => setEditableMaterials({...editableMaterials, [mat.id!]: {...editableMaterials[mat.id!], quantity: Number(e.target.value)}})} />
                       <Input type="number" value={mat.rate} onChange={e => setEditableMaterials({...editableMaterials, [mat.id!]: {...editableMaterials[mat.id!], rate: Number(e.target.value)}})} />
                       <span className="text-right font-bold">{(mat.quantity * mat.rate).toFixed(2)}</span>
@@ -201,7 +202,7 @@ export default function BlindsEstimator() {
                   ))}
                   <div className="flex justify-between pt-6"><Button variant="outline" onClick={() => setStep(2)}>Back</Button><Button onClick={() => setStep(4)}>Generate BOM</Button></div>
                 </motion.div>
-              )
+              )}
 
               {/* STEP 4: BOM SUMMARY */}
               {step === 4 && (
@@ -316,7 +317,7 @@ export default function BlindsEstimator() {
                               <tr key={i}>
                                  <td style={{border: "1px solid #000", padding: 6}}>{i + 1}</td>
                                  <td style={{border: "1px solid #000", padding: 6}}>{m.name}</td>
-                                 <td style={{border: "1px solid #000", padding: 6}}>{materialDescriptions[m.id] || m.name}</td>
+                                 <td style={{border: "1px solid #000", padding: 6}}>{m.id ? (materialDescriptions[m.id] || m.name) : m.name}</td>
                                  <td style={{border: "1px solid #000", padding: 6}}>{m.quantity}</td>
                                  <td style={{border: "1px solid #000", padding: 6}}>{m.rate}</td>
                                  <td style={{border: "1px solid #000", padding: 6}}>{m.shopName}</td>

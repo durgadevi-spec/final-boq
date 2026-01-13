@@ -103,7 +103,7 @@ export default function ElectricalEstimator() {
       const mat = storeMaterials.find(m => m.id === matId);
       const best = getBestShop(mat?.code || "");
       if (best) {
-        setSelectedMaterials(prev => [...prev, { materialId: matId, selectedShopId: best.shopId }]);
+        setSelectedMaterials(prev => [...prev, { materialId: matId, selectedShopId: best.shopId || "" }]);
       }
     }
   };
@@ -149,6 +149,7 @@ export default function ElectricalEstimator() {
 
   const handleExportFinalBOQ = () => {
     const element = document.getElementById("boq-final-pdf");
+    if (!element) return;
     html2pdf().set({
       margin: 0,
       filename: `Electrical_Invoice_${finalBillNo}.pdf`,
@@ -225,7 +226,7 @@ export default function ElectricalEstimator() {
                                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                                   <SelectContent>
                                     {shops.map(s => (
-                                      <SelectItem key={s.shopId} value={s.shopId}>
+                                      <SelectItem key={s.shopId} value={s.shopId || ""}>
                                         {storeShops.find(sh => sh.id === s.shopId)?.name} - ₹{s.rate} {s.rate === shops[0].rate && "(Best)"}
                                       </SelectItem>
                                     ))}
@@ -260,7 +261,7 @@ export default function ElectricalEstimator() {
                   {materials.map(mat => (
                     <div key={mat.id} className="grid grid-cols-8 gap-2 items-center p-2 border-b">
                       <div className="col-span-2 text-sm font-medium">{mat.name}</div>
-                      <div className="text-xs">{materialDescriptions[mat.id] || mat.name}</div>
+                      <div className="text-xs">{mat.id ? (materialDescriptions[mat.id] || mat.name) : mat.name}</div>
                       <Input type="number" className="h-8" value={editableMaterials[mat.id!]?.quantity} onChange={e => setEditableMaterials(p => ({...p, [mat.id!]: {...p[mat.id!], quantity: Number(e.target.value)}}))} />
                       <div className="text-center text-xs">{mat.unit}</div>
                       <div className="text-center text-xs">{mat.shopName}</div>
@@ -430,7 +431,7 @@ export default function ElectricalEstimator() {
                           <tr key={m.id}>
                             <td style={{ border: "1px solid #000", padding: 6 }}>{i + 1}</td>
                             <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
-                            <td style={{ border: "1px solid #000", padding: 6 }}>{materialDescriptions[m.id] || m.subCategory || "Electrical"}</td>
+                            <td style={{ border: "1px solid #000", padding: 6 }}>{m.id ? (materialDescriptions[m.id] || m.subCategory || "Electrical") : (m.subCategory || "Electrical")}</td>
                             <td style={{ border: "1px solid #000", padding: 6 }}>8536</td>
                             <td style={{ border: "1px solid #000", padding: 6 }}>{m.quantity}</td>
                             <td style={{ border: "1px solid #000", padding: 6 }}>{Number(m.rate).toFixed(2)}</td>

@@ -55,7 +55,7 @@ export default function FlooringEstimator() {
         quantity: override?.quantity ?? calculateQty(),
         rate: override?.rate ?? mat?.rate ?? 0,
         shopName: shop?.name || "Unknown",
-        description: mat?.description || "Flooring Material"
+        description: mat?.name || "Flooring Material"
       };
     }).filter(m => m.id);
   };
@@ -71,7 +71,8 @@ export default function FlooringEstimator() {
 
   const handleExportPDF = () => {
     const element = document.getElementById(step === 4 ? "boq-pdf" : "boq-final-pdf");
-    html2pdf().from(element).save(`Flooring_BOQ_${finalCustomerName || 'Estimate'}.pdf`);
+    if (!element) return;
+    html2pdf().from(element as HTMLElement).save(`Flooring_BOQ_${finalCustomerName || 'Estimate'}.pdf`);
   };
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export default function FlooringEstimator() {
       const first = getMaterialsWithDetails()[0];
       const shop = storeShops.find((s) => s.id === first?.shopId);
       if (shop) {
-        const parts = [shop.name || "", shop.address || "", shop.area || "", shop.city || "", shop.state || "", shop.pincode || "", shop.gstin ? `GSTIN: ${shop.gstin}` : "", shop.phone ? `Ph: ${shop.phone}` : ""].filter(Boolean);
+        const parts = [shop.name || "", shop.address || "", shop.area || "", shop.city || "", shop.state || "", shop.pincode || "", shop.gstNo ? `GSTIN: ${shop.gstNo}` : "", shop.phone || ""].filter(Boolean);
         setFinalShopDetails(parts.join("\n"));
       }
     }
@@ -184,7 +185,7 @@ export default function FlooringEstimator() {
                               <tr key={mat.id}>
                                 <td style={{ border: "1px solid #d1d5db", padding: "8px" }}>{index + 1}</td>
                                 <td style={{ border: "1px solid #d1d5db", padding: "8px", fontWeight: 500 }}>{mat.name}</td>
-                                <td style={{ border: "1px solid #d1d5db", padding: "8px" }}>{materialDescriptions[mat.id] || mat.name}</td>
+                                <td style={{ border: "1px solid #d1d5db", padding: "8px" }}>{mat.id ? (materialDescriptions[mat.id] || mat.name) : mat.name}</td>
                                 <td style={{ border: "1px solid #d1d5db", padding: "8px", textAlign: "center" }}>{mat.unit || 'sqft'}</td>
                                 <td style={{ border: "1px solid #d1d5db", padding: "8px", textAlign: "center" }}>{mat.quantity}</td>
                                 <td style={{ border: "1px solid #d1d5db", padding: "8px", textAlign: "right" }}>{mat.rate}</td>
@@ -286,7 +287,7 @@ export default function FlooringEstimator() {
                             <tr key={m.id}>
                               <td style={{ padding: 10, borderBottom: '1px solid #f1f5f9', width: 40 }}>{i + 1}</td>
                               <td style={{ padding: 10, borderBottom: '1px solid #f1f5f9' }}>{m.name}</td>
-                              <td style={{ padding: 10, borderBottom: '1px solid #f1f5f9' }}>{materialDescriptions[m.id] || m.name}</td>
+                              <td style={{ padding: 10, borderBottom: '1px solid #f1f5f9' }}>{m.id ? (materialDescriptions[m.id] || m.name) : m.name}</td>
                               <td style={{ padding: 10, borderBottom: '1px solid #f1f5f9', width: 80 }}>{m.unit || 'sqft'}</td>
                               <td style={{ padding: 10, borderBottom: '1px solid #f1f5f9', textAlign: 'right', width: 80 }}>{m.quantity}</td>
                               <td style={{ padding: 10, borderBottom: '1px solid #f1f5f9', textAlign: 'right', width: 100 }}>{(Number(m.rate) || 0).toFixed(2)}</td>

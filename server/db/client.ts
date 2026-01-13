@@ -1,4 +1,5 @@
 import pg from "pg";
+import type { QueryResultRow } from "pg";
 import fs from "fs";
 import path from "path";
 
@@ -72,7 +73,7 @@ pool.connect()
     console.error("[db-pool] ✗ Failed to connect to database:", err.message);
   });
 
-export async function query<T = any>(text: string, params: any[] = []) {
+export async function query<T extends QueryResultRow = any>(text: string, params: any[] = []) {
   return pool.query<T>(text, params);
 }
 

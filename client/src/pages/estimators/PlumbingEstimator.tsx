@@ -69,8 +69,8 @@ export default function PlumbingEstimator() {
     return selectedMaterials.map((sel) => {
       const mat = storeMaterials.find((m) => m.id === sel.materialId);
       const shop = storeShops.find((s) => s.id === sel.selectedShopId);
-      const qty = editableMaterials[mat?.id]?.quantity ?? getDefaultQty(mat);
-      const rate = editableMaterials[mat?.id]?.rate ?? (mat?.rate || 0);
+      const qty = (mat?.id ? editableMaterials[mat.id]?.quantity : undefined) ?? getDefaultQty(mat);
+      const rate = (mat?.id ? editableMaterials[mat.id]?.rate : undefined) ?? (mat?.rate || 0);
       return { 
         ...mat, 
         quantity: qty, 
@@ -102,10 +102,11 @@ export default function PlumbingEstimator() {
 
   const handleExportFinalBOQ = () => {
     const element = document.getElementById("boq-final-pdf");
+    if (!element) return;
     const opt = {
       margin: 0,
       filename: `BOQ_${finalBillNo}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
+      image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { scale: 2 },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
@@ -171,7 +172,7 @@ export default function PlumbingEstimator() {
                           <SelectTrigger className="w-48 bg-white"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {shops.map(s => (
-                              <SelectItem key={s.shopId} value={s.shopId}>
+                              <SelectItem key={s.shopId} value={s.shopId || ""}>
                                 {storeShops.find(sh => sh.id === s.shopId)?.name} — ₹{s.rate}
                               </SelectItem>
                             ))}
@@ -328,7 +329,7 @@ export default function PlumbingEstimator() {
                       <tr key={m.id}>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{i + 1}</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
-                        <td style={{ border: "1px solid #000", padding: 6 }}>{materialDescriptions[m.id] || m.description || "-"}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{m.id ? (materialDescriptions[m.id] || m.name || "-") : (m.name || "-")}</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>7308</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{m.quantity}</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{m.rate}</td>

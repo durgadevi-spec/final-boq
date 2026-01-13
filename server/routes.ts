@@ -15,16 +15,16 @@ export async function registerRoutes(
     // dynamic import to avoid circular deps during startup
     const { seedMaterialTemplates } = await import('./seed-templates');
     await seedMaterialTemplates();
-  } catch (err) {
-    console.warn('[seed] Could not run material template seed:', err?.message || err);
+  } catch (err: unknown) {
+    console.warn('[seed] Could not run material template seed:', (err as any)?.message || err);
   }
 
   // Seed category and subcategory tables on startup
   try {
     const { seedMaterialCategories } = await import('./seed-categories');
     await seedMaterialCategories();
-  } catch (err) {
-    console.warn('[seed] Could not run category seed:', err?.message || err);
+  } catch (err: unknown) {
+    console.warn('[seed] Could not run category seed:', (err as any)?.message || err);
   }
   // Ensure messages table exists (create if missing) to avoid runtime errors in dev
   try {
@@ -43,8 +43,8 @@ export async function registerRoutes(
     `);
     await query(`CREATE INDEX IF NOT EXISTS idx_messages_sender_role ON messages (sender_role)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at)`);
-  } catch (err) {
-    console.warn('[migrations] ensure messages table failed (continuing):', err?.message || err);
+  } catch (err: unknown) {
+    console.warn('[migrations] ensure messages table failed (continuing):', (err as any)?.message || err);
   }
 
   // In-memory fallback storage for messages when DB is unreachable (development only)
@@ -337,7 +337,7 @@ export async function registerRoutes(
       const result = await query('SELECT * FROM shops WHERE id = $1', [id]);
       if (result.rowCount === 0) return res.status(404).json({ message: 'not found' });
       res.json({ shop: result.rows[0] });
-    } catch (err) { console.error(err); res.status(500).json({ message: 'error' }); }
+    } catch (err: unknown) { console.error(err as any); res.status(500).json({ message: 'error' }); }
   });
 
   // PUT /api/shops/:id
@@ -357,7 +357,7 @@ export async function registerRoutes(
       const q = `UPDATE shops SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`;
       const result = await query(q, vals);
       res.json({ shop: result.rows[0] });
-    } catch (err) { console.error(err); res.status(500).json({ message: 'error' }); }
+    } catch (err: unknown) { console.error(err as any); res.status(500).json({ message: 'error' }); }
   });
 
   // DELETE /api/shops/:id
@@ -367,7 +367,7 @@ export async function registerRoutes(
       await query('DELETE FROM materials WHERE shop_id = $1', [id]);
       await query('DELETE FROM shops WHERE id = $1', [id]);
       res.json({ message: 'deleted' });
-    } catch (err) { console.error(err); res.status(500).json({ message: 'error' }); }
+    } catch (err: unknown) { console.error(err as any); res.status(500).json({ message: 'error' }); }
   });
 
   // Approve / reject shop
@@ -379,7 +379,7 @@ export async function registerRoutes(
       await query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS approval_reason text");
       const result = await query('UPDATE shops SET approved = true, approval_reason = NULL WHERE id = $1 RETURNING *', [id]);
       res.json({ shop: result.rows[0] });
-    } catch (err) { console.error(err); res.status(500).json({ message: 'error' }); }
+    } catch (err: unknown) { console.error(err as any); res.status(500).json({ message: 'error' }); }
   });
 
   app.post('/api/shops/:id/reject', authMiddleware, requireRole('admin','software_team','purchase_team'), async (req, res) => {
@@ -390,7 +390,7 @@ export async function registerRoutes(
       await query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS approval_reason text");
       const result = await query('UPDATE shops SET approved = false, approval_reason = $2 WHERE id = $1 RETURNING *', [id, reason]);
       res.json({ shop: result.rows[0] });
-    } catch (err) { console.error(err); res.status(500).json({ message: 'error' }); }
+    } catch (err: unknown) { console.error(err as any); res.status(500).json({ message: 'error' }); }
   });
 
   // MATERIAL endpoints: GET by id, PUT, DELETE, approve/reject
@@ -519,8 +519,8 @@ export async function registerRoutes(
       );
 
       res.status(201).json({ category: result.rows[0] });
-    } catch (err: any) {
-      console.error('/api/categories error', err);
+      } catch (err: any) {
+        console.error('/api/categories error', err as any);
       if (err.code === '23505') {
         res.status(409).json({ message: 'Category already exists' });
       } else {
@@ -550,7 +550,7 @@ export async function registerRoutes(
 
       res.status(201).json({ subcategory: result.rows[0] });
     } catch (err: any) {
-      console.error('/api/subcategories error', err);
+      console.error('/api/subcategories error', err as any);
       if (err.code === '23505') {
         res.status(409).json({ message: 'Subcategory already exists for this category' });
       } else {
@@ -568,8 +568,8 @@ export async function registerRoutes(
       `);
       
       res.json({ categories: result.rows.map(r => r.name) });
-    } catch (err) {
-      console.error('/api/categories error', err);
+    } catch (err: unknown) {
+      console.error('/api/categories error', err as any);
       res.status(500).json({ message: 'failed to list categories' });
     }
   });

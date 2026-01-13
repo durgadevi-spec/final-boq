@@ -157,7 +157,7 @@ export default function FalseCeilingEstimator() {
       if (shop) {
         setFinalShopDetails(
           `${shop.name}\n${shop.address || ""}\nGSTIN: ${
-            shop.gstin || "N/A"
+            shop.gstNo || "N/A"
           }`
         );
       }
@@ -281,7 +281,7 @@ export default function FalseCeilingEstimator() {
                               {shops.map((s, i) => (
                                 <SelectItem
                                   key={s.shopId}
-                                  value={s.shopId}
+                                  value={s.shopId || ""}
                                 >
                                   {storeShops.find((sh) => sh.id === s.shopId)?.name} – ₹{s.rate} {i === 0 && "(Best)"}
                                 </SelectItem>

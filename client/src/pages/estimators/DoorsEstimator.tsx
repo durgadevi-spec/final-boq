@@ -261,7 +261,7 @@ export default function DoorsEstimator() {
   // Get current door config
   const getCurrentDoorConfig = () => {
     if (!panelType || !doorType) return null;
-    return DOOR_CONFIG[panelType].types[doorType as any];
+    return (DOOR_CONFIG[panelType] as any).types[doorType as any];
   };
 
   const DOOR_SUB_OPTIONS_LOCAL: Record<string, string[]> = {
@@ -287,7 +287,7 @@ export default function DoorsEstimator() {
   const getAvailableMaterials = () => {
     const doorConfig = getCurrentDoorConfig();
     if (!doorConfig) return [];
-    const requiredCodes = doorConfig.materialRequirements.map((r) => r.code);
+    const requiredCodes = doorConfig.materialRequirements.map((r: any) => r.code);
     const normalize = (c: string | undefined) => (c || "").toString().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const requiredNorm = requiredCodes.map(normalize);
     const allMaterials = storeMaterials.filter((m) => requiredNorm.includes(normalize(m.code)));
@@ -355,7 +355,7 @@ export default function DoorsEstimator() {
 
     const shop = storeShops.find((s) => s.id === bestOption.shopId);
     return {
-      shopId: bestOption.shopId,
+      shopId: bestOption.shopId || "",
       shopName: shop?.name || "Unknown",
       rate: bestOption.rate,
     };
@@ -418,7 +418,7 @@ export default function DoorsEstimator() {
 
         // allow editable overrides
         const override = editableMaterials[material.id];
-        const computedQty = calculateQuantity(material.code, material.unit);
+        const computedQty = calculateQuantity(material.code || "", material.unit);
         const quantity = override?.quantity ?? computedQty;
         const rate = override?.rate ?? material.rate ?? 0;
 
@@ -490,8 +490,8 @@ export default function DoorsEstimator() {
             shop.city || "",
             shop.state || "",
             shop.pincode || "",
-            shop.gstin ? `GSTIN: ${shop.gstin}` : "",
-            shop.phone ? `Ph: ${shop.phone}` : "",
+            shop.gstNo ? `GSTIN: ${shop.gstNo}` : "",
+            shop.phone || "",
           ].filter(Boolean);
           setFinalShopDetails(parts.join("\n"));
         }
@@ -963,7 +963,7 @@ const handleExportPDF = async () => {
                     {availableMaterials.length === 0 ? (
                       (() => {
                         const doorCfg = getCurrentDoorConfig();
-                        const requiredCodes = doorCfg?.materialRequirements.map((r) => r.code) || [];
+                        const requiredCodes = doorCfg?.materialRequirements.map((r: any) => r.code) || [];
                         const sampleCodes = storeMaterials.slice(0, 8).map((m) => m.code || m.id);
                         return (
                           <div className="p-4 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded">
@@ -1004,7 +1004,7 @@ const handleExportPDF = async () => {
                                       <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                                       <SelectContent>
                                         {availableShops.map((shop) => (
-                                          <SelectItem key={shop.shopId} value={shop.shopId}>
+                                          <SelectItem key={shop.shopId} value={shop.shopId || ""}>
                                             {shop.shopName} - ₹{shop.rate}/{mat.unit}
                                             {shop.rate === availableShops[0].rate && " (Best)"}
                                           </SelectItem>
@@ -1423,7 +1423,7 @@ const handleExportPDF = async () => {
             <tr key={m.id}>
               <td style={{ border: "1px solid #000", padding: 6 }}>{i + 1}</td>
               <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
-              <td style={{ border: "1px solid #000", padding: 6 }}>{materialDescriptions[m.id] || m.description || "-"}</td>
+              <td style={{ border: "1px solid #000", padding: 6 }}>{(m.id && materialDescriptions[m.id]) || m.name || "-"}</td>
               <td style={{ border: "1px solid #000", padding: 6 }}>7308</td>
               <td style={{ border: "1px solid #000", padding: 6 }}>{m.quantity}</td>
               <td style={{ border: "1px solid #000", padding: 6 }}>{m.rate}</td>

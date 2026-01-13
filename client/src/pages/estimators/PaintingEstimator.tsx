@@ -140,7 +140,7 @@ export default function PaintingEstimator() {
                     <div key={mat.id} className={cn("border rounded-xl p-4 flex items-center gap-4", isSelected ? "border-primary bg-primary/5" : "bg-slate-50")}>
                       <Checkbox checked={isSelected} onCheckedChange={() => {
                          if(isSelected) setSelectedMaterials(p => p.filter(x => x.materialId !== mat.id));
-                         else setSelectedMaterials(p => [...p, { materialId: mat.id, selectedShopId: mat.shopId }]);
+                         else setSelectedMaterials(p => [...p, { materialId: mat.id, selectedShopId: mat.shopId || "" }]);
                       }} />
                       <div className="flex-1">
                         <p className="font-bold">{mat.name}</p>
@@ -151,7 +151,7 @@ export default function PaintingEstimator() {
                           <SelectTrigger className="w-48 bg-white"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {shops.map(s => (
-                              <SelectItem key={s.shopId} value={s.shopId}>
+                              <SelectItem key={s.shopId} value={s.shopId || ""}>
                                 {storeShops.find(sh => sh.id === s.shopId)?.name} — ₹{s.rate}
                               </SelectItem>
                             ))}
@@ -208,7 +208,7 @@ export default function PaintingEstimator() {
                     <tbody>
                         {currentMaterials.map((m, i) => (
                             <tr key={i} className="border-b">
-                                <td className="p-2">{m.name}</td><td className="p-2 text-sm">{materialDescriptions[m.id] || m.name}</td><td className="p-2 text-center">{m.quantity} {m.unit}</td><td className="p-2 text-center">{m.shopName}</td><td className="p-2 text-right">₹{m.amount.toFixed(2)}</td>
+                                <td className="p-2">{m.name}</td><td className="p-2 text-sm">{m.id ? (materialDescriptions[m.id] || m.name) : m.name}</td><td className="p-2 text-center">{m.quantity} {m.unit}</td><td className="p-2 text-center">{m.shopName}</td><td className="p-2 text-right">₹{m.amount.toFixed(2)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -283,7 +283,7 @@ export default function PaintingEstimator() {
                       <tr key={i}>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{i + 1}</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{m.name}</td>
-                        <td style={{ border: "1px solid #000", padding: 6 }}>{materialDescriptions[m.id] || m.name}</td>
+                        <td style={{ border: "1px solid #000", padding: 6 }}>{m.id ? (materialDescriptions[m.id] || m.name) : m.name}</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>3208</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{m.quantity}</td>
                         <td style={{ border: "1px solid #000", padding: 6 }}>{m.rate}</td>

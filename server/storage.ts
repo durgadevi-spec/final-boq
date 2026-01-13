@@ -50,9 +50,9 @@ export class PostgresStorage implements IStorage {
           // eslint-disable-next-line no-console
           console.log(`[storage] Seeded user: ${u.username} (role: ${u.role})`);
         }
-      } catch (err) {
+      } catch (err: unknown) {
         // eslint-disable-next-line no-console
-        console.warn(`[storage] Failed to seed ${u.username}:`, err);
+        console.warn(`[storage] Failed to seed ${u.username}:`, err as any);
       }
     }
     // eslint-disable-next-line no-console
@@ -63,9 +63,9 @@ export class PostgresStorage implements IStorage {
     try {
       const result = await this.pool.query("SELECT * FROM users WHERE id = $1", [id]);
       return result.rows[0];
-    } catch (err) {
+    } catch (err: unknown) {
       // eslint-disable-next-line no-console
-      console.error("Error fetching user:", err);
+      console.error("Error fetching user:", err as any);
       return undefined;
     }
   }
@@ -74,9 +74,9 @@ export class PostgresStorage implements IStorage {
     try {
       const result = await this.pool.query("SELECT * FROM users WHERE username = $1", [username]);
       return result.rows[0];
-    } catch (err) {
+    } catch (err: unknown) {
       // eslint-disable-next-line no-console
-      console.error("Error fetching user by username:", err);
+      console.error("Error fetching user by username:", err as any);
       return undefined;
     }
   }
@@ -95,10 +95,10 @@ export class PostgresStorage implements IStorage {
         password: hashedPassword,
         role: user.role || "user",
       };
-    } catch (err) {
+    } catch (err: unknown) {
       // eslint-disable-next-line no-console
-      console.error("Error creating user:", err);
-      throw err;
+      console.error("Error creating user:", err as any);
+      throw err as any;
     }
   }
 
@@ -106,9 +106,9 @@ export class PostgresStorage implements IStorage {
     try {
       const result = await this.pool.query("SELECT * FROM users");
       return result.rows;
-    } catch (err) {
+    } catch (err: unknown) {
       // eslint-disable-next-line no-console
-      console.error("Error fetching all users:", err);
+      console.error("Error fetching all users:", err as any);
       return [];
     }
   }

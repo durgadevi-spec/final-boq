@@ -366,8 +366,8 @@ export default function CivilWallEstimator() {
             shop.city || "",
             shop.state || "",
             shop.pincode || "",
-            shop.gstin ? `GSTIN: ${shop.gstin}` : "",
-            shop.phone ? `Ph: ${shop.phone}` : "",
+            shop.gstNo ? `GSTIN: ${shop.gstNo}` : "",
+            shop.phone || "",
           ].filter(Boolean);
           setFinalShopDetails(parts.join("\n"));
         }

@@ -35,8 +35,8 @@ export async function seedMaterialTemplates() {
     }
 
     console.log(`[seed] Successfully seeded ${templates.length} material templates`);
-  } catch (err) {
-    console.error("[seed] Error seeding material templates:", err);
+  } catch (err: unknown) {
+    console.error("[seed] Error seeding material templates:", err as any);
     // Don't throw - if seeding fails, the app should still work
   }
 }
