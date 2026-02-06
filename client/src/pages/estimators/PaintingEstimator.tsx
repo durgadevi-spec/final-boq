@@ -836,9 +836,8 @@ export default function PaintingEstimator() {
                 {selectedMaterials.length > 0 ? (
                   <>
                     {/* Header */}
-                    <div className="grid grid-cols-9 gap-2 p-2 text-xs font-semibold text-muted-foreground uppercase">
+                    <div className="grid grid-cols-8 gap-2 p-2 text-xs font-semibold text-muted-foreground uppercase">
                       <div className="col-span-2">Material</div>
-                      <div>Description</div>
                       <div className="text-center">Brand</div>
                       <div className="text-center">Qty</div>
                       <div className="text-center">Unit</div>
@@ -864,15 +863,10 @@ export default function PaintingEstimator() {
                       return (
                         <div
                           key={material.id}
-                          className="grid grid-cols-9 gap-2 p-3 border rounded items-center"
+                          className="grid grid-cols-8 gap-2 p-3 border rounded items-center"
                         >
                           {/* Material */}
                           <span className="col-span-2 font-medium">
-                            {material.name}
-                          </span>
-
-                          {/* Description */}
-                          <span className="text-sm text-muted-foreground">
                             {material.name}
                           </span>
 

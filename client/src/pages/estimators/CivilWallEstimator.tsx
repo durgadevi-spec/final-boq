@@ -4130,9 +4130,8 @@ export default function CivilWallEstimator() {
                   <div className="space-y-2">
                     {getMaterialsWithDetails().length > 0 ? (
                       <>
-                        <div className="grid grid-cols-9 gap-2 p-2 text-sm text-muted-foreground">
+                        <div className="grid grid-cols-8 gap-2 p-2 text-sm text-muted-foreground">
                           <div className="col-span-2 font-medium">Item</div>
-                          <div>Description</div>
                           <div className="text-center">Brand</div>
                           <div className="text-center">Qty</div>
                           <div className="text-center">Unit</div>
@@ -4151,14 +4150,11 @@ export default function CivilWallEstimator() {
                             <div
                               key={mat.id}
                               className={cn(
-                                "p-3 border rounded grid grid-cols-9 items-center",
+                                "p-3 border rounded grid grid-cols-8 items-center",
                               )}
                             >
                               <span className="col-span-2 font-medium">
                                 {mat.name}
-                              </span>
-                              <span className="text-sm">
-                                {materialDescriptions[mat.id] || mat.name}
                               </span>
                               <div className="col-span-1 text-center font-semibold">
                                 {selection?.selectedBrand ||

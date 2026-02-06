@@ -22,7 +22,7 @@ import { useState, useEffect } from "react";
 
 // Form Schema
 const materialFormSchema = z.object({
-  materialName: z.string().min(2, { message: "Name is required" }),
+  itemName: z.string().min(2, { message: "Name is required" }),
   sku: z.string().min(2, { message: "SKU is required" }),
   rate: z.coerce.number().min(0),
   brand: z.string().min(1, { message: "Brand is required" }),
@@ -49,7 +49,7 @@ export default function MaterialsPage() {
   const form = useForm<z.infer<typeof materialFormSchema>>({
     resolver: zodResolver(materialFormSchema),
     defaultValues: {
-      materialName: "",
+      itemName: "",
       sku: "",
       rate: 0,
       brand: "",
@@ -66,23 +66,23 @@ export default function MaterialsPage() {
     },
   });
 
-  const materialName = form.watch("materialName");
+    const itemName = form.watch("itemName");
   
   // Auto-generate Item Code based on name
   useEffect(() => {
-    if (materialName && materialName.length > 2) {
-      const code = materialName.substring(0, 3).toUpperCase() + "-" + Math.floor(Math.random() * 10000);
+    if (itemName && itemName.length > 2) {
+      const code = itemName.substring(0, 3).toUpperCase() + "-" + Math.floor(Math.random() * 10000);
       setGeneratedItemCode(code);
     } else {
       setGeneratedItemCode("");
     }
-  }, [materialName]);
+  }, [itemName]);
 
   function onSubmit(values: z.infer<typeof materialFormSchema>) {
     // Check for "irrelevant" material (Mock logic as requested)
     const irrelevantKeywords = ["toy", "game", "food", "candy"];
     const isIrrelevant = irrelevantKeywords.some(keyword => 
-      values.materialName.toLowerCase().includes(keyword)
+      values.itemName.toLowerCase().includes(keyword)
     );
 
     if (isIrrelevant) {
@@ -95,8 +95,8 @@ export default function MaterialsPage() {
     }
 
     toast({
-      title: "Material Added Successfully",
-      description: `${values.materialName} has been added to inventory with code ${generatedItemCode}.`,
+      title: "Item Added Successfully",
+      description: `${values.itemName} has been added to inventory with code ${generatedItemCode}.`,
     });
     
     // Reset form
@@ -115,8 +115,8 @@ export default function MaterialsPage() {
   return (
     <div className="max-w-4xl mx-auto pb-10">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold font-heading">Material Management</h1>
-        <p className="text-muted-foreground">View and manage construction materials.</p>
+        <h1 className="text-3xl font-bold font-heading">Item Management</h1>
+          <p className="text-muted-foreground">View and manage inventory items.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

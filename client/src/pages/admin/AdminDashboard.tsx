@@ -703,10 +703,26 @@ export default function AdminDashboard() {
 
   const handleUpdateMaterial = async () => {
     if (!editingMaterialId) return;
-    try {
-      // try server update using PUT (server expects PUT /api/materials/:id)
       try {
-        const res = await apiFetch(`/materials/${editingMaterialId}`, { method: 'PUT', body: JSON.stringify(newMaterial) });
+      // try server update using PUT (server expects lowercased field names)
+      try {
+        // Map client camelCase fields to server expected keys
+        const payload: any = {};
+        if (newMaterial.name !== undefined) payload.name = newMaterial.name;
+        if (newMaterial.code !== undefined) payload.code = newMaterial.code;
+        if (newMaterial.rate !== undefined) payload.rate = newMaterial.rate;
+        if (newMaterial.shopId !== undefined) payload.shop_id = newMaterial.shopId;
+        if (newMaterial.unit !== undefined) payload.unit = newMaterial.unit;
+        if (newMaterial.category !== undefined) payload.category = newMaterial.category;
+        if (newMaterial.brandName !== undefined) payload.brandname = newMaterial.brandName;
+        if (newMaterial.modelNumber !== undefined) payload.modelnumber = newMaterial.modelNumber;
+        if (newMaterial.subCategory !== undefined) payload.subcategory = newMaterial.subCategory;
+        if (newMaterial.product !== undefined) payload.product = newMaterial.product;
+        if (newMaterial.technicalSpecification !== undefined) payload.technicalspecification = newMaterial.technicalSpecification;
+        if (newMaterial.image !== undefined) payload.image = newMaterial.image;
+        if (newMaterial.attributes !== undefined) payload.attributes = newMaterial.attributes;
+
+        const res = await apiFetch(`/materials/${editingMaterialId}`, { method: 'PUT', body: JSON.stringify(payload) });
         if (res.ok) {
           const data = await res.json();
           const updated = data?.material || data;
@@ -1886,7 +1902,7 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>
-                        Material Name <span className="text-red-500">*</span>
+                        Item Name <span className="text-red-500">*</span>
                       </Label>
                       <Input
                         value={newMasterMaterial.name}
@@ -1976,18 +1992,26 @@ export default function AdminDashboard() {
                                     return;
                                   }
                                   try {
-                                    const res = await apiFetch(`/material-templates/${template.id}`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({ name: newMaterial.name })
-                                    });
-                                    if (!res.ok) throw new Error('update failed');
-                                    setMasterMaterials(prev => prev.map(m => m.id === template.id ? { ...m, name: newMaterial.name } : m));
-                                    setEditingMaterialId(null);
-                                    toast({ title: 'Success', description: 'Material name updated' });
-                                  } catch (err) {
-                                    console.error('update error', err);
-                                    toast({ title: 'Error', description: 'Failed to update material', variant: 'destructive' });
-                                  }
+                                      const res = await apiFetch(`/material-templates/${template.id}`, {
+                                        method: 'PUT',
+                                        body: JSON.stringify({ name: newMaterial.name, code: template.code })
+                                      });
+                                      if (!res.ok) {
+                                        const text = await res.text().catch(() => '');
+                                        console.error('[material-templates PUT] failed', res.status, text);
+                                        toast({ title: 'Error', description: text || 'Failed to update material (server error)', variant: 'destructive' });
+                                        throw new Error(text || 'update failed');
+                                      }
+                                      const data = await res.json().catch(() => null);
+                                      setMasterMaterials(prev => prev.map(m => m.id === template.id ? { ...m, name: newMaterial.name, ...(data?.template || {}) } : m));
+                                      setEditingMaterialId(null);
+                                      toast({ title: 'Success', description: 'Material name updated' });
+                                    } catch (err) {
+                                      console.error('update error', err);
+                                      if (!(err as any)?.message) {
+                                        toast({ title: 'Error', description: 'Failed to update material', variant: 'destructive' });
+                                      }
+                                    }
                                 }}>Save</Button>
                                 <Button size="sm" variant="ghost" onClick={() => setEditingMaterialId(null)}>Cancel</Button>
                               </div>

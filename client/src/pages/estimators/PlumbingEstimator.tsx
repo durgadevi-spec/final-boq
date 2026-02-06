@@ -653,7 +653,6 @@ export default function PlumbingEstimator() {
                   <thead className="bg-slate-900 text-white">
                     <tr>
                       <th className="border p-3 text-left">Item</th>
-                      <th className="border p-3">Description</th>
                       <th className="border p-3">Brand</th>
                       <th className="border p-3">Qty</th>
                       <th className="border p-3">Unit</th>
@@ -666,7 +665,6 @@ export default function PlumbingEstimator() {
                     {materials.map((m) => (
                       <tr key={m.id} className="border-b hover:bg-slate-50">
                         <td className="border p-3 font-bold">{m.name}</td>
-                        <td className="border p-3 text-xs">{m.code}</td>
                         <td className="border p-3 text-center">
                           {selectedMaterials.find((s) => s.materialId === m.id)
                             ?.selectedBrand || "Generic"}

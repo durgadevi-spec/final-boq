@@ -75,6 +75,9 @@ export default function SupplierMaterials() {
   const [selectedShop, setSelectedShop] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Multiple entries support: allow adding product entries before a bulk submit
+  const [entriesList, setEntriesList] = useState<any[]>([]);
+
   const [formData, setFormData] = useState({
     rate: "",
     unit: "",
@@ -202,6 +205,60 @@ export default function SupplierMaterials() {
     }, 100);
   };
 
+  // When both shop and template are selected, try to prefill form from existing approved materials
+  useEffect(() => {
+    const tryPrefill = async () => {
+      if (!selectedTemplate || !selectedShop) return;
+      try {
+        const res = await fetch('/api/materials');
+        if (!res.ok) return;
+        const data = await res.json();
+        const materials = data.materials || [];
+        // find material by template_id and shop_id
+        const found = materials.find((m: any) => String(m.template_id) === String(selectedTemplate.id) && String(m.shop_id) === String(selectedShop));
+        if (found) {
+          // Prefill form fields with the existing material's values (set empty string when not provided)
+          setFormData(() => ({
+            rate: found.rate != null ? String(found.rate) : "",
+            unit: found.unit || "",
+            brandname: found.brandname || "",
+            modelnumber: found.modelnumber || "",
+            category: found.category || "",
+            subcategory: found.subcategory || "",
+            product: found.product || "",
+            technicalspecification: found.technicalspecification || "",
+            dimensions: found.dimensions || "",
+            finishtype: found.finishtype || "",
+            metaltype: found.metaltype || "",
+          }));
+          // if category present, ensure subcategories loaded
+          if (found.category) {
+            await loadSubcategories(found.category);
+          }
+        } else {
+          // No material found for this shop+template: clear shop-specific fields
+          setFormData((prev) => ({
+            ...prev,
+            rate: "",
+            unit: "",
+            brandname: "",
+            modelnumber: "",
+            subcategory: "",
+            product: "",
+            technicalspecification: "",
+            dimensions: "",
+            finishtype: "",
+            metaltype: "",
+          }));
+        }
+      } catch (err) {
+        console.warn('prefill material failed', err);
+      }
+    };
+
+    tryPrefill();
+  }, [selectedShop, selectedTemplate]);
+
   const handleSubmitMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -223,45 +280,52 @@ export default function SupplierMaterials() {
       return;
     }
 
+    // We support submitting multiple entries at once. If user added entries via "Add Entry",
+    // submit those; otherwise submit the current filled form as a single submission.
+    const toSubmit: any[] = entriesList.length > 0 ? entriesList : [{
+      template_id: selectedTemplate.id,
+      shop_id: selectedShop,
+      ...formData,
+    }];
+
     setSubmitting(true);
     try {
       const token = localStorage.getItem("authToken");
-      console.log('[SupplierMaterials] submit token?', !!token);
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      const response = await fetch("/api/material-submissions", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          template_id: selectedTemplate.id,
-          shop_id: selectedShop,
-          ...formData,
-        }),
-      });
+      if (token) headers.Authorization = `Bearer ${token}`;
 
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('submit material failed', response.status, text);
-        if (response.status === 401) {
-          throw new Error('Unauthorized: please log in');
+      // Submit sequentially to keep server load predictable
+      for (const payload of toSubmit) {
+        const body = {
+          template_id: payload.template_id,
+          shop_id: payload.shop_id,
+          rate: payload.rate,
+          unit: payload.unit,
+          brandname: payload.brandname,
+          modelnumber: payload.modelnumber,
+          subcategory: payload.subcategory,
+          product: payload.product,
+          technicalspecification: payload.technicalspecification,
+          dimensions: payload.dimensions,
+          finishtype: payload.finishtype,
+          metaltype: payload.metaltype,
+        };
+        const response = await fetch("/api/material-submissions", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Failed to submit material (${response.status}): ${text}`);
         }
-        if (response.status === 403) {
-          throw new Error('Forbidden: your account lacks supplier role');
-        }
-        throw new Error(`Failed to submit material (${response.status}): ${text}`);
       }
 
-      const data = await response.json();
-      toast({
-        title: "Success",
-        description: "Material submitted for approval",
-      });
+      toast({ title: "Success", description: "Material(s) submitted for approval" });
 
-      // Reset form
+      // Reset form and entries
       setSelectedTemplate(null);
       setFormData({
         rate: "",
@@ -277,16 +341,38 @@ export default function SupplierMaterials() {
         metaltype: "",
       });
       setSelectedShop("");
+      setEntriesList([]);
     } catch (error) {
       console.error("Error submitting material:", error);
-      toast({
-        title: "Error",
-        description: "Failed to submit material",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to submit material", variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleAddEntry = () => {
+    if (!selectedTemplate || !selectedShop) {
+      toast({ title: "Error", description: "Please select a template and shop", variant: "destructive" });
+      return;
+    }
+    if (!formData.rate || !formData.unit || !formData.category) {
+      toast({ title: "Error", description: "Rate, unit, and category are required to add entry", variant: "destructive" });
+      return;
+    }
+
+    const entry = {
+      template_id: selectedTemplate.id,
+      shop_id: selectedShop,
+      ...formData,
+    };
+    setEntriesList((s) => [...s, entry]);
+
+    // Clear product-specific fields but keep template and shop selected for adding more
+    setFormData((prev) => ({ ...prev, rate: "", unit: "", brandname: "", modelnumber: "", subcategory: "", product: "", technicalspecification: "", dimensions: "", finishtype: "", metaltype: "" }));
+  };
+
+  const handleRemoveEntry = (index: number) => {
+    setEntriesList((s) => s.filter((_, i) => i !== index));
   };
 
   const handleSupportSubmit = () => {
@@ -599,8 +685,48 @@ export default function SupplierMaterials() {
                     </div>
                   </div>
 
-                  {/* Submit Button */}
+                  {/* Entries List (if any) */}
+                  {entriesList.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Entries to submit ({entriesList.length})</div>
+                      <div className="space-y-1">
+                        {entriesList.map((entry, idx) => (
+                          <div key={idx} className="flex items-center justify-between border rounded px-3 py-2 bg-white">
+                            <div className="text-sm">
+                              <div className="font-semibold">Rate: {entry.rate} • Unit: {entry.unit}</div>
+                              <div className="text-xs text-muted-foreground">Category: {entry.category} {entry.subcategory ? `• ${entry.subcategory}` : ''} {entry.product ? `• ${entry.product}` : ''}</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button size="sm" variant="ghost" onClick={() => {
+                                // populate entry into form for quick edit
+                                setFormData({
+                                  rate: entry.rate,
+                                  unit: entry.unit,
+                                  brandname: entry.brandname || "",
+                                  modelnumber: entry.modelnumber || "",
+                                  category: entry.category || "",
+                                  subcategory: entry.subcategory || "",
+                                  product: entry.product || "",
+                                  technicalspecification: entry.technicalspecification || "",
+                                  dimensions: entry.dimensions || "",
+                                  finishtype: entry.finishtype || "",
+                                  metaltype: entry.metaltype || "",
+                                });
+                              }}>Edit</Button>
+                              <Button size="sm" variant="ghost" onClick={() => handleRemoveEntry(idx)}>Remove</Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Submit / Add Entry Buttons */}
                   <div className="flex gap-2">
+                    <Button type="button" onClick={handleAddEntry} className="gap-2">
+                      <Plus className="w-4 h-4" /> Add Entry
+                    </Button>
+
                     <Button
                       type="submit"
                       disabled={submitting}

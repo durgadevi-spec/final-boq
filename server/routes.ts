@@ -1171,6 +1171,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "no fields" });
       vals.push(id);
       const q = `UPDATE materials SET ${fields.join(", ")} WHERE id = $${idx} RETURNING *`;
+      console.log('[PUT /api/materials/:id] body:', body);
+      console.log('[PUT /api/materials/:id] query:', q);
+      console.log('[PUT /api/materials/:id] vals:', vals);
       const result = await query(q, vals);
       res.json({ material: result.rows[0] });
     } catch (err) {
@@ -1342,20 +1345,41 @@ export async function registerRoutes(
     async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
+        console.log('[PUT /api/material-templates/:id] user:', (req as any).user);
+        console.log('[PUT /api/material-templates/:id] params.id:', req.params.id);
+        console.log('[PUT /api/material-templates/:id] body:', req.body);
         const { name, code, category } = req.body;
 
-        if (!name || !name.trim()) {
-          res.status(400).json({ message: "Template name is required" });
+        // Only update fields that are provided
+        const fields: string[] = [];
+        const vals: any[] = [];
+        let idx = 1;
+
+        if (name !== undefined) {
+          fields.push(`name = $${idx++}`);
+          vals.push(name?.trim() || null);
+        }
+        if (code !== undefined) {
+          fields.push(`code = $${idx++}`);
+          vals.push(code?.trim() || null);
+        }
+        if (category !== undefined) {
+          fields.push(`category = $${idx++}`);
+          vals.push(category || null);
+        }
+
+        if (fields.length === 0) {
+          res.status(400).json({ message: "No fields to update" });
           return;
         }
 
-        const result = await query(
-          `UPDATE material_templates 
-           SET name = $1, code = $2, category = $3, updated_at = NOW()
-           WHERE id = $4 
-           RETURNING *`,
-          [name.trim(), code || null, category || null, id],
-        );
+        fields.push(`updated_at = $${idx++}`);
+        vals.push(new Date());
+        vals.push(id);
+
+        const q = `UPDATE material_templates SET ${fields.join(", ")} WHERE id = $${idx} RETURNING *`;
+        console.log('[material-templates PUT] query:', q, 'vals:', vals);
+        const result = await query(q, vals);
 
         if (result.rows.length === 0) {
           res.status(404).json({ message: "Template not found" });

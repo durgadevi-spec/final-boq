@@ -301,21 +301,7 @@ export function Sidebar() {
                   )}
                   onClick={() => setIsOpen(false)}
                 >
-                  <Package className="h-4 w-4" /> Item Master
-                </span>
-              </Link>
-
-              <Link href="/admin/dashboard?tab=shops">
-                <span
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-                    currentAdminTab === "shops"
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent",
-                  )}
-                  onClick={() => setIsOpen(false)}
-                >
-                  <Building2 className="h-4 w-4" /> Manage Shops
+                  <Package className="h-4 w-4" /> Create Item
                 </span>
               </Link>
 
@@ -330,6 +316,34 @@ export function Sidebar() {
                   onClick={() => setIsOpen(false)}
                 >
                   <Package className="h-4 w-4" /> Create Product
+                </span>
+              </Link>
+
+              <Link href="/supplier/materials">
+                <span
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                    location === "/supplier/materials"
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
+                  )}
+                  onClick={() => setIsOpen(false)}
+                >
+                  <Package className="h-4 w-4" /> Manage Materials
+                </span>
+              </Link>
+
+              <Link href="/admin/dashboard?tab=shops">
+                <span
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                    currentAdminTab === "shops"
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
+                  )}
+                  onClick={() => setIsOpen(false)}
+                >
+                  <Building2 className="h-4 w-4" /> Manage Shops
                 </span>
               </Link>
 
@@ -371,6 +385,23 @@ export function Sidebar() {
                 </span>
               </Link>
 
+              {/* Supplier approvals (admin only) */}
+              {isAdminOnly && (
+                <Link href="/admin/suppliers">
+                  <span
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                      location === "/admin/suppliers"
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent",
+                    )}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <Users className="h-4 w-4" /> Supplier Approvals
+                  </span>
+                </Link>
+              )}
+
               <Link href="/admin/dashboard?tab=messages">
                 <span
                   className={cn(
@@ -390,58 +421,41 @@ export function Sidebar() {
                 </span>
               </Link>
 
-              {/* Create Project shortcut - ADMIN and SOFTWARE TEAM (and pre-sales) */}
-              {canCreateBOQAndProject && (
-                <Link href="/create-project">
-                  <span
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-2 cursor-pointer",
-                      location === "/create-project"
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent",
-                    )}
-                    onClick={() => setIsOpen(false)}
-                  >
-                    <Building2 className="h-4 w-4" /> Create Project
-                  </span>
-                </Link>
-              )}
+              {/* Create Project / Create BOQ for Admin */}
+              {isAdminOnly && (
+                <>
+                  <div className="px-3 mb-2 mt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Projects
+                  </div>
+                  <Link href="/create-project">
+                    <span
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                        location === "/create-project"
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent",
+                      )}
+                      onClick={() => setIsOpen(false)}
+                    >
+                      <Building2 className="h-4 w-4" /> Create Project
+                    </span>
+                  </Link>
 
-              {/* Create BOQ shortcut - ADMIN and SOFTWARE TEAM (and pre-sales) */}
-              {canCreateBOQAndProject && (
-                <Link href="/create-boq">
-                  <span
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
-                      location === "/create-boq"
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent",
-                    )}
-                    onClick={() => setIsOpen(false)}
-                  >
-                    <ShoppingCart className="h-4 w-4" /> Create BOQ
-                  </span>
-                </Link>
+                  <Link href="/create-boq">
+                    <span
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
+                        location === "/create-boq"
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent",
+                      )}
+                      onClick={() => setIsOpen(false)}
+                    >
+                      <ShoppingCart className="h-4 w-4" /> Create BOQ
+                    </span>
+                  </Link>
+                </>
               )}
-
-              {/* ✅ Supplier Approvals - ONLY ADMIN */}
-              {isAdminOnly && !isPreSales && !isContractor && (
-                <Link href="/admin/suppliers">
-                  <span
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-                      location === "/admin/suppliers"
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent",
-                    )}
-                    onClick={() => setIsOpen(false)}
-                  >
-                    <Users className="h-4 w-4" /> Supplier Approvals
-                  </span>
-                </Link>
-              )}
-
-              {/* Material Submissions - HIDDEN */}
             </>
           )}
 
@@ -453,7 +467,7 @@ export function Sidebar() {
                 {user?.role === "admin" ? "Materials" : "Supplier"}
               </div>
               {user?.role === "supplier" && (
-                <Link href="/supplier/shops">
+                <Link href="/supplier/shops">        
                   <span
                     className={cn(
                       "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
@@ -467,19 +481,21 @@ export function Sidebar() {
                   </span>
                 </Link>
               )}
-              <Link href="/supplier/materials">
-                <span
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
-                    location === "/supplier/materials"
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent",
-                  )}
-                  onClick={() => setIsOpen(false)}
-                >
-                  <Package className="h-4 w-4" /> Manage Materials
-                </span>
-              </Link>
+              {(user?.role !== 'admin') && (
+                <Link href="/supplier/materials">
+                  <span
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
+                      location === "/supplier/materials"
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent",
+                    )}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <Package className="h-4 w-4" /> Manage Materials
+                  </span>
+                </Link>
+              )}
             </>
           ) : null}
 
@@ -531,7 +547,7 @@ export function Sidebar() {
                 <span className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">
                   <Package className="h-4 w-4" />
                   Subscription
-                </span>
+                </span>           
               </Link>
             </>
           )}
@@ -550,7 +566,7 @@ export function Sidebar() {
               </span>
               <span className="text-xs text-muted-foreground truncate capitalize">
                 {user?.role?.replace("_", " ") || "Visitor"}
-              </span>
+              </span>                                              
             </div>
           </div>
           <Button

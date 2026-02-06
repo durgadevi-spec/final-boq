@@ -137,7 +137,8 @@ export default function DynamicEstimator() {
     const subcatNormalized = normalize(subcategoryParam);
     const subcatCompact = normalizeCompact(subcategoryParam);
 
-    return (storeProducts || []).filter((p: any) => {
+    // Filter by subcategory first
+    const matched = (storeProducts || []).filter((p: any) => {
       const subcatFromDB = normalize(p.subcategory || p.subcategory_name || "");
       const subcatFromDBCompact = normalizeCompact(p.subcategory || p.subcategory_name || "");
 
@@ -150,6 +151,15 @@ export default function DynamicEstimator() {
         subcatCompact.includes(subcatFromDBCompact)
       );
     });
+
+    // Deduplicate products by normalized name (handles duplicate rows from API/joins)
+    const map = new Map<string, any>();
+    matched.forEach((p: any) => {
+      const key = normalizeCompact(p.name || p.product || p.title || "");
+      if (!map.has(key)) map.set(key, p);
+    });
+
+    return Array.from(map.values());
   }, [storeProducts, subcategoryParam]);
 
   const getProductMaterials = (productName: string) => {
@@ -168,7 +178,7 @@ export default function DynamicEstimator() {
 
     const normalized = normalize(productName);
     const normalizedCompact = normalizeCompact(productName);
-    return (storeMaterials || []).filter((m: any) => {
+    const matched = (storeMaterials || []).filter((m: any) => {
       const prodName = normalize(m.product || "");
       const prodNameCompact = normalizeCompact(m.product || "");
       const subcatName = normalize(m.subCategory || "");
@@ -184,6 +194,15 @@ export default function DynamicEstimator() {
         subcatNameCompact.includes(normalizedCompact)
       );
     });
+
+    // Deduplicate materials by normalized name/code so each material appears once per product
+    const dedupe = new Map<string, any>();
+    matched.forEach((m: any) => {
+      const key = normalizeCompact(m.name || m.code || m.product || m.id);
+      if (!dedupe.has(key)) dedupe.set(key, m);
+    });
+
+    return Array.from(dedupe.values());
   };
 
   const selectedMaterialObjects = useMemo(() => {
@@ -769,8 +788,33 @@ export default function DynamicEstimator() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="Generic">Generic</SelectItem>
-                                    <SelectItem value="Premium">Premium</SelectItem>
+                                    {(() => {
+                                      // derive unique brands from variants for this material
+                                      const normalize = (s: any) =>
+                                        String(s || "").trim();
+
+                                      const variantMaterials = (storeMaterials || []).filter(
+                                        (m: any) =>
+                                          normalize(m.product || "") === normalize(material.product || "") &&
+                                          normalize(m.name || "") === normalize(material.name || "")
+                                      );
+
+                                      const brandMap = new Map<string, string>();
+                                      variantMaterials.forEach((m: any) => {
+                                        const b = m.brandName || "Generic";
+                                        const key = String(b).toUpperCase().trim();
+                                        if (!brandMap.has(key)) brandMap.set(key, b);
+                                      });
+
+                                      const brands = Array.from(brandMap.values());
+                                      if (brands.length === 0) brands.push("Generic");
+
+                                      return brands.map((b: string) => (
+                                        <SelectItem key={b} value={b}>
+                                          {b}
+                                        </SelectItem>
+                                      ));
+                                    })()}
                                   </SelectContent>
                                 </Select>
                               </div>
@@ -883,9 +927,8 @@ export default function DynamicEstimator() {
                   Edit quantities or rates before generating BOQ.
                 </p>
 
-                <div className="grid grid-cols-9 gap-4 text-sm text-muted-foreground mb-3">
+                <div className="grid grid-cols-8 gap-4 text-sm text-muted-foreground mb-3">
                   <div className="col-span-2">Item</div>
-                  <div>Description</div>
                   <div className="text-center">Brand</div>
                   <div className="text-center">Qty</div>
                   <div className="text-center">Unit</div>
@@ -903,11 +946,9 @@ export default function DynamicEstimator() {
                     return (
                       <div
                         key={mat.id}
-                        className="grid grid-cols-9 gap-4 items-center border rounded-xl p-4"
+                        className="grid grid-cols-8 gap-4 items-center border rounded-xl p-4"
                       >
                         <div className="col-span-2 font-medium">{mat.name}</div>
-
-                        <div className="text-sm">{materialDescriptions[mat.id] || mat.name}</div>
 
                         <div className="text-center font-semibold">
                           {mat.brandName || "Generic"}
@@ -1220,7 +1261,7 @@ export default function DynamicEstimator() {
                   onClick={() => setStep(9)}
                   className="bg-blue-600 hover:bg-blue-700 px-8"
                 >
-                  Add to BOQ <ChevronRight className="ml-2 h-4 w-4" />
+                  Add to BOM <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
 
                 <Button
@@ -1464,7 +1505,7 @@ export default function DynamicEstimator() {
                   </Button>
 
                   <Button
-                    onClick={() => setStep(10)}
+                    onClick={() => setStep(11)}
                     className="bg-blue-600 hover:bg-blue-700 px-8"
                   >
                     Finalize PO
@@ -1481,108 +1522,9 @@ export default function DynamicEstimator() {
             </motion.div>
           )}
 
-          {/* Step 10: Finalize PO (Door estimator template) */}
-          {step === 10 && (
-            <motion.div
-              key="step-finalize-po"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="space-y-6"
-            >
-              <div className="bg-white rounded-xl border p-8 space-y-6">
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label>Bill No</Label>
-                    <Input value={finalBillNo} onChange={(e) => setFinalBillNo(e.target.value)} />
-                  </div>
 
-                  <div>
-                    <Label>Bill Date</Label>
-                    <Input
-                      type="date"
-                      value={finalBillDate}
-                      onChange={(e) => setFinalBillDate(e.target.value)}
-                    />
-                  </div>
 
-                  <div>
-                    <Label>Due Date</Label>
-                    <Input
-                      type="date"
-                      value={finalDueDate}
-                      onChange={(e) => setFinalDueDate(e.target.value)}
-                    />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Customer Name</Label>
-                    <Input
-                      value={finalCustomerName}
-                      onChange={(e) => setFinalCustomerName(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <Label>Customer Address</Label>
-                    <Input
-                      value={finalCustomerAddress}
-                      onChange={(e) => setFinalCustomerAddress(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label>Terms & Conditions</Label>
-                  <Input value={finalTerms} onChange={(e) => setFinalTerms(e.target.value)} />
-                </div>
-
-                <div className="space-y-4 border p-4 rounded-md bg-slate-50">
-                  <Label className="font-semibold">Material Description Entry</Label>
-                  <select
-                    className="w-full border rounded px-3 py-2"
-                    value={selectedMaterialId}
-                    onChange={(e) => setSelectedMaterialId(e.target.value)}
-                  >
-                    <option value="">Select Material</option>
-                    {selectedMaterialObjects.map((m: any) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedMaterialId && (
-                    <Input
-                      placeholder="Enter description for selected material"
-                      value={materialDescriptions[selectedMaterialId] || ""}
-                      onChange={(e) =>
-                        setMaterialDescriptions((prev) => ({
-                          ...prev,
-                          [selectedMaterialId]: e.target.value,
-                        }))
-                      }
-                    />
-                  )}
-                </div>
-
-                <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={() => setStep(9)} className="px-8">
-                    <ChevronLeft className="mr-2 h-4 w-4" />
-                    Back
-                  </Button>
-                  <Button
-                    onClick={() => setStep(11)}
-                    className="bg-blue-600 hover:bg-blue-700 px-8"
-                  >
-                    Create BOQ <ChevronRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 11: Final BOQ (Door estimator: product row + totals from Step 8) */}
           {step === 11 && (
             <motion.div
               key="step11"
@@ -1793,7 +1735,7 @@ export default function DynamicEstimator() {
 
                 {/* Buttons row exactly like Door estimator */}
                 <div className="flex justify-end gap-3 pt-2">
-                  <Button variant="outline" onClick={() => setStep(10)} className="px-8">
+                  <Button variant="outline" onClick={() => setStep(9)} className="px-8">
                     Back
                   </Button>
 

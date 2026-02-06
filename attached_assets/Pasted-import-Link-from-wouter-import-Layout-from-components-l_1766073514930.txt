@@ -259,7 +259,7 @@ export default function AdminDashboard() {
 
                   {/* ORIGINAL INPUTS UNTOUCHED */}
                   <div className="space-y-2">
-                    <Label>Material Name</Label>
+                    <Label>Item Name</Label>
                     <Input value={newMaterial.name}
                       onChange={e => setNewMaterial({ ...newMaterial, name: e.target.value })}
                       placeholder="Item Name"/>
