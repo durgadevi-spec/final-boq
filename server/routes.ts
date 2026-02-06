@@ -198,6 +198,145 @@ export async function registerRoutes(
     );
   }
 
+  // Ensure boq_projects table exists (stores BOQ projects)
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS boq_projects (
+        id VARCHAR(100) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        client VARCHAR(255),
+        budget VARCHAR(100),
+        status VARCHAR(50) DEFAULT 'draft',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_boq_projects_created_at ON boq_projects(created_at)`,
+    );
+    console.log("[db] boq_projects table verified/created");
+  } catch (err: unknown) {
+    console.warn(
+      "[db] Could not create boq_projects table:",
+      (err as any)?.message || err,
+    );
+  }
+
+  // Ensure boq_items table exists (stores BOQ line items captured from estimators)
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS boq_items (
+        id VARCHAR(100) PRIMARY KEY,
+        project_id VARCHAR(100) NOT NULL,
+        estimator VARCHAR(50) NOT NULL,
+        table_data JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        FOREIGN KEY (project_id) REFERENCES boq_projects(id) ON DELETE CASCADE
+      )
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_boq_items_project_id ON boq_items(project_id)`,
+    );
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_boq_items_estimator ON boq_items(estimator)`,
+    );
+    console.log("[db] boq_items table verified/created");
+  } catch (err: unknown) {
+    console.warn(
+      "[db] Could not create boq_items table:",
+      (err as any)?.message || err,
+    );
+  }
+
+  // Ensure boq_versions table exists (stores BOQ versions)
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS boq_versions (
+        id VARCHAR(100) PRIMARY KEY,
+        project_id VARCHAR(100) NOT NULL,
+        project_name VARCHAR(255),
+        project_client VARCHAR(255),
+        version_number INTEGER NOT NULL,
+        status VARCHAR(50) DEFAULT 'draft',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        FOREIGN KEY (project_id) REFERENCES boq_projects(id) ON DELETE CASCADE,
+        UNIQUE(project_id, version_number)
+      )
+    `);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_boq_versions_project_id ON boq_versions(project_id)`,
+    );
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_boq_versions_status ON boq_versions(status)`,
+    );
+    console.log("[db] boq_versions table verified/created");
+  } catch (err: unknown) {
+    console.warn(
+      "[db] Could not create boq_versions table:",
+      (err as any)?.message || err,
+    );
+  }
+
+  // Ensure new columns exist on existing installations and populate them
+  try {
+    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_name VARCHAR(255)`);
+    await query(`ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS project_client VARCHAR(255)`);
+
+    // Populate project_name and project_client from boq_projects where missing
+    await query(`
+      UPDATE boq_versions v
+      SET project_name = p.name, project_client = p.client
+      FROM boq_projects p
+      WHERE v.project_id = p.id
+        AND (v.project_name IS NULL OR v.project_client IS NULL)
+    `);
+
+    console.log("[db] boq_versions project_name and project_client populated");
+  } catch (err: unknown) {
+    console.warn("[db] Could not ensure/populate boq_versions project columns:", (err as any)?.message || err);
+  }
+
+  // Migrate boq_items to support version_id
+  try {
+    await query(
+      `ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS version_id VARCHAR(100)`,
+    );
+    console.log("[db] boq_items version_id column ensured");
+  } catch (err: unknown) {
+    console.warn(
+      "[db] Could not add version_id column to boq_items:",
+      (err as any)?.message || err,
+    );
+  }
+
+  // Add foreign key constraint (ignore error if it already exists)
+  try {
+    await query(
+      `ALTER TABLE boq_items ADD CONSTRAINT fk_boq_items_version FOREIGN KEY (version_id) REFERENCES boq_versions(id) ON DELETE CASCADE`,
+    );
+    console.log("[db] boq_items foreign key constraint added");
+  } catch (err: unknown) {
+    // Constraint might already exist, which is fine
+    const errorMsg = (err as any)?.message || "";
+    if (!errorMsg.includes("already exists")) {
+      console.warn("[db] Warning adding foreign key constraint:", errorMsg);
+    }
+  }
+
+  // Ensure boq_items has a user_added flag (only items explicitly saved via Add Product)
+  try {
+    await query(
+      `ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS user_added BOOLEAN DEFAULT true`,
+    );
+    console.log("[db] boq_items user_added column ensured");
+  } catch (err: unknown) {
+    console.warn(
+      "[db] Could not ensure user_added column on boq_items:",
+      (err as any)?.message || err,
+    );
+  }
+
   // In-memory fallback storage for messages when DB is unreachable (development only)
   let inMemoryMessages: any[] = [];
   let inMemoryMessagesEnabled = false;
@@ -220,6 +359,14 @@ export async function registerRoutes(
         businessAddress,
       } = req.body;
 
+      console.log("[signup] Received signup request:", {
+        username,
+        role,
+        hasPassword: !!password,
+        hasFullName: !!fullName,
+        hasMobileNumber: !!mobileNumber,
+      });
+
       if (!username || !password) {
         res.status(400).json({ message: "Username and password are required" });
         return;
@@ -233,23 +380,27 @@ export async function registerRoutes(
       // Check if user already exists
       const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
+        console.log("[signup] User already exists:", username);
         res.status(409).json({ message: "User already exists" });
         return;
       }
 
-      // Create new user
+      // Create new user - pre_sales and contractor don't need extra fields
+      console.log("[signup] Creating user with role:", role);
       const user = await storage.createUser({
         username,
         password,
         role: role || "user",
         fullName,
         mobileNumber,
-        department,
-        employeeCode,
-        companyName,
-        gstNumber,
-        businessAddress,
+        department: role === "pre_sales" || role === "contractor" ? null : department,
+        employeeCode: role === "pre_sales" || role === "contractor" ? null : employeeCode,
+        companyName: role === "supplier" ? companyName : null,
+        gstNumber: role === "supplier" ? gstNumber : null,
+        businessAddress: role === "supplier" ? businessAddress : null,
       });
+
+      console.log("[signup] User created successfully:", user.id);
 
       // ✅ NEW: ensure approval columns exist + mark supplier as pending (DB controls approval)
       try {
@@ -265,9 +416,10 @@ export async function registerRoutes(
           user.id,
           approvedValue,
         ]);
+        console.log(`[signup] User ${user.id} approved status set to: ${approvedValue}`);
       } catch (err: unknown) {
         console.warn(
-          "[signup] could not set supplier approval status (continuing):",
+          "[signup] could not set approval status (continuing):",
           (err as any)?.message || err,
         );
       }
@@ -293,9 +445,23 @@ export async function registerRoutes(
         message: "User created successfully",
         user: userWithoutPassword,
       });
-    } catch (error) {
-      console.error("Signup error:", error);
-      res.status(500).json({ message: "Internal server error" });
+    } catch (error: any) {
+      console.error("[signup] Error:", {
+        message: error?.message,
+        code: error?.code,
+        detail: error?.detail,
+        fullError: error,
+      });
+      
+      // Provide more specific error messages
+      if (error.code === "23505") {
+        // Unique constraint violation
+        res.status(409).json({ message: "Username already exists" });
+      } else if (error.message?.includes("not null")) {
+        res.status(400).json({ message: "Missing required field: " + error.message });
+      } else {
+        res.status(500).json({ message: "Signup failed: " + (error?.message || "Unknown error") });
+      }
     }
   });
 
@@ -1306,12 +1472,10 @@ export async function registerRoutes(
         res.json({ message: "Template deleted successfully" });
       } catch (err) {
         console.error("/api/material-templates DELETE error", err);
-        res
-          .status(500)
-          .json({
-            message: "failed to delete material template",
-            error: String(err),
-          });
+        res.status(500).json({
+          message: "failed to delete material template",
+          error: String(err),
+        });
       }
     },
   );
@@ -1417,7 +1581,7 @@ export async function registerRoutes(
         const result = await query(
           `INSERT INTO material_subcategories (id, name, category, created_by) 
          VALUES ($1, $2, $3, $4) 
-         RETURNING *`,
+         RETURNING id::text, name, category, created_at, created_by`,
           [id, name.trim(), category.trim(), userId || null],
         );
 
@@ -1438,31 +1602,121 @@ export async function registerRoutes(
     },
   );
 
-  // DELETE /api/subcategories/:id - Delete a subcategory (Admin/Software Team)
-  app.delete(
-    "/api/subcategories/:id",
+  // PUT /api/categories/:name - Update a category name
+  app.put(
+    "/api/categories/:name",
     authMiddleware,
-    requireRole("admin", "software_team"),
+    requireRole("admin", "software_team", "purchase_team"),
     async (req: Request, res: Response) => {
       try {
-        const id = req.params.id;
-        // Delete any products that reference this subcategory
-        await query("DELETE FROM material_products WHERE subcategory_id = $1", [
-          id,
-        ]);
-        // Delete the subcategory itself
+        const { name: oldName } = req.params;
+        const { name: newName } = req.body;
+
+        if (!newName || !newName.trim()) {
+          res.status(400).json({ message: "Category name is required" });
+          return;
+        }
+
+        // Update the category
         const result = await query(
-          "DELETE FROM material_subcategories WHERE id = $1 RETURNING id",
-          [id],
+          `UPDATE material_categories SET name = $1 WHERE name = $2 RETURNING *`,
+          [newName.trim(), decodeURIComponent(oldName)],
         );
+
+        if (result.rows.length === 0) {
+          res.status(404).json({ message: "Category not found" });
+          return;
+        }
+
+        // Update all subcategories that reference this category
+        await query(
+          `UPDATE material_subcategories SET category = $1 WHERE category = $2`,
+          [newName.trim(), decodeURIComponent(oldName)],
+        );
+
+        res.json({ category: result.rows[0] });
+      } catch (err: any) {
+        console.error("/api/categories PUT error", err);
+        if (err.code === "23505") {
+          res.status(409).json({ message: "Category already exists" });
+        } else {
+          res.status(500).json({ message: "failed to update category", error: err.message });
+        }
+      }
+    },
+  );
+
+  // PUT /api/subcategories/:id - Update a subcategory name
+  app.put(
+    "/api/subcategories/:id",
+    authMiddleware,
+    requireRole("admin", "software_team", "purchase_team"),
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { name: newName, category } = req.body;
+
+        if (!newName || !newName.trim()) {
+          res.status(400).json({ message: "Subcategory name is required" });
+          return;
+        }
+
+        // Update the subcategory
+        const result = await query(
+          `UPDATE material_subcategories SET name = $1, category = $2 WHERE id = $3 RETURNING id::text, name, category, created_at, created_by`,
+          [newName.trim(), category, id],
+        );
+
         if (result.rows.length === 0) {
           res.status(404).json({ message: "Subcategory not found" });
           return;
         }
+
+        res.json({ subcategory: result.rows[0] });
+      } catch (err: any) {
+        console.error("/api/subcategories PUT error", err);
+        if (err.code === "23505") {
+          res.status(409).json({ message: "Subcategory already exists" });
+        } else {
+          res.status(500).json({ message: "failed to update subcategory", error: err.message });
+        }
+      }
+    },
+  );
+
+  // DELETE /api/subcategories/:id - Delete a subcategory (Admin/Software Team/Purchase Team)
+  app.delete(
+    "/api/subcategories/:id",
+    authMiddleware,
+    requireRole("admin", "software_team", "purchase_team"),
+    async (req: Request, res: Response) => {
+      try {
+        const id = req.params.id;
+        
+        // Simply delete the subcategory
+        // Note: CASCADE DELETE should be handled at the database level
+        // OR we trust that products are orphaned (which is acceptable for now)
+        const result = await query(
+          "DELETE FROM material_subcategories WHERE id = $1 RETURNING id",
+          [id],
+        );
+        
+        if (result.rowCount === 0) {
+          res.status(404).json({ message: "Subcategory not found" });
+          return;
+        }
+        
         res.json({ message: "Subcategory deleted successfully" });
-      } catch (err) {
-        console.error("/api/subcategories DELETE error", err);
-        res.status(500).json({ message: "failed to delete subcategory" });
+      } catch (err: any) {
+        console.error("/api/subcategories DELETE error:", {
+          message: err.message,
+          code: err.code,
+          detail: err.detail
+        });
+        res.status(500).json({ 
+          message: "failed to delete subcategory", 
+          error: err.message
+        });
       }
     },
   );
@@ -1546,7 +1800,8 @@ export async function registerRoutes(
   app.get("/api/subcategories-admin", async (_req, res) => {
     try {
       const result = await query(`
-        SELECT * FROM material_subcategories 
+        SELECT id::text, name, category, created_at, created_by 
+        FROM material_subcategories 
         ORDER BY category ASC, name ASC
       `);
 
@@ -1554,6 +1809,60 @@ export async function registerRoutes(
     } catch (err) {
       console.error("/api/subcategories-admin error", err);
       res.status(500).json({ message: "failed to list subcategories" });
+    }
+  });
+
+  // GET /api/sidebar-subcategories - List all subcategories for sidebar (predefined + database)
+  app.get("/api/sidebar-subcategories", async (_req, res) => {
+    try {
+      // Predefined subcategories with their routes and icons
+      const predefinedSubcategories = [
+        { id: "1", name: "Civil", href: "/estimators/civil-wall", icon: "BrickWall", category: "Estimators" },
+        { id: "2", name: "Doors", href: "/estimators/doors", icon: "DoorOpen", category: "Estimators" },
+        { id: "3", name: "False Ceiling", href: "/estimators/false-ceiling", icon: "Cloud", category: "Estimators" },
+        { id: "4", name: "Flooring", href: "/estimators/flooring", icon: "Layers", category: "Estimators" },
+        { id: "5", name: "Painting", href: "/estimators/painting", icon: "PaintBucket", category: "Estimators" },
+        { id: "6", name: "Blinds", href: "/estimators/blinds", icon: "Blinds", category: "Estimators" },
+        { id: "7", name: "Electrical", href: "/estimators/electrical", icon: "Zap", category: "Estimators" },
+        { id: "8", name: "Plumbing", href: "/estimators/plumbing", icon: "Droplets", category: "Estimators" },
+      ];
+
+      // Get database subcategories (with trimming)
+      const dbResult = await query(`
+        SELECT DISTINCT TRIM(name) as name FROM material_subcategories 
+        WHERE TRIM(name) != ''
+        ORDER BY name ASC
+      `);
+      
+      const dbSubcategoryNames = dbResult.rows.map((row) => row.name);
+
+      // Create a set of predefined names (normalized for comparison)
+      const predefinedNamesSet = new Set(
+        predefinedSubcategories.map((p) => p.name.toLowerCase().trim())
+      );
+
+      // Filter out database entries that match predefined ones (case-insensitive and space-trim)
+      const uniqueDbNames = dbSubcategoryNames.filter((dbName) => {
+        const normalizedDbName = dbName.toLowerCase().trim();
+        return !predefinedNamesSet.has(normalizedDbName);
+      });
+
+      // Combine: predefined first, then unique database entries
+      const allSubcategories = [
+        ...predefinedSubcategories,
+        ...uniqueDbNames.map((name, idx) => ({
+          id: `db_${idx}`,
+          name: name,
+          href: null,
+          icon: "Layers",
+          category: "Database",
+        })),
+      ];
+
+      res.json({ subcategories: allSubcategories });
+    } catch (err) {
+      console.error("/api/sidebar-subcategories error", err);
+      res.status(500).json({ message: "failed to list sidebar subcategories" });
     }
   });
 
@@ -1609,8 +1918,8 @@ export async function registerRoutes(
           s.name as subcategory_name,
           c.name as category_name
         FROM products p
-        LEFT JOIN material_subcategories s ON p.subcategory = s.name
-        LEFT JOIN material_categories c ON s.category = c.name
+        LEFT JOIN material_subcategories s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
+        LEFT JOIN material_categories c ON LOWER(TRIM(s.category)) = LOWER(TRIM(c.name))
         ORDER BY p.created_at DESC
       `);
 
@@ -1694,6 +2003,36 @@ export async function registerRoutes(
       }
     },
   );
+
+  // GET /api/products/:id - Get a single product by ID
+  app.get("/api/products/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await query(
+        `
+        SELECT
+          p.*,
+          s.name as subcategory_name,
+          c.name as category_name
+        FROM products p
+        LEFT JOIN material_subcategories s ON p.subcategory = s.name
+        LEFT JOIN material_categories c ON s.category = c.name
+        WHERE p.id = $1
+      `,
+        [id],
+      );
+
+      if (result.rows.length === 0) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+
+      res.json({ product: result.rows[0] });
+    } catch (err) {
+      console.error("/api/products/:id GET error", err);
+      res.status(500).json({ message: "Failed to get product" });
+    }
+  });
 
   // ====== MATERIAL SUBMISSIONS ======
 
@@ -1990,6 +2329,526 @@ export async function registerRoutes(
     },
   );
 
+  // ====== BOQ PROJECTS ROUTES ======
+
+  // POST /api/boq-projects - Create a new BOQ project
+  app.post(
+    "/api/boq-projects",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { name, client, budget } = req.body;
+
+        if (!name || !name.trim()) {
+          res.status(400).json({ message: "Project name is required" });
+          return;
+        }
+
+        const projectId = `proj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        await query(
+          `INSERT INTO boq_projects (id, name, client, budget, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+          [projectId, name.trim(), client || "", budget || "", "draft"],
+        );
+
+        res.json({
+          id: projectId,
+          name: name.trim(),
+          client: client || "",
+          budget: budget || "",
+          status: "draft",
+        });
+      } catch (err) {
+        console.error("POST /api/boq-projects error", err);
+        res.status(500).json({ message: "Failed to create project" });
+      }
+    },
+  );
+
+  // GET /api/boq-projects - List all BOQ projects
+  app.get(
+    "/api/boq-projects",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const result = await query(
+          `SELECT id, name, client, budget, status, created_at, updated_at FROM boq_projects ORDER BY created_at DESC`,
+        );
+
+        res.json({ projects: result.rows || [] });
+      } catch (err) {
+        console.error("GET /api/boq-projects error", err);
+        res.status(500).json({ message: "Failed to fetch projects" });
+      }
+    },
+  );
+
+  // GET /api/boq-projects/:projectId - Get a specific project
+  app.get(
+    "/api/boq-projects/:projectId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { projectId } = req.params;
+
+        const result = await query(
+          `SELECT id, name, client, budget, status, created_at, updated_at FROM boq_projects WHERE id = $1`,
+          [projectId],
+        );
+
+        if (result.rows.length === 0) {
+          res.status(404).json({ message: "Project not found" });
+          return;
+        }
+
+        res.json(result.rows[0]);
+      } catch (err) {
+        console.error("GET /api/boq-projects/:projectId error", err);
+        res.status(500).json({ message: "Failed to fetch project" });
+      }
+    },
+  );
+
+  // PUT /api/boq-projects/:projectId - Update project status
+  app.put(
+    "/api/boq-projects/:projectId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { projectId } = req.params;
+        const { status } = req.body;
+
+        if (!status || !["draft", "submitted", "finalized"].includes(status)) {
+          res.status(400).json({ message: "Invalid status" });
+          return;
+        }
+
+        await query(
+          `UPDATE boq_projects SET status = $1, updated_at = NOW() WHERE id = $2`,
+          [status, projectId],
+        );
+
+        res.json({ message: "Project updated" });
+      } catch (err) {
+        console.error("PUT /api/boq-projects/:projectId error", err);
+        res.status(500).json({ message: "Failed to update project" });
+      }
+    },
+  );
+
+  // DELETE /api/boq-projects/:projectId - Delete a project
+  app.delete(
+    "/api/boq-projects/:projectId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { projectId } = req.params;
+
+        // First, delete all items related to this project
+        await query(`DELETE FROM boq_items WHERE project_id = $1`, [projectId]);
+
+        // Then delete all versions related to this project
+        await query(`DELETE FROM boq_versions WHERE project_id = $1`, [projectId]);
+
+        // Finally delete the project itself
+        const result = await query(
+          `DELETE FROM boq_projects WHERE id = $1`,
+          [projectId],
+        );
+
+        if (result.rowCount === 0) {
+          res.status(404).json({ message: "Project not found" });
+          return;
+        }
+
+        res.json({ message: "Project deleted successfully" });
+      } catch (err) {
+        console.error("DELETE /api/boq-projects/:projectId error", err);
+        res.status(500).json({ message: "Failed to delete project" });
+      }
+    },
+  );
+
+  // ====== BOQ VERSIONS ROUTES ======
+
+  // GET /api/boq-versions/:projectId - List all versions of a project
+  app.get(
+    "/api/boq-versions/:projectId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { projectId } = req.params;
+
+        const result = await query(
+          `SELECT id, project_id, version_number, status, created_at, updated_at 
+           FROM boq_versions 
+           WHERE project_id = $1 
+           ORDER BY version_number DESC`,
+          [projectId],
+        );
+
+        res.json({ versions: result.rows || [] });
+      } catch (err) {
+        console.error("GET /api/boq-versions error", err);
+        res.status(500).json({ message: "Failed to fetch versions" });
+      }
+    },
+  );
+
+  // POST /api/boq-versions - Create a new version
+  app.post(
+    "/api/boq-versions",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { project_id, copy_from_version } = req.body;
+
+        if (!project_id) {
+          res.status(400).json({ message: "project_id is required" });
+          return;
+        }
+
+        // Get next version number
+        const versionResult = await query(
+          `SELECT MAX(version_number) as max_version FROM boq_versions WHERE project_id = $1`,
+          [project_id],
+        );
+
+        const nextVersion = (versionResult.rows[0]?.max_version || 0) + 1;
+        const versionId = `ver-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        // Fetch project name/client so we can store them on the version
+        let projectName: string | null = null;
+        let projectClient: string | null = null;
+        try {
+          const proj = await query(`SELECT name, client FROM boq_projects WHERE id = $1`, [project_id]);
+          projectName = proj.rows[0]?.name ?? null;
+          projectClient = proj.rows[0]?.client ?? null;
+        } catch (err) {
+          // non-fatal: proceed with nulls if lookup fails
+          console.warn("[db] Could not fetch project name/client:", (err as any)?.message || err);
+        }
+
+        // Create new version (store project name and client for easier querying/version display)
+        await query(
+          `INSERT INTO boq_versions (id, project_id, project_name, project_client, version_number, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+          [versionId, project_id, projectName, projectClient, nextVersion, "draft"],
+        );
+
+        // Copy items from previous version if requested
+        if (copy_from_version) {
+          const itemsResult = await query(
+            `SELECT * FROM boq_items WHERE version_id = $1`,
+            [copy_from_version],
+          );
+
+          for (const item of itemsResult.rows) {
+            const newItemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            await query(
+              `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, created_at)
+               VALUES ($1, $2, $3, $4, $5, NOW())`,
+              [
+                newItemId,
+                project_id,
+                item.estimator,
+                item.table_data,
+                versionId,
+              ],
+            );
+          }
+        }
+
+        res.json({
+          id: versionId,
+          project_id,
+          version_number: nextVersion,
+          status: "draft",
+        });
+      } catch (err) {
+        console.error("POST /api/boq-versions error", err);
+        res.status(500).json({ message: "Failed to create version" });
+      }
+    },
+  );
+
+  // PUT /api/boq-versions/:versionId - Update version status (lock/submit)
+  app.put(
+    "/api/boq-versions/:versionId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { versionId } = req.params;
+        const { status } = req.body;
+
+        if (!status || !["draft", "submitted"].includes(status)) {
+          res.status(400).json({ message: "Invalid status" });
+          return;
+        }
+
+        await query(
+          `UPDATE boq_versions SET status = $1, updated_at = NOW() WHERE id = $2`,
+          [status, versionId],
+        );
+
+        res.json({ message: "Version updated" });
+      } catch (err) {
+        console.error("PUT /api/boq-versions error", err);
+        res.status(500).json({ message: "Failed to update version" });
+      }
+    },
+  );
+
+  // DELETE /api/boq-versions/:versionId - Delete a version and its items
+  app.delete(
+    "/api/boq-versions/:versionId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      const client = await (query as any).client?.connect?.();
+      const { versionId } = req.params;
+
+      try {
+        // Use transaction to ensure both deletes succeed together
+        await query("BEGIN");
+
+        // Delete BOQ items tied to this version
+        await query(`DELETE FROM boq_items WHERE version_id = $1`, [versionId]);
+
+        // Delete the version itself
+        await query(`DELETE FROM boq_versions WHERE id = $1`, [versionId]);
+
+        await query("COMMIT");
+
+        res.json({ message: "Version and its items deleted" });
+      } catch (err) {
+        try {
+          await query("ROLLBACK");
+        } catch (e) {
+          // ignore
+        }
+        console.error("DELETE /api/boq-versions error", err);
+        res.status(500).json({ message: "Failed to delete version" });
+      } finally {
+        if (client && typeof client.release === "function") client.release();
+      }
+    },
+  );
+
+  // ====== BOQ ITEMS ROUTES ======
+
+  // POST /api/boq-items - Save a new BOQ item (captured from estimator Step 9)
+  app.post(
+    "/api/boq-items",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { project_id, version_id, estimator, table_data } = req.body;
+        console.log("POST /api/boq-items received:", {
+          project_id,
+          version_id,
+          estimator,
+          table_data_keys: table_data ? Object.keys(table_data) : null,
+        });
+
+        if (!project_id || !estimator || !table_data) {
+          console.error("Missing required fields:", {
+            has_project_id: !!project_id,
+            has_estimator: !!estimator,
+            has_table_data: !!table_data,
+          });
+          res.status(400).json({
+            message: "project_id, estimator, and table_data are required",
+          });
+          return;
+        }
+
+        const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        console.log("Creating BOQ item with ID:", itemId);
+
+        await query(
+          `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, created_at)
+         VALUES ($1, $2, $3, $4, $5, true, NOW())`,
+          [
+            itemId,
+            project_id,
+            estimator,
+            JSON.stringify(table_data),
+            version_id || null,
+          ],
+        );
+
+        // Confirm row persisted by selecting it back
+        try {
+          const check = await query(
+            `SELECT id, project_id, version_id, estimator, table_data, user_added, created_at FROM boq_items WHERE id = $1`,
+            [itemId],
+          );
+          const inserted = check.rows[0];
+          console.log("BOQ item created successfully (db):", {
+            id: inserted?.id,
+            project_id: inserted?.project_id,
+            version_id: inserted?.version_id,
+            estimator: inserted?.estimator,
+            user_added: inserted?.user_added,
+            created_at: inserted?.created_at,
+          });
+        } catch (e) {
+          console.warn("Could not verify inserted BOQ item:", e);
+        }
+
+        const responseData = {
+          id: itemId,
+          project_id,
+          version_id,
+          estimator,
+          table_data,
+        };
+
+        res.json(responseData);
+      } catch (err) {
+        console.error("POST /api/boq-items error", err);
+        console.error("Error details:", {
+          message: (err as any)?.message,
+          code: (err as any)?.code,
+          detail: (err as any)?.detail,
+          stack: (err as any)?.stack,
+        });
+        res.status(500).json({ 
+          message: "Failed to save BOQ item",
+          error: (err as any)?.message
+        });
+      }
+    },
+  );
+
+  // GET /api/boq-items/version/:versionId - Fetch BOQ items for a specific version
+  app.get(
+    "/api/boq-items/version/:versionId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { versionId } = req.params;
+
+        const result = await query(
+          `SELECT id, project_id, version_id, estimator, table_data, created_at FROM boq_items 
+         WHERE version_id = $1 AND user_added = true ORDER BY created_at ASC`,
+          [versionId],
+        );
+
+          try {
+            const ids = result.rows.map((r: any) => r.id).slice(0, 20);
+            console.log(`GET /api/boq-items/version/${versionId} -> ${result.rows.length} items. ids(first20):`, ids);
+          } catch (e) {
+            // ignore logging errors
+          }
+
+        const items = result.rows.map((row: any) => ({
+          id: row.id,
+          project_id: row.project_id,
+          version_id: row.version_id,
+          estimator: row.estimator,
+          table_data:
+            typeof row.table_data === "string"
+              ? JSON.parse(row.table_data)
+              : row.table_data,
+          created_at: row.created_at,
+        }));
+
+        res.json({ items });
+      } catch (err) {
+        console.error("GET /api/boq-items/version error", err);
+        res.status(500).json({ message: "Failed to fetch BOQ items" });
+      }
+    },
+  );
+
+  // GET /api/boq-items - Fetch BOQ items for a project (legacy, all versions)
+  app.get(
+    "/api/boq-items",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { project_id } = req.query;
+
+        if (!project_id) {
+          res
+            .status(400)
+            .json({ message: "project_id query parameter is required" });
+          return;
+        }
+
+        const result = await query(
+          `SELECT id, project_id, version_id, estimator, table_data, created_at FROM boq_items 
+         WHERE project_id = $1 AND user_added = true ORDER BY created_at ASC`,
+          [project_id],
+        );
+
+        const items = result.rows.map((row: any) => ({
+          id: row.id,
+          project_id: row.project_id,
+          version_id: row.version_id,
+          estimator: row.estimator,
+          table_data:
+            typeof row.table_data === "string"
+              ? JSON.parse(row.table_data)
+              : row.table_data,
+          created_at: row.created_at,
+        }));
+
+        res.json({ items });
+      } catch (err) {
+        console.error("GET /api/boq-items error", err);
+        res.status(500).json({ message: "Failed to fetch BOQ items" });
+      }
+    },
+  );
+
+  // PUT /api/boq-items/:itemId - Update a BOQ item's table_data
+  app.put(
+    "/api/boq-items/:itemId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { itemId } = req.params;
+        const { table_data } = req.body;
+
+        if (!table_data) {
+          res.status(400).json({ message: "table_data is required" });
+          return;
+        }
+
+        await query(
+          `UPDATE boq_items SET table_data = $1, created_at = NOW() WHERE id = $2`,
+          [JSON.stringify(table_data), itemId],
+        );
+
+        res.json({ message: "BOQ item updated" });
+      } catch (err) {
+        console.error("PUT /api/boq-items/:itemId error", err);
+        res.status(500).json({ message: "Failed to update BOQ item" });
+      }
+    },
+  );
+
+  // DELETE /api/boq-items/:itemId - Delete a BOQ item
+  app.delete(
+    "/api/boq-items/:itemId",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { itemId } = req.params;
+
+        await query(`DELETE FROM boq_items WHERE id = $1`, [itemId]);
+
+        res.json({ message: "BOQ item deleted" });
+      } catch (err) {
+        console.error("DELETE /api/boq-items/:itemId error", err);
+        res.status(500).json({ message: "Failed to delete BOQ item" });
+      }
+    },
+  );
+
   // Estimator Step Data Storage Routes
   app.post(
     "/api/estimator-step9-items",
@@ -2117,7 +2976,8 @@ export async function registerRoutes(
         )
       `);
 
-        let queryStr = "SELECT * FROM estimator_step9_cart WHERE estimator = $1";
+        let queryStr =
+          "SELECT * FROM estimator_step9_cart WHERE estimator = $1";
         const params: any[] = [estimator];
 
         // If session_id is provided, filter by it; otherwise fetch all for that estimator
@@ -2276,6 +3136,92 @@ export async function registerRoutes(
     },
   );
 
+  // GET /api/step11-by-product - Get Step 11 data for a product
+  app.get(
+    "/api/step11-by-product",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { product_id, estimator } = req.query;
+
+        if (!product_id || !estimator) {
+          return res.status(400).json({
+            message: "product_id and estimator query parameters are required",
+          });
+        }
+
+        // First, get the product details to find matching items
+        const productResult = await query(
+          `SELECT name FROM products WHERE id = $1`,
+          [product_id],
+        );
+
+        if (productResult.rows.length === 0) {
+          return res.json({ items: [] });
+        }
+
+        const product = productResult.rows[0];
+        const productName = product.name.toLowerCase();
+
+        // Query estimator_step11_finalize_boq table
+        // Filter by estimator AND match product keywords
+        const result = await query(
+          `
+        SELECT 
+          id, bill_no, estimator, s_no, item, location, unit,
+          qty, supply_rate, install_rate, supply_amount, install_amount, created_at
+        FROM estimator_step11_finalize_boq 
+        WHERE estimator = $1
+        ORDER BY s_no ASC
+        LIMIT 50
+      `,
+          [estimator],
+        );
+
+        // Filter items that match the product name with strict matching
+        // Get the first significant word of the product name (e.g., "Flush" from "Flush Door")
+        const productWords = productName.split(" ").filter((w) => w.length > 2);
+        const primaryWord = productWords[0]; // e.g., "flush" or "glass"
+
+        const filteredRows = result.rows.filter((row: any) => {
+          const itemLower = row.item?.toLowerCase() || "";
+
+          // Match ONLY if item starts with the primary product word
+          // This ensures "Flush Door" items only match "flush*" and "Glass Door" only matches "glass*"
+          return itemLower.startsWith(primaryWord);
+        });
+
+        // If no matches found, return empty (don't return all items)
+        if (filteredRows.length === 0) {
+          return res.json({ items: [] });
+        }
+
+        // Transform data to match Step 11Preview expectations
+        const items = filteredRows.map((row: any) => ({
+          id: row.id || `${row.bill_no}-${row.s_no}`,
+          s_no: row.s_no,
+          bill_no: row.bill_no,
+          estimator: row.estimator,
+          title: row.item,
+          description: row.item, // Use item as description since description column may not exist
+          location: row.location,
+          unit: row.unit,
+          qty: parseFloat(row.qty || 0),
+          supply_rate: parseFloat(row.supply_rate || 0),
+          install_rate: parseFloat(row.install_rate || 0),
+          supply_amount: parseFloat(row.supply_amount || 0),
+          install_amount: parseFloat(row.install_amount || 0),
+          group_id: row.bill_no,
+        }));
+
+        res.json({ items });
+      } catch (err) {
+        console.error("GET /api/step11-by-product error", err);
+        res.status(500).json({ message: "Failed to load step 11 data" });
+      }
+    },
+  );
+
   app.get(
     "/api/estimator-step12-qa-selection",
     authMiddleware,
@@ -2390,11 +3336,9 @@ export async function registerRoutes(
             [session_id, estimator],
           );
         } else {
-          return res
-            .status(400)
-            .json({
-              message: "Either ids array or session_id/estimator required",
-            });
+          return res.status(400).json({
+            message: "Either ids array or session_id/estimator required",
+          });
         }
 
         res.json({ message: "Step 11 groups deleted successfully" });

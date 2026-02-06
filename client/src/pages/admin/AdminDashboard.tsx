@@ -39,6 +39,7 @@ import {
   CheckCircle2,
   XCircle,
   MapPin,
+  Layers,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { postJSON, apiFetch } from "@/lib/api";
@@ -504,7 +505,9 @@ export default function AdminDashboard() {
               submittedBy: r.submittedBy || 'Unknown',
               submittedAt: r.submittedAt || new Date().toISOString(),
             }));
-            setMaterialRequests(prev => [...prev, ...transformed]);
+            // Replace the material requests with API data
+            const combined = [...transformed, ...supplierMaterialSubmissions];
+            setMaterialRequests(combined);
           }
         }
       } catch (e) {
@@ -512,7 +515,7 @@ export default function AdminDashboard() {
       }
     };
     loadMaterialApprovals();
-  }, []);
+  }, [supplierMaterialSubmissions]);
 
   useEffect(() => {
     // initialize local copies from store
@@ -1020,7 +1023,7 @@ export default function AdminDashboard() {
     user?.role === "admin" || user?.role === "software_team" || user?.role === "purchase_team";
 
   const canManageCategories =
-    user?.role === "admin" || user?.role === "software_team";
+    user?.role === "admin" || user?.role === "software_team" || user?.role === "purchase_team";
 
   // Permission for viewing all tabs but no edit/delete for purchase_team
   const canEditDelete =
@@ -1386,16 +1389,16 @@ export default function AdminDashboard() {
         >
           {/* Tabs Navigation Hidden - Navigation through sidebar only */}
 
-          {/* === CATEGORIES TAB (Admin/Software Team can manage, Purchase Team can view) === */}
+          {/* === CREATE PRODUCT TAB (Admin/Software Team can manage, Purchase Team can view) === */}
           {canViewCategories && (
-            <TabsContent value="categories" className="space-y-6 mt-4">
-              {/* Categories Section */}
-              <Card>
+            <TabsContent value="create-product" className="space-y-6 mt-4">
+              {/* Create Categories Section */}
+              <Card className="border-purple-200 bg-purple-50">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-lg">Categories</CardTitle>
-                      <CardDescription>Manage product categories</CardDescription>
+                      <CardTitle className="text-purple-900">Create Categories</CardTitle>
+                      <CardDescription className="text-purple-800">Add new product categories</CardDescription>
                     </div>
                     {canManageCategories && (
                       <Dialog>
@@ -1410,11 +1413,11 @@ export default function AdminDashboard() {
                           </DialogHeader>
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <Label>Category Name <span className="text-red-500">*</span></Label>
+                              <Label>Category Name <Required /></Label>
                               <Input
                                 value={newCategory}
                                 onChange={(e) => setNewCategory(e.target.value)}
-                                placeholder="e.g. Flooring, Roofing"
+                                placeholder="e.g. Flooring, Roofing, Doors"
                               />
                             </div>
                             <Button
@@ -1438,83 +1441,105 @@ export default function AdminDashboard() {
                     />
                   </div>
                   <div className="space-y-3">
-                    {categories
-                      .filter(cat => cat.toLowerCase().includes(searchCategories.toLowerCase()))
-                      .slice(0, 8)
-                      .map((cat: string, idx: number) => {
-                        const subCats = getSubCategoriesForCategory(cat);
-                        return (
-                          <div key={idx} className="p-4 border rounded-lg bg-purple-50 hover:bg-purple-100 transition">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <Package className="h-5 w-5 text-purple-600" />
-                                <div>
-                                  <span className="font-medium">{cat}</span>
-                                  {subCats.length > 0 && (
-                                    <span className="text-sm text-muted-foreground ml-2">
-                                      ({subCats.length} subcategories)
-                                    </span>
-                                  )}
+                    {categories.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-6">No categories created yet</p>
+                    ) : (
+                      categories
+                        .filter(cat => cat.toLowerCase().includes(searchCategories.toLowerCase()))
+                        .map((cat: string, idx: number) => {
+                          const subCats = getSubCategoriesForCategory(cat);
+                          return (
+                            <div key={idx} className="p-4 border rounded-lg bg-white hover:border-purple-400 transition">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <Package className="h-5 w-5 text-purple-600" />
+                                  <div>
+                                    <span className="font-medium">{cat}</span>
+                                    {subCats.length > 0 && (
+                                      <span className="text-sm text-muted-foreground ml-2">
+                                        ({subCats.length} subcategories)
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
+                                {canManageCategories && (
+                                  <div className="flex gap-2">
+                                    <Button size="sm" variant="outline" onClick={() => {
+                                      setEditingCategory(cat);
+                                      setEditingCategoryValue(cat);
+                                    }}>
+                                      Edit
+                                    </Button>
+                                    <Button size="sm" variant="destructive" onClick={async () => {
+                                      if (!window.confirm(`Delete category "${cat}" and its subcategories? This cannot be undone.`)) return;
+                                      try {
+                                        await apiFetch(`/categories/${encodeURIComponent(cat)}`, { method: 'DELETE' });
+                                        setCategories(prev => prev.filter(c => c !== cat));
+                                        setSubCategories(prev => prev.filter(s => s.category !== cat));
+                                        toast({ title: 'Deleted', description: `Category ${cat} removed` });
+                                      } catch (err) {
+                                        console.error('delete category error', err);
+                                        toast({ title: 'Error', description: 'Failed to delete category', variant: 'destructive' });
+                                      }
+                                    }}>
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                )}
+                                {editingCategory === cat && (
+                                  <div className="mt-3 p-3 bg-gray-100 rounded border col-span-full">
+                                    <div className="flex gap-2">
+                                      <Input
+                                        value={editingCategoryValue}
+                                        onChange={(e) => setEditingCategoryValue(e.target.value)}
+                                        placeholder="Category name"
+                                        className="text-sm"
+                                      />
+                                      <Button size="sm" onClick={async () => {
+                                        const oldName = editingCategory;
+                                        const newName = editingCategoryValue.trim();
+                                        if (!newName) {
+                                          toast({ title: 'Error', description: 'Category name cannot be empty', variant: 'destructive' });
+                                          return;
+                                        }
+                                        try {
+                                          await apiFetch(`/categories/${encodeURIComponent(oldName)}`, {
+                                            method: 'PUT',
+                                            body: JSON.stringify({ name: newName }),
+                                          });
+                                          setCategories((prev: string[]) => prev.map((c: string) => c === oldName ? newName : c));
+                                          setSubCategories((prev: any[]) => prev.map((s: any) => s.category === oldName ? { ...s, category: newName } : s));
+                                          setEditingCategory(null);
+                                          setEditingCategoryValue("");
+                                          toast({ title: 'Success', description: `Category updated to ${newName}` });
+                                        } catch (err) {
+                                          console.error('update category error', err);
+                                          toast({ title: 'Error', description: 'Failed to update category', variant: 'destructive' });
+                                        }
+                                      }}>Save</Button>
+                                      <Button size="sm" variant="ghost" onClick={() => {
+                                        setEditingCategory(null);
+                                        setEditingCategoryValue("");
+                                      }}>Cancel</Button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                              {canManageCategories && (
-                                <div className="flex items-center gap-2">
-                                  <Button size="sm" variant="outline" onClick={() => { setEditingCategory(cat); setEditingCategoryValue(cat); }}>
-                                    Edit
-                                  </Button>
-                                  <Button size="sm" variant="destructive" onClick={async () => {
-                                    if (!window.confirm(`Delete category "${cat}" and its subcategories? This cannot be undone.`)) return;
-                                    try {
-                                      await apiFetch(`/categories/${encodeURIComponent(cat)}`, { method: 'DELETE' });
-                                      setCategories(prev => prev.filter(c => c !== cat));
-                                      setSubCategories(prev => prev.filter(s => s.category !== cat));
-                                      toast({ title: 'Deleted', description: `Category ${cat} removed` });
-                                    } catch (err) {
-                                      console.error('delete category error', err);
-                                      toast({ title: 'Error', description: 'Failed to delete category', variant: 'destructive' });
-                                    }
-                                  }}>
-                                    Delete
-                                  </Button>
-                                </div>
-                              )}
                             </div>
-                            {editingCategory === cat && (
-                              <div className="mt-3 p-3 bg-white rounded border">
-                                <div className="flex gap-2">
-                                  <Input
-                                    value={editingCategoryValue}
-                                    onChange={(e) => setEditingCategoryValue(e.target.value)}
-                                    placeholder="Category name"
-                                  />
-                                  <Button onClick={() => {
-                                    const old = editingCategory;
-                                    const updated = editingCategoryValue.trim();
-                                    if (!updated) return;
-                                    setCategories((prev: string[]) => prev.map((c: string) => c === old ? updated : c));
-                                    setSubCategories((prev: any[]) => prev.map((s: any) => s.category === old ? { ...s, category: updated } : s));
-                                    setEditingCategory(null);
-                                    setEditingCategoryValue("");
-                                    toast({ title: 'Updated', description: `Category updated to ${updated}` });
-                                  }}>Save</Button>
-                                  <Button variant="ghost" onClick={() => { setEditingCategory(null); setEditingCategoryValue(""); }}>Cancel</Button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Subcategories Section */}
-              <Card>
+              {/* Create Subcategories Section */}
+              <Card className="border-green-200 bg-green-50">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-lg">Subcategories</CardTitle>
-                      <CardDescription>Manage product subcategories</CardDescription>
+                      <CardTitle className="text-green-900">Create Subcategories</CardTitle>
+                      <CardDescription className="text-green-800">Add subcategories to your categories</CardDescription>
                     </div>
                     {canManageCategories && (
                       <Dialog>
@@ -1529,7 +1554,7 @@ export default function AdminDashboard() {
                           </DialogHeader>
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <Label>Select Category <span className="text-red-500">*</span></Label>
+                              <Label>Select Category <Required /></Label>
                               <Select
                                 value={selectedCategoryForSubCategory}
                                 onValueChange={setSelectedCategoryForSubCategory}
@@ -1537,17 +1562,21 @@ export default function AdminDashboard() {
                                 <SelectTrigger>
                                   <SelectValue placeholder="Choose a category..." />
                                 </SelectTrigger>
-                                <SelectContent>
-                                  {categories.map((cat: string) => (
-                                    <SelectItem key={cat} value={cat}>
-                                      {cat}
-                                    </SelectItem>
-                                  ))}
+                                <SelectContent className="max-h-64">
+                                  {categories.length === 0 ? (
+                                    <div className="p-2 text-sm text-muted-foreground">No categories available</div>
+                                  ) : (
+                                    categories.map((cat: string) => (
+                                      <SelectItem key={cat} value={cat}>
+                                        {cat}
+                                      </SelectItem>
+                                    ))
+                                  )}
                                 </SelectContent>
                               </Select>
                             </div>
                             <div className="space-y-2">
-                              <Label>Subcategory Name <span className="text-red-500">*</span></Label>
+                              <Label>Subcategory Name <Required /></Label>
                               <Input
                                 value={newSubCategory}
                                 onChange={(e) => setNewSubCategory(e.target.value)}
@@ -1575,55 +1604,108 @@ export default function AdminDashboard() {
                     />
                   </div>
                   <div className="space-y-3">
-                    {subCategories
-                      .filter(sub => sub.name.toLowerCase().includes(searchSubCategories.toLowerCase()))
-                      .slice(0, 8)
-                      .map((sub: any) => (
-                        <div key={sub.id} className="p-4 border rounded-lg bg-green-50 hover:bg-green-100 transition">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <Package className="h-5 w-5 text-green-600" />
-                              <div>
-                                <span className="font-medium">{sub.name}</span>
-                                <span className="text-sm text-muted-foreground ml-2">
-                                  (Category: {sub.category})
-                                </span>
+                    {subCategories.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-6">No subcategories created yet</p>
+                    ) : (
+                      subCategories
+                        .filter(sub => sub.name.toLowerCase().includes(searchSubCategories.toLowerCase()))
+                        .map((sub: any) => (
+                          <div key={sub.id} className="p-4 border rounded-lg bg-white hover:border-green-400 transition">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <Layers className="h-5 w-5 text-green-600" />
+                                <div>
+                                  <span className="font-medium">{sub.name}</span>
+                                  <span className="text-sm text-muted-foreground ml-2">
+                                    (Category: {sub.category})
+                                  </span>
+                                </div>
                               </div>
+                              {canManageCategories && (
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => {
+                                    setEditingCategory(sub.id);
+                                    setEditingCategoryValue(sub.name);
+                                  }}>
+                                    Edit
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={async () => {
+                                    if (!window.confirm(`Delete subcategory "${sub.name}"? This cannot be undone.`)) return;
+                                    try {
+                                      const res = await apiFetch(`/subcategories/${sub.id}`, { method: 'DELETE' });
+                                      if (res.ok) {
+                                        setSubCategories(prev => prev.filter(s => s.id !== sub.id));
+                                        toast({ title: 'Deleted', description: `Subcategory ${sub.name} removed` });
+                                      } else {
+                                        toast({ title: 'Error', description: 'Failed to delete subcategory', variant: 'destructive' });
+                                      }
+                                    } catch (err) {
+                                      console.error('delete subcategory error', err);
+                                      toast({ title: 'Error', description: 'Failed to delete subcategory', variant: 'destructive' });
+                                    }
+                                  }}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              )}
+                              {editingCategory === sub.id && (
+                                <div className="mt-3 p-3 bg-gray-100 rounded border col-span-full">
+                                  <div className="flex gap-2">
+                                    <Input
+                                      value={editingCategoryValue}
+                                      onChange={(e) => setEditingCategoryValue(e.target.value)}
+                                      placeholder="Subcategory name"
+                                      className="text-sm"
+                                    />
+                                    <Button size="sm" onClick={async () => {
+                                      const newName = editingCategoryValue.trim();
+                                      if (!newName) {
+                                        toast({ title: 'Error', description: 'Subcategory name cannot be empty', variant: 'destructive' });
+                                        return;
+                                      }
+                                      try {
+                                        const res = await apiFetch(`/subcategories/${sub.id}`, {
+                                          method: 'PUT',
+                                          body: JSON.stringify({ name: newName, category: sub.category }),
+                                        });
+                                        if (res.ok) {
+                                          setSubCategories(prev => prev.map(s => s.id === sub.id ? { ...s, name: newName } : s));
+                                          setEditingCategory(null);
+                                          setEditingCategoryValue("");
+                                          toast({ title: 'Success', description: `Subcategory updated to ${newName}` });
+                                        }
+                                      } catch (err) {
+                                        console.error('update subcategory error', err);
+                                        toast({ title: 'Error', description: 'Failed to update subcategory', variant: 'destructive' });
+                                      }
+                                    }}>Save</Button>
+                                    <Button size="sm" variant="ghost" onClick={() => {
+                                      setEditingCategory(null);
+                                      setEditingCategoryValue("");
+                                    }}>Cancel</Button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            {canManageCategories && (
-                              <Button size="sm" variant="destructive" onClick={async () => {
-                                if (!window.confirm(`Delete subcategory "${sub.name}"? This cannot be undone.`)) return;
-                                try {
-                                  await apiFetch(`/subcategories/${sub.id}`, { method: 'DELETE' });
-                                  setSubCategories(prev => prev.filter(s => s.id !== sub.id));
-                                  toast({ title: 'Deleted', description: `Subcategory ${sub.name} removed` });
-                                } catch (err) {
-                                  console.error('delete subcategory error', err);
-                                  toast({ title: 'Error', description: 'Failed to delete subcategory', variant: 'destructive' });
-                                }
-                              }}>
-                                Delete
-                              </Button>
-                            )}
                           </div>
-                        </div>
-                      ))}
+                        ))
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Products Section */}
-              <Card>
+              {/* Create Products Section */}
+              <Card className="border-blue-200 bg-blue-50">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-lg">Products</CardTitle>
-                      <CardDescription>Manage individual products</CardDescription>
+                      <CardTitle className="text-blue-900">Create Products</CardTitle>
+                      <CardDescription className="text-blue-800">Add new products and assign subcategories</CardDescription>
                     </div>
                     {canManageCategories && (
                       <Dialog>
                         <DialogTrigger asChild>
-                          <Button className="bg-orange-600 hover:bg-orange-700">
+                          <Button className="bg-blue-600 hover:bg-blue-700">
                             <Plus className="h-4 w-4 mr-2" /> Add Product
                           </Button>
                         </DialogTrigger>
@@ -1633,34 +1715,42 @@ export default function AdminDashboard() {
                           </DialogHeader>
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <Label>Product Name <span className="text-red-500">*</span></Label>
+                              <Label>Product Name <Required /></Label>
                               <Input
                                 value={newProduct.name}
-                                onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
-                                placeholder="Enter product name"
+                                onChange={(e) =>
+                                  setNewProduct((prev) => ({ ...prev, name: e.target.value }))
+                                }
+                                placeholder="e.g. Ceramic Tiles, Wooden Door"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Subcategory <span className="text-red-500">*</span></Label>
+                              <Label>Select Subcategory <Required /></Label>
                               <Select
                                 value={newProduct.subcategory}
-                                onValueChange={(value) => setNewProduct({ ...newProduct, subcategory: value })}
+                                onValueChange={(value) =>
+                                  setNewProduct((prev) => ({ ...prev, subcategory: value }))
+                                }
                               >
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Select subcategory" />
+                                  <SelectValue placeholder="Choose a subcategory..." />
                                 </SelectTrigger>
-                                <SelectContent>
-                                  {subCategories.map((sc: any) => (
-                                    <SelectItem key={sc.id} value={sc.name}>
-                                      {sc.name} ({sc.category})
-                                    </SelectItem>
-                                  ))}
+                                <SelectContent className="max-h-64">
+                                  {subCategories.length === 0 ? (
+                                    <div className="p-2 text-sm text-muted-foreground">No subcategories available</div>
+                                  ) : (
+                                    subCategories.map((sub: any) => (
+                                      <SelectItem key={sub.id} value={sub.name}>
+                                        {sub.name} <span className="text-xs text-muted-foreground">({sub.category})</span>
+                                      </SelectItem>
+                                    ))
+                                  )}
                                 </SelectContent>
                               </Select>
                             </div>
                             <Button
                               onClick={handleAddProduct}
-                              className="w-full bg-orange-600 hover:bg-orange-700"
+                              className="w-full bg-blue-600 hover:bg-blue-700"
                             >
                               <Plus className="h-4 w-4 mr-2" /> Add Product
                             </Button>
@@ -1679,75 +1769,103 @@ export default function AdminDashboard() {
                     />
                   </div>
                   <div className="space-y-3">
-                    {products
-                      .filter(product => product.name.toLowerCase().includes(searchProducts.toLowerCase()))
-                      .slice(0, 8)
-                      .map((product: any) => (
-                        <div key={product.id} className="p-4 border rounded-lg bg-orange-50 hover:bg-orange-100 transition">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <Package className="h-5 w-5 text-orange-600" />
-                              <div>
-                                <span className="font-medium">{product.name}</span>
-                                <span className="text-sm text-muted-foreground ml-2">{"(Subcategory: "}{product.subcategory_name}{")"}</span>
+                    {products.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-6">No products created yet</p>
+                    ) : (
+                      products
+                        .filter(prod => prod.name.toLowerCase().includes(searchProducts.toLowerCase()))
+                        .map((product: any) => (
+                          <div key={product.id} className="p-4 border rounded-lg bg-white hover:border-blue-400 transition">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3 flex-1">
+                                <Package className="h-5 w-5 text-blue-600" />
+                                <div className="flex-1">
+                                  <span className="font-medium block">{product.name}</span>
+                                  <span className="text-sm text-muted-foreground">
+                                    Subcategories: {product.subcategory || "-"}
+                                  </span>
+                                </div>
                               </div>
+                              {canManageCategories && (
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => {
+                                    setEditingProduct(product);
+                                  }}>
+                                    Edit
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={() => handleDeleteProduct(product.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-                            {canManageCategories && (
-                              <div className="flex items-center gap-2">
-                                <Dialog>
-                                  <DialogTrigger asChild>
-                                    <Button size="sm" variant="outline" onClick={() => setEditingProduct(product)}>
-                                      Edit
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle>Edit Product</DialogTitle>
-                                    </DialogHeader>
-                                    <div className="space-y-4">
-                                      <div className="space-y-2">
-                                        <Label>Product Name <span className="text-red-500">*</span></Label>
-                                        <Input
-                                          value={editingProduct?.name || ""}
-                                          onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                                          placeholder="Product name"
-                                        />
-                                      </div>
-                                      <div className="space-y-2">
-                                        <Label>Subcategory <span className="text-red-500">*</span></Label>
-                                        <Select
-                                          value={editingProduct?.subcategory || ""}
-                                          onValueChange={(value) => setEditingProduct({ ...editingProduct, subcategory: value })}
-                                        >
-                                          <SelectTrigger>
-                                            <SelectValue placeholder="Select subcategory" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {subCategories.map((sc: any) => (
-                                              <SelectItem key={sc.id} value={sc.name}>
-                                                {sc.name} ({sc.category})
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                      <Button onClick={handleUpdateProduct} className="w-full">
-                                        Save Changes
-                                      </Button>
-                                    </div>
-                                  </DialogContent>
-                                </Dialog>
-                                <Button size="sm" variant="destructive" onClick={() => handleDeleteProduct(product.id)}>
-                                  Delete
-                                </Button>
-                              </div>
-                            )}
                           </div>
-                        </div>
-                      ))}
+                        ))
+                    )}
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Edit Product Dialog */}
+              {editingProduct && (
+                <Dialog open={!!editingProduct} onOpenChange={(open) => !open && setEditingProduct(null)}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Edit Product</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Product Name <Required /></Label>
+                        <Input
+                          value={editingProduct.name}
+                          onChange={(e) =>
+                            setEditingProduct((prev: any) => ({ ...prev, name: e.target.value }))
+                          }
+                          placeholder="e.g. Ceramic Tiles, Wooden Door"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Select Subcategory <Required /></Label>
+                        <Select
+                          value={editingProduct.subcategory}
+                          onValueChange={(value) =>
+                            setEditingProduct((prev: any) => ({ ...prev, subcategory: value }))
+                          }
+                        >
+                          <SelectTrigger className="max-h-64 overflow-y-auto">
+                            <SelectValue placeholder="Select subcategory" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {subCategories.map((sub: any) => (
+                              <SelectItem key={sub.id} value={sub.name}>
+                                {sub.name} ({sub.category})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" onClick={() => setEditingProduct(null)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            if (editingProduct.name.trim() && editingProduct.subcategory) {
+                              handleUpdateProduct();
+                              setEditingProduct(null);
+                            } else {
+                              toast({ title: 'Error', description: 'Please fill in all fields', variant: 'destructive' });
+                            }
+                          }}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          Save Changes
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
             </TabsContent>
           )}
 

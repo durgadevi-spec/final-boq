@@ -4,13 +4,32 @@ import fs from "fs";
 import path from "path";
 
 // Load .env file BEFORE creating the pool
-// client.ts is at server/db/client.ts, so go up 2 directories to reach the .env file at root
-const envPath = path.join(import.meta.dirname, "..", "..", ".env");
+// In production, DATABASE_URL should be set via environment
+// In development, try to load from .env file
+let envPath: string | null = null;
+
+// Try to determine the env file location
+try {
+  // When running from dist/index.cjs, __dirname would be the dist folder
+  // Go up one level to the root directory where .env is located
+  if (typeof __dirname !== "undefined") {
+    envPath = path.join(__dirname, "..", ".env");
+  }
+} catch {
+  // If __dirname is not available, try module.filename
+  try {
+    if (typeof module !== "undefined" && module.filename) {
+      envPath = path.join(path.dirname(module.filename), "..", "..", ".env");
+    }
+  } catch {
+    // Ignore and rely on process.env.DATABASE_URL
+  }
+}
 
 console.log("[db-client] Loading .env from:", envPath);
-console.log("[db-client] .env exists:", fs.existsSync(envPath));
+console.log("[db-client] .env exists:", envPath && fs.existsSync(envPath));
 
-if (fs.existsSync(envPath)) {
+if (envPath && fs.existsSync(envPath)) {
   const envContent = fs.readFileSync(envPath, "utf-8");
   console.log("[db-client] .env content length:", envContent.length);
   

@@ -23,11 +23,33 @@ import {
   CheckCircle2,
   ShoppingCart,
   AlertCircle,
-  Users
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useData } from "@/lib/store";
+import apiFetch from "@/lib/api";
+
+type SubcategoryItem = {
+  id: string;
+  name: string;
+  href: string | null;
+  icon: string;
+  category: string;
+};
+
+const iconMap: Record<string, any> = {
+  BrickWall: BrickWall,
+  DoorOpen: DoorOpen,
+  Cloud: Cloud,
+  Layers: Layers,
+  PaintBucket: PaintBucket,
+  Blinds: Blinds,
+  Zap: Zap,
+  Droplets: Droplets,
+  Hammer: Hammer,
+  ShieldAlert: ShieldAlert,
+};
 
 const estimatorItems = [
   { icon: BrickWall, label: "Civil ", href: "/estimators/civil-wall" },
@@ -47,12 +69,57 @@ export function Sidebar() {
   const [location, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(true);
   const [estSearch, setEstSearch] = useState("");
+  const [subcategories, setSubcategories] = useState<SubcategoryItem[]>([]);
+  const [loadingSubcategories, setLoadingSubcategories] = useState(true);
   const { user, logout, supportMessages, materialApprovalRequests } = useData();
 
   // Fetch pending counts from API
   const [pendingShopCount, setPendingShopCount] = useState(0);
   const [pendingMaterialCount, setPendingMaterialCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
+
+  // Fetch subcategories from API
+  useEffect(() => {
+    const loadSubcategories = async () => {
+      try {
+        setLoadingSubcategories(true);
+        const response = await apiFetch("/api/sidebar-subcategories", {
+          headers: {},
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const items = data.subcategories || [];
+          
+          // Map subcategories to items with icons
+          const mappedItems = items.map((item: SubcategoryItem) => ({
+            ...item,
+            icon: iconMap[item.icon] || Layers,
+          }));
+          
+          setSubcategories(mappedItems);
+        }
+      } catch (error) {
+        console.warn("Failed to load subcategories:", error);
+        // Fallback to predefined items if API fails
+        setSubcategories(estimatorItems.map(item => ({
+          id: item.label,
+          name: item.label,
+          href: item.href,
+          icon: Object.entries(iconMap).find(([_, icon]) => icon === item.icon)?.[0] || "Layers",
+          category: "Estimators",
+        })));
+      } finally {
+        setLoadingSubcategories(false);
+      }
+    };
+
+    loadSubcategories();
+    
+    // Refresh subcategories every 30 seconds to pick up new database entries
+    const interval = setInterval(loadSubcategories, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -61,7 +128,8 @@ export function Sidebar() {
         if (res.ok) {
           const data = await res.json();
           setPendingShopCount(
-            (data?.shops || []).filter((r: any) => r.status === "pending").length
+            (data?.shops || []).filter((r: any) => r.status === "pending")
+              .length,
           );
         }
       } catch (e) {
@@ -78,7 +146,9 @@ export function Sidebar() {
         return;
       }
       setPendingMaterialCount(
-        (materialApprovalRequests || []).filter((r: any) => r.status === "pending").length
+        (materialApprovalRequests || []).filter(
+          (r: any) => r.status === "pending",
+        ).length,
       );
     } catch (e) {
       console.warn("compute material pending count failed", e);
@@ -94,7 +164,9 @@ export function Sidebar() {
         return;
       }
       // count unread messages for admin view, otherwise count messages sent by the user
-      const unread = (supportMessages || []).filter((m: any) => m.is_read === false).length;
+      const unread = (supportMessages || []).filter(
+        (m: any) => m.is_read === false,
+      ).length;
       setMessageCount(unread || (supportMessages || []).length);
     } catch (e) {
       console.warn("compute message count failed", e);
@@ -107,14 +179,24 @@ export function Sidebar() {
     setLocation("/");
   };
 
-  const isAdminOrSoftware = user?.role === "admin" || user?.role === "software_team";
+  const isAdminOrSoftware =
+    user?.role === "admin" || user?.role === "software_team";
+  const isPreSales = user?.role === "pre_sales";
+  const isContractor = user?.role === "contractor";
   const isAdminOrSoftwareOrPurchaseTeam =
-    user?.role === "admin" || user?.role === "software_team" || user?.role === "purchase_team";
-  const isSupplierOrPurchase = user?.role === "supplier" || user?.role === "purchase_team";
+    user?.role === "admin" ||
+    user?.role === "software_team" ||
+    user?.role === "purchase_team";
+  const isSupplierOrPurchase =
+    user?.role === "supplier" || user?.role === "purchase_team";
   const isClient = user?.role === "user";
 
   // ✅ Supplier approval visible ONLY for admin
   const isAdminOnly = user?.role === "admin";
+
+  // ✅ Create BOQ and Create Project visible for ADMIN, SOFTWARE TEAM and PRE_SALES
+  const canCreateBOQAndProject =
+    user?.role === "admin" || user?.role === "software_team" || isPreSales;
 
   const getAdminTab = () => {
     if (typeof window === "undefined") return null;
@@ -124,8 +206,10 @@ export function Sidebar() {
   const currentAdminTab = getAdminTab();
 
   const filteredEstimators = estSearch
-    ? estimatorItems.filter((it) => it.label.toLowerCase().includes(estSearch.toLowerCase()))
-    : estimatorItems;
+    ? subcategories.filter((item: any) =>
+        (item.name || item.label).toLowerCase().includes(estSearch.toLowerCase()),
+      )
+    : subcategories;
 
   return (
     <>
@@ -141,7 +225,7 @@ export function Sidebar() {
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-40 w-64 transform bg-sidebar border-r border-sidebar-border transition-transform duration-200 ease-in-out md:translate-x-0 flex flex-col",
-          isOpen ? "translate-x-0" : "-translate-x-full"
+          isOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <div className="flex h-16 items-center justify-center border-b border-sidebar-border bg-sidebar-primary/10">
@@ -152,14 +236,14 @@ export function Sidebar() {
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
           {/* Dashboard Link - hidden for suppliers */}
-          {user?.role !== "supplier" && (
+          {(!isPreSales && !isContractor && user?.role !== "supplier") && (
             <Link href="/dashboard">
               <span
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
                   location === "/dashboard"
                     ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent",
                 )}
               >
                 <LayoutDashboard className="h-4 w-4" />
@@ -168,7 +252,40 @@ export function Sidebar() {
             </Link>
           )}
 
-          {isAdminOrSoftwareOrPurchaseTeam && (
+          {/* Pre-Sales - only show Create Project and Create BOQ */}
+          {isPreSales && (
+            <>
+              <Link href="/create-project">
+                <span
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-2 cursor-pointer",
+                    location === "/create-project"
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
+                  )}
+                  onClick={() => setIsOpen(false)}
+                >
+                  <Building2 className="h-4 w-4" /> Create Project
+                </span>
+              </Link>
+
+              <Link href="/create-boq">
+                <span
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
+                    location === "/create-boq"
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
+                  )}
+                  onClick={() => setIsOpen(false)}
+                >
+                  <ShoppingCart className="h-4 w-4" /> Create BOQ
+                </span>
+              </Link>
+            </>
+          )}
+
+          {isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && (
             <>
               <div className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Admin
@@ -180,7 +297,7 @@ export function Sidebar() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                     currentAdminTab === "materials"
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
                   onClick={() => setIsOpen(false)}
                 >
@@ -194,7 +311,7 @@ export function Sidebar() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                     currentAdminTab === "shops"
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
                   onClick={() => setIsOpen(false)}
                 >
@@ -202,17 +319,17 @@ export function Sidebar() {
                 </span>
               </Link>
 
-              <Link href="/admin/dashboard?tab=categories">
+              <Link href="/admin/dashboard?tab=create-product">
                 <span
                   className={cn(
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-                    currentAdminTab === "categories"
+                    currentAdminTab === "create-product"
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
                   onClick={() => setIsOpen(false)}
                 >
-                  <Layers className="h-4 w-4" /> Categories
+                  <Package className="h-4 w-4" /> Create Product
                 </span>
               </Link>
 
@@ -222,7 +339,7 @@ export function Sidebar() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                     currentAdminTab === "approvals"
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
                   onClick={() => setIsOpen(false)}
                 >
@@ -241,7 +358,7 @@ export function Sidebar() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                     currentAdminTab === "material-approvals"
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
                   onClick={() => setIsOpen(false)}
                 >
@@ -260,7 +377,7 @@ export function Sidebar() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
                     currentAdminTab === "messages"
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
                   onClick={() => setIsOpen(false)}
                 >
@@ -273,29 +390,49 @@ export function Sidebar() {
                 </span>
               </Link>
 
-              <Link href="/boq-review">
-                <span
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
-                    location === "/boq-review"
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
-                  )}
-                  onClick={() => setIsOpen(false)}
-                >
-                  <ShoppingCart className="h-4 w-4" /> Create BOQ
-                </span>
-              </Link>
+              {/* Create Project shortcut - ADMIN and SOFTWARE TEAM (and pre-sales) */}
+              {canCreateBOQAndProject && (
+                <Link href="/create-project">
+                  <span
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-2 cursor-pointer",
+                      location === "/create-project"
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent",
+                    )}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <Building2 className="h-4 w-4" /> Create Project
+                  </span>
+                </Link>
+              )}
+
+              {/* Create BOQ shortcut - ADMIN and SOFTWARE TEAM (and pre-sales) */}
+              {canCreateBOQAndProject && (
+                <Link href="/create-boq">
+                  <span
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
+                      location === "/create-boq"
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent",
+                    )}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <ShoppingCart className="h-4 w-4" /> Create BOQ
+                  </span>
+                </Link>
+              )}
 
               {/* ✅ Supplier Approvals - ONLY ADMIN */}
-              {isAdminOnly && (
+              {isAdminOnly && !isPreSales && !isContractor && (
                 <Link href="/admin/suppliers">
                   <span
                     className={cn(
                       "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                       location === "/admin/suppliers"
                         ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent",
                     )}
                     onClick={() => setIsOpen(false)}
                   >
@@ -308,7 +445,9 @@ export function Sidebar() {
             </>
           )}
 
-          {user?.role === "supplier" || user?.role === "purchase_team" || user?.role === "admin" ? (
+          {!isPreSales && !isContractor && (user?.role === "supplier" ||
+          user?.role === "purchase_team" ||
+          user?.role === "admin") ? (
             <>
               <div className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 {user?.role === "admin" ? "Materials" : "Supplier"}
@@ -320,7 +459,7 @@ export function Sidebar() {
                       "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
                       location === "/supplier/shops"
                         ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent",
                     )}
                     onClick={() => setIsOpen(false)}
                   >
@@ -334,7 +473,7 @@ export function Sidebar() {
                     "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-4 cursor-pointer",
                     location === "/supplier/materials"
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent",
                   )}
                   onClick={() => setIsOpen(false)}
                 >
@@ -344,55 +483,66 @@ export function Sidebar() {
             </>
           ) : null}
 
-          {/* Estimators Section */}
-          {(isClient || isAdminOrSoftware) && (
+          {/* Sub-Categories Section */}
+          {(isContractor || isClient || isAdminOrSoftware || user?.role === "purchase_team") && (
             <>
               <div className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Estimators
+                Sub-Categories
               </div>
               <div className="px-3 mb-2">
                 <input
                   value={estSearch}
                   onChange={(e) => setEstSearch(e.target.value)}
-                  placeholder="Search estimators..."
+                  placeholder="Search Sub-Categories"
                   className="w-full rounded-md border px-2 py-1 text-sm bg-transparent text-sidebar-foreground placeholder:text-muted-foreground"
                 />
               </div>
-              {filteredEstimators.map((item) => (
-                <Link key={item.href} href={item.href}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-                      location === item.href
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                    )}
-                    onClick={() => setIsOpen(false)}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </div>
-                </Link>
-              ))}
+              {filteredEstimators.map((item: any) => {
+                // Generate href for database-only items (those without predefined href)
+                const itemHref = item.href || `/estimators/${item.name.toLowerCase().replace(/\s+/g, '')}`;
+                const Icon = item.icon;
+                return (
+                  <Link key={item.id || itemHref} href={itemHref}>
+                    <div
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                        location === itemHref
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      )}
+                      onClick={() => setIsOpen(false)}
+                    >
+                      {Icon && <Icon className="h-4 w-4" />}
+                      {item.name || item.label}
+                    </div>
+                  </Link>
+                );
+              })}
             </>
           )}
 
           {/* Other Links */}
-          <div className="mt-6 px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          {!isPreSales && !isContractor && (
+            <>
+              <div className="mt-6 px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Resources
-          </div>
-          <Link href="/subscription">
-            <span className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">
-              <Package className="h-4 w-4" />
-              Subscription
-            </span>
-          </Link>
+              </div>
+              <Link href="/subscription">
+                <span className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">
+                  <Package className="h-4 w-4" />
+                  Subscription
+                </span>
+              </Link>
+            </>
+          )}
         </nav>
 
         <div className="border-t border-sidebar-border p-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="h-8 w-8 rounded-full bg-sidebar-primary/20 flex items-center justify-center text-sidebar-primary font-bold">
-              {(user as any)?.fullName?.[0]?.toUpperCase() || (user as any)?.username?.[0]?.toUpperCase() || "U"}
+              {(user as any)?.fullName?.[0]?.toUpperCase() ||
+                (user as any)?.username?.[0]?.toUpperCase() ||
+                "U"}
             </div>
             <div className="flex flex-col overflow-hidden">
               <span className="text-sm font-medium text-sidebar-foreground truncate">

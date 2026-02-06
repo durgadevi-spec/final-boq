@@ -32,10 +32,13 @@ import PlumbingEstimator from "@/pages/estimators/PlumbingEstimator";
 import MSWorkEstimator from "@/pages/estimators/MSWorkEstimator";
 import SSWorkEstimator from "@/pages/estimators/SSWorkEstimator";
 import FireFightingEstimator from "@/pages/estimators/FireFightingEstimator";
+import DynamicEstimator from "@/pages/estimators/DynamicEstimator";
 
 import ItemMaster from "@/pages/ItemMaster";
 import Subscription from "@/pages/Subscription";
 import BoqReview from "@/pages/BoqReview";
+import CreateBoq from "@/pages/CreateBoq";
+import CreateProject from "@/pages/CreateProject";
 
 import SupplierMaterials from "@/pages/supplier/SupplierMaterials";
 import SupplierShops from "@/pages/supplier/SupplierShops";
@@ -62,13 +65,19 @@ function Router() {
 
       {/* ================= MISC ================= */}
       <Route path="/subscription" component={Subscription} />
+      <Route path="/create-project" component={CreateProject} />
+      <Route path="/create-boq" component={CreateBoq} />
       <Route path="/item-master" component={ItemMaster} />
       <Route path="/boq-review" component={BoqReview} />
 
       {/* ================= ESTIMATORS ================= */}
+      {/* Hardcoded estimators for predefined categories */}
       <Route path="/estimators/civil-wall" component={CivilWallEstimator} />
       <Route path="/estimators/flooring" component={FlooringEstimator} />
-      <Route path="/estimators/false-ceiling" component={FalseCeilingEstimator} />
+      <Route
+        path="/estimators/false-ceiling"
+        component={FalseCeilingEstimator}
+      />
       <Route path="/estimators/painting" component={PaintingEstimator} />
       <Route path="/estimators/doors" component={DoorsEstimator} />
       <Route path="/estimators/blinds" component={BlindsEstimator} />
@@ -76,7 +85,13 @@ function Router() {
       <Route path="/estimators/plumbing" component={PlumbingEstimator} />
       <Route path="/estimators/ms-work" component={MSWorkEstimator} />
       <Route path="/estimators/ss-work" component={SSWorkEstimator} />
-      <Route path="/estimators/fire-fighting" component={FireFightingEstimator} />
+      <Route
+        path="/estimators/fire-fighting"
+        component={FireFightingEstimator}
+      />
+
+      {/* Dynamic estimator for new database subcategories - fallback route */}
+      <Route path="/estimators/:subcategory" component={DynamicEstimator} />
 
       {/* ================= ADMIN ================= */}
       <Route path="/admin/dashboard" component={AdminDashboard} />
@@ -87,7 +102,10 @@ function Router() {
       {/* ✅ Supplier Approval (ALIAS) – fixes /admin/suppliers */}
       <Route path="/admin/suppliers" component={SupplierApproval} />
 
-      <Route path="/admin/material-submissions" component={MaterialSubmissionApproval} />
+      <Route
+        path="/admin/material-submissions"
+        component={MaterialSubmissionApproval}
+      />
 
       {/* ================= SUPPLIER ================= */}
       <Route path="/supplier/shops" component={SupplierShops} />

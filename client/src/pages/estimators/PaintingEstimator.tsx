@@ -18,6 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { useData } from "@/lib/store";
 import { Layout } from "@/components/layout/Layout";
+import { useToast } from "@/hooks/use-toast";
+import apiFetch from "@/lib/api";
 import html2pdf from "html2pdf.js";
 
 const ctintLogo = "/image.png";
@@ -74,6 +76,7 @@ export default function PaintingEstimator() {
     materials: storeMaterials,
     products,
   } = useData();
+  const { toast } = useToast();
 
   // --- HELPER: Painting Product IDs ---
   const paintingProductIds = useMemo(() => {
@@ -86,6 +89,7 @@ export default function PaintingEstimator() {
   // --- Core States ---
   const [step, setStep] = useState(1);
   const [paintType, setPaintType] = useState<string | null>(null);
+  const [selectedPaintTypeName, setSelectedPaintTypeName] = useState<string>("");
   const [length, setLength] = useState(20);
   const [height, setHeight] = useState(10);
 
@@ -104,6 +108,9 @@ export default function PaintingEstimator() {
   // Material-wise descriptions
   const [materialDescriptions, setMaterialDescriptions] = useState<Record<string, string>>({});
   const [selectedMaterialId, setSelectedMaterialId] = useState("");
+  // Step 11 DB States
+  const [dbStep11Items, setDbStep11Items] = useState<any[]>([]);
+  const [savingStep11, setSavingStep11] = useState(false);
 
   // --- Logic Helpers ---
   const availableMaterials = useMemo(() => {
@@ -299,6 +306,8 @@ export default function PaintingEstimator() {
     const mats = getMaterialsWithDetails().map((m: any) => ({
       id: m.id,
       name: m.name,
+      productLabel: (m as any).productLabel || null,
+      product_label: (m as any).productLabel || null,
       unit: m.unit,
       quantity: materialQtys[m.id] ?? m.quantity,
       rate: step11SupplyRates[m.id] ?? m.rate,
@@ -399,6 +408,41 @@ export default function PaintingEstimator() {
   // Display materials (same as current materials)
   const displayMaterials = getMaterialsWithDetails();
 
+  // Step 11: Aggregated product-level display (ONE row per paint product, not per material)
+  // Derives product info from the materials selected, aggregating rates
+  const step11DisplayProducts = useMemo(() => {
+    if (!displayMaterials || displayMaterials.length === 0) return [];
+    
+    // Use the stored product name from selection, or derive from materials
+    const productName = selectedPaintTypeName || 
+      displayMaterials[0]?.product || 
+      "Painting Project";
+    
+    // Aggregate all materials into one product-level row
+    const aggregatedSupplyRate = displayMaterials.reduce((sum, m) => {
+      const rate = step11SupplyRates[m.id] ?? m.rate ?? 0;
+      return sum + (Number(m.quantity || 0) * Number(rate));
+    }, 0);
+    
+    const aggregatedInstallRate = displayMaterials.reduce((sum, m) => {
+      const rate = step11InstallRates[m.id] ?? 0;
+      return sum + (Number(m.quantity || 0) * Number(rate));
+    }, 0);
+    
+    return [{
+      id: "painting_product",
+      name: productName,
+      location: "",
+      description: materialDescriptions["product"] || "",
+      unit: "project",
+      quantity: 1,
+      supplyRate: aggregatedSupplyRate,
+      installRate: aggregatedInstallRate,
+      supplyAmount: aggregatedSupplyRate,
+      installAmount: aggregatedInstallRate,
+    }];
+  }, [displayMaterials, step11SupplyRates, step11InstallRates, materialDescriptions, selectedPaintTypeName]);
+
   // Get current bill date formatted
   const displayBillDate = finalBillDate;
 
@@ -412,8 +456,107 @@ export default function PaintingEstimator() {
   };
 
   // Handle save painting BOQ
-  const handleSavePaintingBOQ = () => {
-    // Save logic can be added here
+  const handleSavePaintingBOQ = async () => {
+    setSavingStep11(true);
+    try {
+      // Ensure we have the latest DB items to avoid duplicates
+      let currentDbItems: any[] = dbStep11Items || [];
+      if (finalBillNo) {
+        try {
+          const cur = await apiFetch(
+            `/api/estimator-step11-groups?session_id=${finalBillNo}&estimator=painting`,
+          );
+          if (cur.ok) {
+            const d = await cur.json();
+            currentDbItems = d.items || [];
+            setDbStep11Items(currentDbItems);
+          }
+        } catch (e) {
+          console.warn("Failed to refresh step11 items before save", e);
+        }
+      }
+
+      const groups = step11DisplayProducts.map((product) => ({
+        estimator: "painting",
+        session_id: finalBillNo,
+        group_key: product.name,
+        group_id: `group_${product.id}`,
+        item_name: product.name,
+        unit: product.unit,
+        quantity: product.quantity,
+        location: product.location || "",
+        description: materialDescriptions["product"] || "",
+        supply_rate: product.supplyRate,
+        install_rate: product.installRate,
+        supply_amount: product.supplyAmount,
+        install_amount: product.installAmount,
+        supply_subtotal: product.supplyAmount,
+        install_subtotal: product.installAmount,
+        sgst: sgst,
+        cgst: cgst,
+        round_off: roundOff,
+        grand_total: product.supplyAmount + product.installAmount + sgst + cgst + roundOff,
+      }));
+
+      const existingKeys = new Set(
+        (currentDbItems || []).map((it: any) => it.group_key || it.groupKey),
+      );
+      const newGroups = groups.filter(
+        (g: any) => !existingKeys.has(g.group_key),
+      );
+
+      if (newGroups.length === 0) {
+        toast({
+          title: "No changes",
+          description: "No new Step 11 items to save.",
+        });
+        setSavingStep11(false);
+        return true;
+      }
+
+      const res = await apiFetch("/api/estimator-step11-groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groups: newGroups }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        toast({
+          title: "Error",
+          description: `Failed saving Step 11: ${txt || res.statusText}`,
+          variant: "destructive",
+        });
+        setSavingStep11(false);
+        return false;
+      }
+
+      // Reload fresh data
+      try {
+        const reloadRes = await apiFetch(
+          `/api/estimator-step11-groups?session_id=${finalBillNo}&estimator=painting`,
+        );
+        if (reloadRes.ok) {
+          const data = await reloadRes.json();
+          setDbStep11Items(data.items || []);
+        }
+      } catch (e) {
+        console.warn("Failed to reload step11 items after save", e);
+      }
+
+      toast({ title: "Success", description: "Step 11 saved to database." });
+      setSavingStep11(false);
+      return true;
+    } catch (err) {
+      console.error("handleSavePaintingBOQ", err);
+      toast({
+        title: "Error",
+        description: "Failed to save Step 11.",
+        variant: "destructive",
+      });
+      setSavingStep11(false);
+      return false;
+    }
   };
 
   // Step 12 / QA Materials (from step 11)
@@ -474,6 +617,7 @@ export default function PaintingEstimator() {
                         key={product.id}
                         onClick={() => {
                           setPaintType(product.id);
+                          setSelectedPaintTypeName(product.name || product.label || "Painting");
                           setStep(6); // Skip Step 2
                         }}
                         className={cn(
@@ -1267,13 +1411,13 @@ export default function PaintingEstimator() {
                       <th rowSpan={2} className="border px-2 py-2 text-center">
                         <Checkbox
                           checked={
-                            displayMaterials.length > 0 &&
-                            displayMaterials.every((m: any) =>
+                            step11DisplayProducts.length > 0 &&
+                            step11DisplayProducts.every((m: any) =>
                               selectedGroupIds.includes(m.id)
                             )
                           }
                           onCheckedChange={(v) =>
-                            setSelectedGroupIds(v ? displayMaterials.map((m: any) => m.id) : [])
+                            setSelectedGroupIds(v ? step11DisplayProducts.map((m: any) => m.id) : [])
                           }
                         />
                       </th>
@@ -1295,10 +1439,10 @@ export default function PaintingEstimator() {
                   </thead>
 
                   <tbody>
-                    {displayMaterials.map((m: any, i: number) => {
-                      const qty = Number(materialQtys[m.id] ?? m.quantity ?? 0);
-                      const supplyRate = Number(step11SupplyRates[m.id] ?? m.supplyRate ?? m.rate ?? 0);
-                      const installRate = Number(step11InstallRates[m.id] ?? m.installRate ?? 0);
+                    {step11DisplayProducts.map((m: any, i: number) => {
+                      const qty = Number(m.quantity ?? 1);
+                      const supplyRate = Number(m.supplyRate ?? 0);
+                      const installRate = Number(m.installRate ?? 0);
 
                       return (
                         <tr key={m.id}>
@@ -1318,9 +1462,9 @@ export default function PaintingEstimator() {
 
                           <td className="border px-2 py-1 text-center">
                             <Input
-                              value={materialLocations[m.id] ?? m.location ?? ""}
+                              value={m.location ?? ""}
                               onChange={(e) =>
-                                setMaterialLocations((p) => ({ ...p, [m.id]: e.target.value }))
+                                setMaterialDescriptions((p) => ({ ...p, "location": e.target.value }))
                               }
                               className="w-28 mx-auto"
                             />
@@ -1328,55 +1472,28 @@ export default function PaintingEstimator() {
 
                           <td className="border px-2 py-1">
                             <textarea
-                              value={materialDescriptions[m.id] ?? m.description ?? ""}
+                              value={materialDescriptions["product"] ?? m.description ?? ""}
                               onChange={(e) =>
-                                setMaterialDescriptions((p) => ({ ...p, [m.id]: e.target.value }))
+                                setMaterialDescriptions((p) => ({ ...p, "product": e.target.value }))
                               }
                               className="w-full min-h-16 border rounded p-2"
                             />
                           </td>
 
                           <td className="border px-2 py-1 text-center">
-                            <Input
-                              value={materialUnits[m.id] ?? m.unit ?? ""}
-                              onChange={(e) =>
-                                setMaterialUnits((p) => ({ ...p, [m.id]: e.target.value }))
-                              }
-                              className="w-20 mx-auto"
-                            />
+                            {m.unit}
                           </td>
 
                           <td className="border px-2 py-1 text-center">
-                            <Input
-                              type="number"
-                              value={qty}
-                              onChange={(e) =>
-                                setMaterialQtys((p) => ({ ...p, [m.id]: Number(e.target.value) }))
-                              }
-                              className="w-20 mx-auto"
-                            />
+                            {qty}
                           </td>
 
                           <td className="border px-2 py-1">
-                            <Input
-                              type="number"
-                              value={supplyRate}
-                              onChange={(e) =>
-                                setStep11SupplyRates((p) => ({ ...p, [m.id]: Number(e.target.value) }))
-                              }
-                              className="w-24 mx-auto"
-                            />
+                            <div className="text-right">₹{supplyRate.toFixed(2)}</div>
                           </td>
 
                           <td className="border px-2 py-1">
-                            <Input
-                              type="number"
-                              value={installRate}
-                              onChange={(e) =>
-                                setStep11InstallRates((p) => ({ ...p, [m.id]: Number(e.target.value) }))
-                              }
-                              className="w-24 mx-auto"
-                            />
+                            <div className="text-right">₹{installRate.toFixed(2)}</div>
                           </td>
 
                           <td className="border px-2 py-1 text-right font-semibold">

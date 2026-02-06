@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { getJSON, postJSON, apiFetch } from "./api";
 
-export type Role = "admin" | "supplier" | "user" | "purchase_team" | "software_team";
+export type Role = "admin" | "supplier" | "user" | "purchase_team" | "software_team" | "pre_sales" | "contractor";
 
 export interface User { id: string; name?: string; email?: string; role: Role; shopId?: string }
 export interface Shop { id: string; name: string; location?: string; phoneCountryCode?: string; contactNumber?: string; city?: string; state?: string; country?: string; pincode?: string; image?: string; rating?: number; categories?: string[]; gstNo?: string; ownerId?: string; disabled?: boolean }

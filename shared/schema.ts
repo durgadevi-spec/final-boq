@@ -88,6 +88,8 @@ export const userRoleEnum = z.enum([
   "supplier",
   "software_team",
   "purchase_team",
+  "contractor",
+  "pre_sales",
 ]);
 
 export const approvalStatusEnum = z.enum([

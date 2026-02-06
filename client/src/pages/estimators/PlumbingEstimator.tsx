@@ -30,6 +30,7 @@ export default function PlumbingEstimator() {
   // --- Core States ---
   const [step, setStep] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState<string>("");
+  const [selectedProductObj, setSelectedProductObj] = useState<any>(null);
   const [finalBillNo, setFinalBillNo] = useState(
     `PLB-${Math.floor(1000 + Math.random() * 9000)}`,
   );
@@ -117,16 +118,31 @@ export default function PlumbingEstimator() {
       });
   }, [storeProducts]);
 
-  // Get materials for a selected product subcategory
+  // Get materials for a selected product - use product field matching like DoorsEstimator
   const getMaterialsByProduct = (productNameOrObj: string | any) => {
     const productName =
       typeof productNameOrObj === "string"
         ? productNameOrObj
         : productNameOrObj?.name || "";
+    
+    if (!productName) return [];
+
     return storeMaterials.filter((m) => {
       const prod = normText(m.product || "");
       const subcat = normText(m.subCategory || "");
-      return prod === normText(productName) || subcat === normText(productName);
+      const searchKey = normText(productName);
+      
+      // Strict product field matching first
+      if (prod && searchKey && (prod.includes(searchKey) || searchKey.includes(prod))) {
+        return true;
+      }
+      
+      // Fallback to subcategory matching
+      if (subcat && searchKey && (subcat.includes(searchKey) || searchKey.includes(subcat))) {
+        return true;
+      }
+      
+      return false;
     });
   };
 
@@ -249,6 +265,8 @@ export default function PlumbingEstimator() {
         s_no: idx + 1,
         material_id: m.id,
         name: m.name,
+        productLabel: (m as any).productLabel || null,
+        product_label: (m as any).productLabel || null,
         unit: m.unit || "pcs",
         quantity: m.quantity,
         supply_rate: m.supplyRate,
@@ -437,6 +455,7 @@ export default function PlumbingEstimator() {
                           className="cursor-pointer border-2 hover:border-primary transition-all hover:shadow-lg"
                           onClick={() => {
                             setSelectedProduct(productName);
+                            setSelectedProductObj(product);
                             setSelectedMaterials([]);
                             setEditableMaterials({});
                             setStep(2);
@@ -1614,7 +1633,7 @@ export default function PlumbingEstimator() {
                             <td className="border px-2 py-1 text-center">
                               {i + 1}
                             </td>
-                            <td className="border px-2 py-1">{m.name}</td>
+                            <td className="border px-2 py-1">{m.productLabel || m.name}</td>
                             <td className="border px-2 py-1 text-center">
                               <div className="text-sm">{locVal || "—"}</div>
                             </td>

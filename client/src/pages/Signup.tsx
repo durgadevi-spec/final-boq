@@ -27,7 +27,9 @@ type UserRole =
   | "software_team"
   | "purchase_team"
   | "user_client"
-  | "supplier";
+  | "supplier"
+  | "pre_sales"
+  | "contractor";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
@@ -81,6 +83,18 @@ export default function Signup() {
       label: "User / Client",
       icon: User,
       description: "General system access",
+    },
+    {
+      value: "pre_sales",
+      label: "Pre-Sales",
+      icon: ShoppingCart,
+      description: "Create projects and BOQs",
+    },
+    {
+      value: "contractor",
+      label: "Contractor",
+      icon: Settings,
+      description: "Access sub-categories and estimators",
     },
     {
       value: "supplier",
@@ -161,7 +175,18 @@ export default function Signup() {
 
     setIsLoading(true);
     try {
-      await signup(formData.email, formData.password, selectedRole);
+      await signup(
+        formData.email,
+        formData.password,
+        selectedRole,
+        formData.fullName,
+        formData.mobileNumber,
+        formData.department,
+        formData.employeeCode,
+        formData.companyName,
+        formData.gstNumber,
+        formData.businessAddress
+      );
 
       // ✅ Supplier: go to separate pending approval page
       if (selectedRole === "supplier") {
@@ -182,10 +207,11 @@ export default function Signup() {
 
       // ✅ REDIRECT TO LOGIN PAGE
       setLocation("/");
-    } catch {
+    } catch (err: any) {
+      const errorMsg = err?.message || "Create account failed";
       toast({
         title: "Error",
-        description: "Create account failed",
+        description: errorMsg,
         variant: "destructive",
       });
     } finally {

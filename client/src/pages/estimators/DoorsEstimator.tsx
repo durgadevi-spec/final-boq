@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +32,10 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import apiFetch from "@/lib/api";
+import {
+  useProductFromUrl,
+  getDefaultDoorTypeForProduct,
+} from "@/hooks/useProduct";
 
 const ctintLogo = "/image.png";
 
@@ -424,6 +429,7 @@ const getBrandOfMaterial = (m: any) => {
 };
 
 export default function DoorsEstimator() {
+  const [, setLocation] = useLocation();
   const {
     shops: storeShops,
     materials: storeMaterials,
@@ -484,6 +490,42 @@ export default function DoorsEstimator() {
     }
   }, []);
 
+  // Load product data when coming from product picker (Step 11 direct navigation)
+  useEffect(() => {
+    if (typeof window !== "undefined" && step === 11) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const productId = urlParams.get("product");
+
+      if (productId) {
+        const loadProductData = async () => {
+          try {
+            const response = await apiFetch(`/api/products/${productId}`, {
+              headers: {},
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              const product = data.product;
+
+              // Set product-related state based on subcategory
+              const defaultDoorType = getDefaultDoorTypeForProduct(product);
+
+              if (defaultDoorType) {
+                setDoorType(defaultDoorType);
+                setSelectedDoorProductLabel(product.name);
+                setSelectedDoorProductId(product.id);
+              }
+            }
+          } catch (error) {
+            console.error("Failed to load product data:", error);
+          }
+        };
+
+        loadProductData();
+      }
+    }
+  }, [step]);
+
   // Ensure accumulated products are reloaded when opening Step 12 (QA BOQ)
   useEffect(() => {
     if (step === 12) {
@@ -506,6 +548,22 @@ export default function DoorsEstimator() {
   }, [step]);
 
   // Door label helpers that use component state
+  const getProductTypeOnly = (opts?: { doorType?: string | null }) => {
+    const dt = opts?.doorType ?? doorType;
+    if (!dt) return null;
+
+    // Prefer descriptive label from DOOR_TYPES_LOCAL if available
+    const typeEntry = DOOR_TYPES_LOCAL.find((t) => t.value === dt);
+    let productLabel = typeEntry
+      ? typeEntry.label
+      : DOOR_TYPE_TO_PRODUCT[dt] || dt;
+
+    // Normalize productLabel to include 'Door' suffix if not present
+    if (!/door/i.test(productLabel)) productLabel = `${productLabel} Door`;
+
+    return productLabel;
+  };
+
   const getDoorLabelFrom = (opts?: {
     doorType?: string | null;
     panelType?: string | null;
@@ -622,8 +680,9 @@ export default function DoorsEstimator() {
       });
     }
 
-    // Fallback: if strict product match yields nothing, use keyword/name/category matching
-    if (!doorMatched || doorMatched.length === 0) {
+    // Fallback: if strict product match yields nothing and user selected label explicitly,
+    // don't use materialMatchesDoor fallback (too loose). Only use it if doorType was inferred.
+    if ((!doorMatched || doorMatched.length === 0) && !selectedLabel) {
       doorMatched = doorType
         ? storeMaterials.filter((m) => materialMatchesDoor(m, doorType))
         : storeMaterials.filter((m) => {
@@ -803,6 +862,7 @@ export default function DoorsEstimator() {
           subOption: savedRow?.subOption || savedRow?.sub_option || undefined,
           glazingType:
             savedRow?.glazingType || savedRow?.glazing_type || undefined,
+          productLabel: savedRow?.productLabel || undefined,
         } as any;
       })
       .filter((m): m is MaterialWithQuantity => m !== null);
@@ -2246,9 +2306,17 @@ export default function DoorsEstimator() {
       return;
     }
 
-    // Check if we have a bill number
+    // Check if we have a bill number or a project passed via URL
     let billNoToUse = finalBillNo;
-    if (!billNoToUse || billNoToUse.trim() === "") {
+    const urlParams =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search)
+        : new URLSearchParams();
+    const projectParam = urlParams.get("project");
+    if (projectParam && projectParam.trim() !== "") {
+      billNoToUse = projectParam;
+      setFinalBillNo(billNoToUse);
+    } else if (!billNoToUse || billNoToUse.trim() === "") {
       // Generate a bill number if not set
       billNoToUse = `DOOR-${Date.now()}`;
       setFinalBillNo(billNoToUse);
@@ -2494,13 +2562,33 @@ export default function DoorsEstimator() {
       return;
     }
 
-    // Merge with existing cart so previously added batches remain visible in Step 9
-    const existing = savedStep9Materials || [];
-    const merged = [...existing, ...mats];
+    // Prevent re-adding materials that are already in the saved cart
+    const existingIds = new Set(
+      (savedStep9Materials || []).map((it: any) => it.id),
+    );
+    const newMats = mats.filter((m) => !existingIds.has(m.id));
+    if (newMats.length === 0) {
+      // nothing new to add, just open Step 9
+      setStep(9);
+      return;
+    }
 
-    setSavedStep9Materials(merged);
+    // Merge with existing cart and deduplicate by rowId to avoid double-adds
+    const existing = savedStep9Materials || [];
+    const merged = [...existing, ...newMats];
+    const dedupMap = new Map<string, any>();
+    // Use material id + shop id as dedup key so repeated 'Add to BOM' (which
+    // generates fresh rowIds) won't create duplicates for the same material
+    for (const itm of merged) {
+      // Deduplicate strictly by material id to avoid repeated adds
+      const dedupKey = `${itm.id}`;
+      if (!dedupMap.has(dedupKey)) dedupMap.set(dedupKey, itm);
+    }
+    const deduped = Array.from(dedupMap.values());
+
+    setSavedStep9Materials(deduped);
     setCartSelections(
-      merged.map((m: any) => ({
+      deduped.map((m: any) => ({
         materialId: m.id,
         selectedShopId: m.shopId || "",
         selectedBrand: m.brand || undefined,
@@ -2512,7 +2600,7 @@ export default function DoorsEstimator() {
       string,
       { quantity: number; supplyRate: number; installRate: number }
     > = {};
-    merged.forEach((m: any) => {
+    deduped.forEach((m: any) => {
       const key = m.rowId || `${m.batchId}-${m.id}`;
       cartEdits[key] = {
         quantity: Number(m.quantity || 0),
@@ -2555,6 +2643,25 @@ export default function DoorsEstimator() {
     } catch (e) {
       /* ignore */
     }
+    // Clear current step selections so the Step-9 combine effect doesn't
+    // re-add the same selectedMaterials (causing duplicate rows).
+    setSelectedMaterials([]);
+    setEditableMaterials({});
+    setMaterialDescriptions((prev) => {
+      const copy = { ...prev };
+      // remove any per-selection description keys (batch-less)
+      Object.keys(copy).forEach((k) => {
+        if (!k.startsWith("group_")) delete copy[k];
+      });
+      return copy;
+    });
+    setMaterialLocations((prev) => {
+      const copy = { ...prev };
+      Object.keys(copy).forEach((k) => {
+        if (!k.startsWith("group_")) delete copy[k];
+      });
+      return copy;
+    });
     setStep(9);
   };
 
@@ -2667,8 +2774,7 @@ export default function DoorsEstimator() {
       const installRatePerDoor =
         doorQty > 0 ? groupInstallTotal / doorQty : groupInstallTotal;
 
-      const label =
-        getDoorLabelFrom({ doorType: dt, panelType: pt, subOption: so }) || dt;
+      const label = getProductTypeOnly({ doorType: dt }) || dt;
 
       const cleanedDesc = String(groupDesc)
         .replace(/\n?Qty:\s*\d+(?:\.\d+)?\s*$/, "")
@@ -2933,7 +3039,7 @@ export default function DoorsEstimator() {
                                   {label || "Unnamed Product"}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  {getProductCategory(p) || "Door"}
+                                  {getProductCategory(p)}
                                 </div>
                               </div>
                             </Button>
@@ -3093,7 +3199,7 @@ export default function DoorsEstimator() {
                                 {i + 1}
                               </td>
 
-                              <td className="border px-2 py-1">{m.name}</td>
+                              <td className="border px-2 py-1">{m.productLabel || m.name}</td>
 
                               <td className="border px-2 py-1 text-center">
                                 <div className="text-sm">
@@ -4234,10 +4340,10 @@ export default function DoorsEstimator() {
                       >
                         <div>
                           <p style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                            DOOR TYPE
+                            PRODUCT TYPE
                           </p>
                           <p style={{ fontWeight: 600 }}>
-                            {getDoorLabelFrom()}
+                            {getProductTypeOnly() || "Door"}
                           </p>
                         </div>
                         <div>
@@ -4608,7 +4714,7 @@ export default function DoorsEstimator() {
                                 <td className="border px-2 py-1 text-center">
                                   {i + 1}
                                 </td>
-                                <td className="border px-2 py-1">{m.name}</td>
+                                <td className="border px-2 py-1">{m.productLabel || m.name}</td>
                                 <td className="border px-2 py-1 text-center">
                                   <div className="text-sm">{locVal || "—"}</div>
                                 </td>
@@ -5155,7 +5261,9 @@ export default function DoorsEstimator() {
                   animate={{ opacity: 1 }}
                   className="space-y-6"
                 >
-                  <h2 className="text-xl font-semibold">Add to BOQ</h2>
+                  <div className="space-y-4">
+                    <h2 className="text-xl font-semibold">Add to BOQ</h2>
+                  </div>
 
                   <div className="flex items-center justify-between">
                     <div />
@@ -5294,6 +5402,108 @@ export default function DoorsEstimator() {
                           } catch (e) {
                             /* swallow */
                           }
+
+                          // NEW: Save to BOQ project and redirect
+                          const projectParam =
+                            typeof window !== "undefined"
+                              ? new URLSearchParams(window.location.search).get(
+                                  "project",
+                                )
+                              : null;
+                          if (projectParam) {
+                            try {
+                              // Prepare table data
+                              // Build grouped table data: include group title and computed totals
+                              const rows = mats.map((m, idx) => ({
+                                s_no: idx + 1,
+                                item: m.name,
+                                description: m.description,
+                                unit: m.unit,
+                                qty: m.quantity,
+                                supply_rate: Number(m.supplyRate || 0),
+                                install_rate: Number(m.installRate || 0),
+                              }));
+
+                              // Calculate totals using supply + install rates
+                              const subtotal = rows.reduce(
+                                (s, r) =>
+                                  s +
+                                  Number(r.qty || 0) *
+                                    (Number(r.supply_rate || 0) +
+                                      Number(r.install_rate || 0)),
+                                0,
+                              );
+                              const sgst = +(+subtotal * 0.09).toFixed(2);
+                              const cgst = +(+subtotal * 0.09).toFixed(2);
+                              const grand_total = +(
+                                subtotal +
+                                sgst +
+                                cgst
+                              ).toFixed(2);
+
+                              const groupTitle =
+                                `${localBoq.sub_option || ""}${localBoq.sub_option ? " – " : ""}${localBoq.door_type || ""}`.trim();
+
+                              const step9TableData = {
+                                groups: [
+                                  {
+                                    id: `g-${Date.now()}`,
+                                    title: groupTitle || "Item Group",
+                                    description: "",
+                                    unit: "",
+                                    qty: 1,
+                                    supply_rate: Number(
+                                      savedStep9Meta?.grand_total ??
+                                        grand_total,
+                                    ),
+                                    install_rate: 0,
+                                    rows,
+                                    totals: {
+                                      subtotal,
+                                      sgst,
+                                      cgst,
+                                      grand_total,
+                                    },
+                                  },
+                                ],
+                              };
+
+                              // Save BOQ item to DB
+                              const response = await apiFetch(
+                                "/api/boq-items",
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
+                                  body: JSON.stringify({
+                                    project_id: projectParam,
+                                    estimator: "doors",
+                                    table_data: step9TableData,
+                                  }),
+                                },
+                              );
+
+                              if (response.ok) {
+                                toast({
+                                  title: "Success",
+                                  description: "Added to BOQ",
+                                });
+                                // Redirect back to Create BOQ with the project selected
+                                setLocation(
+                                  `/create-boq?project=${encodeURIComponent(projectParam)}`,
+                                );
+                              }
+                            } catch (err) {
+                              console.error("Failed to save BOQ item:", err);
+                              toast({
+                                title: "Error",
+                                description: "Failed to add to BOQ",
+                                variant: "destructive",
+                              });
+                            }
+                          }
+
                           setSelectedForDelete([]); // Clear selection after finalization
                           // Open Step 11 (Finalize BOQ) so user can review/edit before final add
                           setStep(11);
@@ -5421,7 +5631,17 @@ export default function DoorsEstimator() {
                             if (!groups.has(key)) groups.set(key, []);
                             groups.get(key)!.push(m);
                             if (!groupMeta.has(key)) {
-                              const label = `${pt === "panel" ? "With Panel" : "Without Panel"} – ${dt}${so ? " (" + so + ")" : ""}`;
+                              // Convert doorType code to full product name
+                              const typeEntry = DOOR_TYPES_LOCAL.find(
+                                (t) => t.value === dt,
+                              );
+                              let productName = typeEntry
+                                ? typeEntry.label
+                                : DOOR_TYPE_TO_PRODUCT[dt] || dt;
+                              if (!/door/i.test(productName)) {
+                                productName = `${productName} Door`;
+                              }
+                              const label = `${productName}${so ? " (" + so + ")" : ""}`;
                               groupMeta.set(key, { label });
                             }
                           });
@@ -5574,7 +5794,7 @@ export default function DoorsEstimator() {
                                   <td className="border px-2 py-1 text-center">
                                     {idx}
                                   </td>
-                                  <td className="border px-2 py-1">{m.name}</td>
+                                  <td className="border px-2 py-1">{m.productLabel || m.name}</td>
                                   <td
                                     className="border px-2 py-1"
                                     style={{

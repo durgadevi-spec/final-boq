@@ -90,6 +90,17 @@ export class PostgresStorage implements IStorage {
         password: "DemoPass123!",
         role: "purchase_team",
       },
+      // New demo roles
+      {
+        username: "presales@example.com",
+        password: "DemoPass123!",
+        role: "pre_sales",
+      },
+      {
+        username: "contractor@example.com",
+        password: "DemoPass123!",
+        role: "contractor",
+      },
       { username: "user@example.com", password: "DemoPass123!", role: "user" },
       {
         username: "supplier@example.com",
@@ -270,6 +281,9 @@ export class MemStorage implements IStorage {
     const demoUsers: InsertUser[] = [
       { username: "admin@example.com", password: "DemoPass123!", role: "admin" },
       { username: "user@example.com", password: "DemoPass123!", role: "user" },
+      // ensure demo presales/contractor exist for mem storage too
+      { username: "presales@example.com", password: "DemoPass123!", role: "pre_sales" },
+      { username: "contractor@example.com", password: "DemoPass123!", role: "contractor" },
     ];
 
     for (const u of demoUsers) {

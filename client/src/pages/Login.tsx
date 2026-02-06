@@ -67,6 +67,9 @@ export default function Login() {
         case "supplier":
           setLocation("/supplier/dashboard");
           break;
+        case "pre_sales":
+          setLocation("/create-project");
+          break;
         default:
           setLocation("/dashboard");
       }

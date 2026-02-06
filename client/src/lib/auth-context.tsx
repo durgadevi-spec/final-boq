@@ -13,6 +13,8 @@ export type UserRole =
   | "user"
   | "purchase_team"
   | "software_team"
+  | "pre_sales"
+  | "contractor"
   | null;
 
 interface User {
@@ -29,7 +31,18 @@ interface AuthContextType {
     user: User;
     token: string;
   }>;
-  signup: (username: string, password: string, role: UserRole) => Promise<void>;
+  signup: (
+    username: string,
+    password: string,
+    role: UserRole,
+    fullName?: string,
+    mobileNumber?: string,
+    department?: string,
+    employeeCode?: string,
+    companyName?: string,
+    gstNumber?: string,
+    businessAddress?: string
+  ) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
   error: string | null;
@@ -115,7 +128,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
      - NO AUTO LOGIN
      - NO TOKEN STORAGE
   ========================= */
-  const signup = async (username: string, password: string, role: UserRole) => {
+  const signup = async (
+    username: string,
+    password: string,
+    role: UserRole,
+    fullName?: string,
+    mobileNumber?: string,
+    department?: string,
+    employeeCode?: string,
+    companyName?: string,
+    gstNumber?: string,
+    businessAddress?: string
+  ) => {
     setIsLoading(true);
     setError(null);
 
@@ -127,6 +151,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           username,
           password,
           role: role || "user",
+          fullName: fullName || "",
+          mobileNumber: mobileNumber || "",
+          department: department || "",
+          employeeCode: employeeCode || "",
+          companyName: companyName || "",
+          gstNumber: gstNumber || "",
+          businessAddress: businessAddress || "",
         }),
       });
 
