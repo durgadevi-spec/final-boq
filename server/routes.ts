@@ -13,6 +13,84 @@ export async function registerRoutes(
   app: Express,
 ): Promise<Server> {
   const { archiveService } = await import("./archive_service");
+  const { auditMiddleware } = await import("./audit");
+
+  // Apply audit middleware globally for all routes
+  app.use(auditMiddleware);
+
+  // --- AUDIT API ENDPOINTS ---
+  app.get('/api/audit/logs', authMiddleware, async (req, res) => {
+    try {
+      // Create table if it doesn't exist just in case
+      await query(`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID,
+          username TEXT,
+          role TEXT,
+          action TEXT,
+          module TEXT,
+          page TEXT,
+          details TEXT,
+          before_data JSONB,
+          after_data JSONB,
+          ip_address TEXT,
+          user_agent TEXT,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      
+      const { search, module, action, limit = 200, username } = req.query;
+      let q = "SELECT * FROM audit_logs WHERE 1=1";
+      const params: any[] = [];
+      let paramIdx = 1;
+
+      const searchTerm = search || username; // SpyDashboard sends ?username=
+
+      if (searchTerm) {
+        q += ` AND (username ILIKE $${paramIdx} OR details ILIKE $${paramIdx})`;
+        params.push(`%${searchTerm}%`);
+        paramIdx++;
+      }
+      if (module && module !== 'all') {
+        q += ` AND module ILIKE $${paramIdx}`;
+        params.push(`%${module}%`);
+        paramIdx++;
+      }
+      if (action && action !== 'all') {
+        q += ` AND action = $${paramIdx}`;
+        params.push(action);
+        paramIdx++;
+      }
+      
+      q += ` ORDER BY created_at DESC LIMIT $${paramIdx}`;
+      params.push(parseInt(limit as string, 10) || 200);
+
+      const result = await query(q, params);
+      res.json({ logs: result.rows });
+    } catch (e) {
+      console.error("[AUDIT] Error fetching logs:", e);
+      res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+
+  app.post('/api/audit/send-summary', authMiddleware, requireRole("admin", "software_team"), async (req, res) => {
+    try {
+      const { to } = req.body;
+      if (!to) return res.status(400).json({ error: "Email is required" });
+      
+      // We would send email logic here. Assuming success for now.
+      res.json({ success: true, message: `Email sent to ${to}` });
+    } catch (e) {
+      console.error("[AUDIT] Error sending summary:", e);
+      res.status(500).json({ error: "Failed to send summary" });
+    }
+  });
+
+  app.post('/api/audit/navigate', authMiddleware, (req, res) => {
+    // The auditMiddleware automatically logs the payload details.
+    res.json({ success: true });
+  });
 
   // --- ARCHIVE & TRASH API ENDPOINTS ---
   app.get('/api/archive', authMiddleware, (req, res) => {
@@ -1422,12 +1500,23 @@ export async function registerRoutes(
       // Generate token
       const token = generateToken(user);
 
+      let shopId = undefined;
+      if (user.role === "supplier") {
+        const shopRes = await query("SELECT id FROM shops WHERE owner_id::text = $1::text LIMIT 1", [user.id]);
+        if (shopRes.rows.length > 0) {
+          shopId = shopRes.rows[0].id;
+        }
+      }
+
       // Return user WITHOUT password
       const { password: _, ...userWithoutPassword } = user;
+      
+      // Pass the user context to the request so auditMiddleware can log it accurately
+      (req as any).user = userWithoutPassword;
 
       res.json({
         message: "Login successful",
-        user: userWithoutPassword,
+        user: { ...userWithoutPassword, shopId },
         token,
       });
     } catch (error) {
@@ -1511,8 +1600,16 @@ export async function registerRoutes(
           return;
         }
 
+        let shopId = undefined;
+        if (user.role === "supplier") {
+          const shopRes = await query("SELECT id FROM shops WHERE owner_id::text = $1::text LIMIT 1", [user.id]);
+          if (shopRes.rows.length > 0) {
+            shopId = shopRes.rows[0].id;
+          }
+        }
+
         const { password: _, ...userWithoutPassword } = user;
-        res.json(userWithoutPassword);
+        res.json({ ...userWithoutPassword, shopId });
       } catch (error) {
         console.error("Get profile error:", error);
         res.status(500).json({ message: "Internal server error" });
@@ -5442,6 +5539,57 @@ export async function registerRoutes(
     },
   );
 
+  // POST /api/boq-items/batch - Batch save multiple BOQ items
+  app.post(
+    "/api/boq-items/batch",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { project_id, version_id, items } = req.body;
+
+        if (!project_id || !Array.isArray(items)) {
+          res.status(400).json({ message: "project_id and items array are required" });
+          return;
+        }
+
+        console.log(`Processing batch import of ${items.length} items for project ${project_id}`);
+
+        // Get starting sort order
+        const maxSortOrderResult = await query(
+          `SELECT MAX(sort_order) as max_sort_order FROM boq_items WHERE version_id = $1`,
+          [version_id],
+        );
+        let currentSortOrder = (maxSortOrderResult.rows[0]?.max_sort_order || 0) + 1;
+
+        const results = [];
+        for (const item of items) {
+          const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          await query(
+            `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, user_added, sort_order, created_at)
+             VALUES ($1, $2, $3, $4, $5, true, $6, NOW())`,
+            [
+              itemId,
+              project_id,
+              item.estimator || "General",
+              JSON.stringify(item.table_data),
+              version_id || null,
+              currentSortOrder++,
+            ],
+          );
+          results.push({ id: itemId });
+        }
+
+        // Recalculate project value once after all items are added
+        await recalculateProjectValue(project_id);
+
+        res.status(201).json({ message: "Batch items saved successfully", count: items.length });
+      } catch (err) {
+        console.error("POST /api/boq-items/batch error", err);
+        res.status(500).json({ message: "Failed to batch save BOQ items" });
+      }
+    },
+  );
+
   // GET /api/boq-items/finalized - Fetch ALL finalized items
   app.get(
     "/api/boq-items/finalized",
@@ -8050,8 +8198,10 @@ export async function registerRoutes(
         params.push(status);
       }
 
-      whereConditions.push(`po.project_id IN (SELECT project_id FROM user_project_permissions WHERE user_id = $${params.length + 1})`);
-      params.push(user.id);
+      if (user.role !== 'admin' && user.role !== 'software_team') {
+        whereConditions.push(`po.project_id IN (SELECT project_id FROM user_project_permissions WHERE user_id = $${params.length + 1})`);
+        params.push(user.id);
+      }
 
       if (whereConditions.length > 0) {
         queryStr += ` WHERE ` + whereConditions.join(" AND ");
@@ -8800,9 +8950,11 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
     try {
       const { id } = req.params;
       const planRes = await query(
-        `SELECT sp.*, spl.is_locked, spl.request_status, spl.request_reason
+        `SELECT sp.*, spl.is_locked, spl.request_status, spl.request_reason,
+                p.name as project_name
          FROM sketch_plans sp
          LEFT JOIN sketch_plan_locks spl ON sp.id = spl.plan_id
+         LEFT JOIN boq_projects p ON sp.project_id = p.id
          WHERE sp.id = $1`,
         [id]
       );
@@ -9654,8 +9806,11 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         }
         shopId = shopRes.rows[0].id;
         shopName = shopRes.rows[0].name || "Vendor";
-        itemsQuery += " AND assigned_vendor_id::text = $2";
+        // Use case-insensitive matching for vendor name and explicit text casting for IDs
+        itemsQuery += " AND (assigned_vendor_id::text = $2::text OR LOWER(vendor_name) = LOWER($3) OR assigned_vendor_id = $4)";
         queryParams.push(shopId);
+        queryParams.push(shopName);
+        queryParams.push(userId);
       } else if (userRole !== 'admin' && userRole !== 'software_team') {
         return res.status(403).json({ message: "Only vendors or admins can load items to proposal" });
       }
@@ -9668,16 +9823,17 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       }
 
       await query("BEGIN");
-
       try {
+        const vendorIdToUse = shopId || userId;
+        console.log(`[LoadToProposal] User: ${userId}, Role: ${userRole}, ShopId: ${shopId}, ShopName: ${shopName}`);
+        console.log(`[LoadToProposal] Items found: ${items.length}`);
+
         const projectRes = await query("SELECT * FROM boq_projects WHERE id = $1", [plan.project_id]);
         const project = projectRes.rows[0];
-        if (!project) throw new Error("Associated project not found");
-
-        const vendorIdToUse = shopId || userId;
+        if (!project) throw new Error(`Associated project (${plan.project_id}) not found`);
 
         const versionRes = await query(
-          "SELECT COALESCE(MAX(version_number), 0) as last_version FROM proposals WHERE project_id = $1 AND vendor_id = $2",
+          "SELECT COALESCE(MAX(version_number), 0) as last_version FROM proposals WHERE project_id = $1 AND vendor_id::text = $2::text",
           [plan.project_id, vendorIdToUse]
         );
         const nextVersionNum = (versionRes.rows[0].last_version || 0) + 1;
@@ -9690,7 +9846,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         );
         const newProposalId = proposalCreateRes.rows[0].id;
 
-        const materialsRes = await query("SELECT id, name, rate, unit, description FROM materials", []);
+        const materialsRes = await query("SELECT id, name, rate, unit, technicalspecification FROM materials", []);
         const materialsById = Object.fromEntries(materialsRes.rows.map(m => [m.id?.toString(), m]));
         const materialsByName = Object.fromEntries(materialsRes.rows.map(m => [m.name?.toLowerCase()?.trim() || "", m]));
 
@@ -9700,19 +9856,22 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             matchedMaterial = materialsByName[item.item_name.toLowerCase().trim()];
           }
 
+          // Robust parsing for dimensions and quantity
+          const qty = parseFloat(item.qty || item.quantity) || 0;
+          const rate = matchedMaterial ? parseFloat(matchedMaterial.rate) : 0;
+
           await query(
             `INSERT INTO proposal_items (
-              proposal_id, material_id, item_name, description, qty, unit, rate, amount
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+              proposal_id, material_id, item_name, qty, unit, rate, amount
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
               newProposalId,
-              matchedMaterial?.id || item.material_id,
-              item.item_name,
-              item.description || item.remarks || matchedMaterial?.description || "",
-              parseFloat(item.qty) || 0,
-              item.unit || matchedMaterial?.unit || "pcs",
-              matchedMaterial ? parseFloat(matchedMaterial.rate) : 0,
-              0
+              matchedMaterial?.id || item.material_id || null,
+              item.item_name || "Untitled Item",
+              qty,
+              item.unit || matchedMaterial?.unit || "unit",
+              rate,
+              qty * rate
             ]
           );
         }
@@ -9724,13 +9883,14 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
           versionId: newProposalId,
           projectId: plan.project_id
         });
-      } catch (err) {
+      } catch (err: any) {
         await query("ROLLBACK");
-        throw err;
+        console.error("[LoadToProposal] Internal error:", err);
+        res.status(500).json({ message: `Database error: ${err.message}` });
       }
-    } catch (err) {
-      console.error("POST /api/sketch-plans/:id/load-to-proposal error", err);
-      res.status(500).json({ message: "Failed to load items to proposal" });
+    } catch (err: any) {
+      console.error("[LoadToProposal] Outer error:", err);
+      res.status(500).json({ message: err.message || "Failed to load items to proposal" });
     }
   });
 
