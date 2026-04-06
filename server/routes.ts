@@ -7,90 +7,78 @@ import { authMiddleware, requireRole } from "./middleware";
 import { randomUUID } from "crypto";
 import { query } from "./db/client";
 import { sendSketchPlanEmail, sendSiteReportEmail, sendProposalStatusEmail } from "./email";
+import { logActivity } from "./audit";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express,
 ): Promise<Server> {
   const { archiveService } = await import("./archive_service");
-  const { auditMiddleware } = await import("./audit");
+  
+  // Ensure Column Exists with DEFAULT false, and sync current state to prevent sorting bugs (NULLS vs FALSE)
+  await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_last_final BOOLEAN DEFAULT FALSE");
+  await query("UPDATE boq_versions SET is_last_final = FALSE WHERE is_last_final IS NULL");
 
-  // Apply audit middleware globally for all routes
-  app.use(auditMiddleware);
+  // ==================== AUDIT / SPY ROUTES ====================
 
-  // --- AUDIT API ENDPOINTS ---
-  app.get('/api/audit/logs', authMiddleware, async (req, res) => {
+  // GET /api/audit/logs - Fetch activity logs for the Spy Dashboard
+  app.get("/api/audit/logs", authMiddleware, requireRole("admin", "software_team"), async (req: Request, res: Response) => {
     try {
-      // Create table if it doesn't exist just in case
-      await query(`
-        CREATE TABLE IF NOT EXISTS audit_logs (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          user_id UUID,
-          username TEXT,
-          role TEXT,
-          action TEXT,
-          module TEXT,
-          page TEXT,
-          details TEXT,
-          before_data JSONB,
-          after_data JSONB,
-          ip_address TEXT,
-          user_agent TEXT,
-          created_at TIMESTAMP DEFAULT NOW()
-        )
-      `);
-      
-      const { search, module, action, limit = 200, username } = req.query;
-      let q = "SELECT * FROM audit_logs WHERE 1=1";
+      const { username, module, action, limit = "200" } = req.query;
+      let sql = `SELECT id::text, user_id, username, user_role as role, action, module, description as details, metadata, ip_address, 
+                        user_agent, page, requested_at as created_at
+                 FROM audit_logs WHERE 1=1`;
       const params: any[] = [];
-      let paramIdx = 1;
 
-      const searchTerm = search || username; // SpyDashboard sends ?username=
-
-      if (searchTerm) {
-        q += ` AND (username ILIKE $${paramIdx} OR details ILIKE $${paramIdx})`;
-        params.push(`%${searchTerm}%`);
-        paramIdx++;
+      if (username) {
+        params.push(`%${username}%`);
+        sql += ` AND username ILIKE $${params.length}`;
       }
-      if (module && module !== 'all') {
-        q += ` AND module ILIKE $${paramIdx}`;
-        params.push(`%${module}%`);
-        paramIdx++;
+      if (module && module !== "all") {
+        params.push(module);
+        sql += ` AND module = $${params.length}`;
       }
-      if (action && action !== 'all') {
-        q += ` AND action = $${paramIdx}`;
+      if (action && action !== "all") {
         params.push(action);
-        paramIdx++;
+        sql += ` AND action = $${params.length}`;
       }
-      
-      q += ` ORDER BY created_at DESC LIMIT $${paramIdx}`;
-      params.push(parseInt(limit as string, 10) || 200);
 
-      const result = await query(q, params);
+      params.push(Math.min(Number(limit) || 200, 1000));
+      sql += ` ORDER BY requested_at DESC LIMIT $${params.length}`;
+
+      const result = await query(sql, params);
       res.json({ logs: result.rows });
-    } catch (e) {
-      console.error("[AUDIT] Error fetching logs:", e);
-      res.status(500).json({ error: "Failed to fetch audit logs" });
+    } catch (err) {
+      console.error("/api/audit/logs GET error", err);
+      res.status(500).json({ message: "Failed to fetch audit logs" });
     }
   });
 
-  app.post('/api/audit/send-summary', authMiddleware, requireRole("admin", "software_team"), async (req, res) => {
+  // POST /api/audit/navigate - Record page navigation from the frontend NavigationLogger
+  app.post("/api/audit/navigate", authMiddleware, async (req: Request, res: Response) => {
     try {
-      const { to } = req.body;
-      if (!to) return res.status(400).json({ error: "Email is required" });
-      
-      // We would send email logic here. Assuming success for now.
-      res.json({ success: true, message: `Email sent to ${to}` });
-    } catch (e) {
-      console.error("[AUDIT] Error sending summary:", e);
-      res.status(500).json({ error: "Failed to send summary" });
+      const user = (req as any).user;
+      const { page, module, details } = req.body;
+      await logActivity({
+        userId: user?.id,
+        username: user?.username,
+        role: user?.role,
+        action: "NAVIGATE",
+        module: module || (page || "").split("/")[1]?.toUpperCase() || "HOME",
+        page,
+        details: details || `Navigated to ${page}`,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+      res.json({ success: true });
+    } catch (err) {
+      console.error("/api/audit/navigate POST error", err);
+      res.status(500).json({ message: "Failed to log navigation" });
     }
   });
 
-  app.post('/api/audit/navigate', authMiddleware, (req, res) => {
-    // The auditMiddleware automatically logs the payload details.
-    res.json({ success: true });
-  });
+  // ==================== END AUDIT ROUTES ====================
+
 
   // --- ARCHIVE & TRASH API ENDPOINTS ---
   app.get('/api/archive', authMiddleware, (req, res) => {
@@ -219,6 +207,7 @@ export async function registerRoutes(
         sender_role TEXT,
         message TEXT NOT NULL,
         info TEXT,
+        admin_reply TEXT,
         is_read BOOLEAN DEFAULT FALSE,
         sent_at TIMESTAMPTZ DEFAULT now(),
         created_at TIMESTAMPTZ DEFAULT now()
@@ -275,9 +264,23 @@ export async function registerRoutes(
     }
     console.log("[migrations] sketch_plan_locks table ensured");
 
-    // Ensure type column exists on boq_versions for BOM vs BOQ distinction
+    // Ensure boq_versions columns exist for BOM vs BOQ distinction and finalization
     await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'bom'");
-    console.log("[migrations] boq_versions 'type' column ensured");
+    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE");
+    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS last_template_snapshot JSONB");
+    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_last_final BOOLEAN DEFAULT FALSE");
+    
+    // Fix unique constraint to include type
+    try {
+      await query(`ALTER TABLE boq_versions DROP CONSTRAINT IF EXISTS boq_versions_project_id_version_number_key CASCADE`);
+      await query(`ALTER TABLE boq_versions ADD CONSTRAINT boq_versions_project_id_type_version_number_key UNIQUE(project_id, type, version_number)`);
+    } catch(e: any) {
+      // 42P07 = duplicate_object: constraint already exists, safe to ignore
+      if (e?.code !== '42P07') {
+        console.warn("[migrations] Could not update unique constraint for boq_versions:", e?.message || e);
+      }
+    }
+    console.log("[migrations] boq_versions 'type', 'is_locked', 'last_template_snapshot', and 'is_last_final' ensured");
 
     // Ensure image column exists on products
     await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS image TEXT`);
@@ -338,6 +341,108 @@ export async function registerRoutes(
     } catch (err) {
       console.error('/api/alerts/:id DELETE error', err);
       res.status(500).json({ message: 'failed to delete alert' });
+    }
+  });
+
+  // ==================== SUPPORT MESSAGES ROUTES ====================
+
+  // GET /api/support-messages - Fetch messages (filtered by user if not admin)
+  app.get("/api/support-messages", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      let sql = `SELECT id::text, sender_name, sender_email, sender_role, message, info, admin_reply, is_read, sent_at as submitted_at, created_at 
+                 FROM messages`;
+      const params: any[] = [];
+
+      // If not admin/software/purchase, only show their own messages
+      if (user.role !== 'admin' && user.role !== 'software_team' && user.role !== 'purchase_team') {
+        params.push(user.username);
+        sql += ` WHERE sender_email = $${params.length}`;
+      }
+
+      sql += ` ORDER BY created_at DESC`;
+
+      const result = await query(sql, params);
+      res.json({ messages: result.rows });
+    } catch (err) {
+      console.error("/api/support-messages GET error", err);
+      res.status(500).json({ message: "Failed to fetch support messages" });
+    }
+  });
+
+  // POST /api/support-messages - Create new message
+  app.post("/api/support-messages", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { senderName, message, info, admin_reply } = req.body;
+
+      if (!message) {
+        return res.status(400).json({ message: "Message content is required" });
+      }
+
+      const id = randomUUID();
+      const result = await query(
+        `INSERT INTO messages (id, sender_name, sender_email, sender_role, message, info, admin_reply) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7) 
+         RETURNING id::text, sender_name, sender_email, sender_role, message, info, admin_reply, is_read, sent_at as submitted_at, created_at`,
+        [id, senderName || user.fullName || user.username, user.username, user.role, message, info || null, admin_reply || null]
+      );
+
+      res.status(201).json({ message: result.rows[0] });
+    } catch (err) {
+      console.error("/api/support-messages POST error", err);
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // PUT /api/support-messages/:id - Update message (replies or status)
+  app.put("/api/support-messages/:id", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { admin_reply, is_read, info } = req.body;
+
+      const result = await query(
+        `UPDATE messages 
+         SET admin_reply = COALESCE($1, admin_reply),
+             is_read = COALESCE($2, is_read),
+             info = COALESCE($3, info)
+         WHERE id = $4
+         RETURNING id::text, sender_name, sender_email, sender_role, message, info, admin_reply, is_read, sent_at as submitted_at, created_at`,
+        [admin_reply || null, is_read !== undefined ? is_read : null, info || null, id]
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      res.json({ message: result.rows[0] });
+    } catch (err) {
+      console.error("/api/support-messages PUT error", err);
+      res.status(500).json({ message: "Failed to update message" });
+    }
+  });
+
+  // DELETE /api/support-messages/:id - Delete message
+  app.delete("/api/support-messages/:id", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = (req as any).user;
+
+      // Only allow user to delete their own, or admin to delete any
+      const checkResult = await query("SELECT sender_email FROM messages WHERE id = $1", [id]);
+      if (checkResult.rowCount === 0) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      if (user.role !== 'admin' && user.username !== checkResult.rows[0].sender_email) {
+        return res.status(403).json({ message: "Unauthorized to delete this message" });
+      }
+
+      await query("DELETE FROM messages WHERE id = $1", [id]);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("/api/support-messages DELETE error", err);
+      res.status(500).json({ message: "Failed to delete message" });
     }
   });
 
@@ -660,7 +765,11 @@ export async function registerRoutes(
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (project_id) REFERENCES boq_projects(id) ON DELETE CASCADE,
-        UNIQUE(project_id, version_number)
+        type VARCHAR(20) DEFAULT 'bom',
+        is_locked BOOLEAN DEFAULT FALSE,
+        last_template_snapshot JSONB,
+        is_last_final BOOLEAN DEFAULT FALSE,
+        UNIQUE(project_id, type, version_number)
       )
     `);
     await query(
@@ -776,8 +885,12 @@ export async function registerRoutes(
     await query(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_project_id ON purchase_orders(project_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor_id ON purchase_orders(vendor_id)`);
 
+    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS version_id VARCHAR(100)`);
+    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS version_number TEXT`);
     await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS shipping_address TEXT`);
     await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS payment_terms TEXT`);
+    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS dc_number TEXT`);
+    await query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS dc_date DATE`);
 
     console.log("[db] purchase_orders table verified/created");
   } catch (err: unknown) {
@@ -1132,11 +1245,8 @@ export async function registerRoutes(
       )
     `);
 
-    // Ensure type column exists on boq_versions for BOM vs BOQ distinction
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'bom'");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE");
-    await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS last_template_snapshot JSONB");
-    console.log("[migrations] boq_versions 'type', 'is_locked', and 'last_template_snapshot' columns ensured");
+    // boq_versions type/is_locked/last_template_snapshot/is_last_final columns
+    // are now handled in the consolidated migration block above (lines ~263-280)
   } catch (err: unknown) {
     console.warn("[migrations] failed:", (err as any)?.message || err);
   }
@@ -1500,23 +1610,23 @@ export async function registerRoutes(
       // Generate token
       const token = generateToken(user);
 
-      let shopId = undefined;
-      if (user.role === "supplier") {
-        const shopRes = await query("SELECT id FROM shops WHERE owner_id::text = $1::text LIMIT 1", [user.id]);
-        if (shopRes.rows.length > 0) {
-          shopId = shopRes.rows[0].id;
+      // Return user WITHOUT password
+      let { password: _, ...userWithoutPassword } = user as any;
+
+      if (user.role === 'supplier') {
+        try {
+          const shopRes = await query('SELECT id::text FROM shops WHERE owner_id::text = $1', [user.id]);
+          if (shopRes.rows.length > 0) {
+            userWithoutPassword.shopId = shopRes.rows[0].id;
+          }
+        } catch (e) {
+          console.error("[auth] failed to fetch shop for supplier", e);
         }
       }
 
-      // Return user WITHOUT password
-      const { password: _, ...userWithoutPassword } = user;
-      
-      // Pass the user context to the request so auditMiddleware can log it accurately
-      (req as any).user = userWithoutPassword;
-
       res.json({
         message: "Login successful",
-        user: { ...userWithoutPassword, shopId },
+        user: userWithoutPassword,
         token,
       });
     } catch (error) {
@@ -1600,16 +1710,20 @@ export async function registerRoutes(
           return;
         }
 
-        let shopId = undefined;
-        if (user.role === "supplier") {
-          const shopRes = await query("SELECT id FROM shops WHERE owner_id::text = $1::text LIMIT 1", [user.id]);
-          if (shopRes.rows.length > 0) {
-            shopId = shopRes.rows[0].id;
+        let { password: _, ...userWithoutPassword } = user as any;
+
+        if (user.role === 'supplier') {
+          try {
+            const shopRes = await query('SELECT id::text FROM shops WHERE owner_id::text = $1', [user.id]);
+            if (shopRes.rows.length > 0) {
+              userWithoutPassword.shopId = shopRes.rows[0].id;
+            }
+          } catch (e) {
+            console.error("[auth/me] failed to fetch shop for supplier", e);
           }
         }
 
-        const { password: _, ...userWithoutPassword } = user;
-        res.json({ ...userWithoutPassword, shopId });
+        res.json(userWithoutPassword);
       } catch (error) {
         console.error("Get profile error:", error);
         res.status(500).json({ message: "Internal server error" });
@@ -3804,9 +3918,10 @@ export async function registerRoutes(
   );
 
   // GET /api/products - List all products
-  app.get("/api/products", async (_req, res) => {
+  app.get("/api/products", async (req, res) => {
     try {
-      const result = await query(`
+      const { approvedOnly } = req.query;
+      let queryStr = `
         SELECT
           p.*,
           s.name as subcategory_name,
@@ -3814,8 +3929,14 @@ export async function registerRoutes(
         FROM products p
         LEFT JOIN material_subcategories s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
         LEFT JOIN material_categories c ON LOWER(TRIM(s.category)) = LOWER(TRIM(c.name))
-        ORDER BY p.created_at DESC
-      `);
+      `;
+
+      if (approvedOnly === 'true') {
+        queryStr += ` WHERE p.id IN (SELECT DISTINCT product_id FROM product_approvals WHERE status = 'approved')`;
+      }
+
+      queryStr += ` ORDER BY p.created_at DESC`;
+      const result = await query(queryStr);
       const archivedIds = archiveService.getArchivedItemIds('products');
       const trashedIds = archiveService.getTrashedItemIds('products');
       const filtered = result.rows.filter((r: any) => !archivedIds.includes(r.id) && !trashedIds.includes(r.id));
@@ -4348,7 +4469,30 @@ export async function registerRoutes(
       try {
         const user = (req as any).user;
         const { all } = req.query;
-        let queryStr = `SELECT id, name, client, budget, location, client_address, gst_no, project_value, project_status, status, created_at, updated_at FROM boq_projects`;
+        let queryStr = `
+          SELECT p.*, 
+            v_bom.version_number as bom_version_number, v_bom.project_value as bom_version_price,
+            v_boq.version_number as boq_version_number, v_boq.project_value as boq_version_price
+          FROM boq_projects p
+          LEFT JOIN (
+            SELECT DISTINCT ON (project_id) project_id, version_number, project_value
+            FROM boq_versions
+            WHERE type = 'bom'
+            ORDER BY project_id, 
+              is_last_final DESC NULLS LAST, 
+              (CASE WHEN status = 'approved' THEN 2 ELSE 1 END) DESC,
+              version_number DESC
+          ) v_bom ON p.id = v_bom.project_id
+          LEFT JOIN (
+            SELECT DISTINCT ON (project_id) project_id, version_number, project_value
+            FROM boq_versions
+            WHERE type = 'boq'
+            ORDER BY project_id, 
+              is_last_final DESC NULLS LAST, 
+              (CASE WHEN status = 'approved' THEN 2 ELSE 1 END) DESC,
+              version_number DESC
+          ) v_boq ON p.id = v_boq.project_id
+        `;
         const params: any[] = [];
 
         const privilegedRoles = ['admin', 'software_team'];
@@ -4467,7 +4611,7 @@ export async function registerRoutes(
 
         const { project_status } = req.body;
         if (project_status !== undefined) {
-          const validStatuses = ['started', 'in_progress', 'hold', 'cancelled', 'closed'];
+          const validStatuses = ['started', 'in_progress', 'hold', 'cancelled', 'closed', 'bom_stage', 'boq_stage', 'client_approval', 'work_in_execution', 'finance'];
           if (!validStatuses.includes(project_status)) {
             res.status(400).json({ message: 'Invalid project_status' });
             return;
@@ -4614,7 +4758,7 @@ export async function registerRoutes(
         const { projectId } = req.params;
 
         const { type } = req.query;
-        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, created_at, updated_at 
+        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, created_at, updated_at 
                  FROM boq_versions 
                  WHERE project_id = $1`;
         const params = [projectId];
@@ -4765,7 +4909,7 @@ export async function registerRoutes(
         }
 
         // Recalculate project value for the project (it now has a new latest version)
-        await recalculateProjectValue(project_id);
+        await recalculateProjectValue(project_id, versionId);
 
         res.json({
           id: versionId,
@@ -4780,6 +4924,38 @@ export async function registerRoutes(
       }
     },
   );
+
+  // POST /api/boq-versions/:id/make-final - Manually mark a version as the final one
+  app.post("/api/boq-versions/:id/make-final", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const vResp = await query("SELECT project_id, type FROM boq_versions WHERE id = $1", [id]);
+      
+      if (vResp.rows.length === 0) {
+        return res.status(404).json({ message: "Version not found" });
+      }
+      
+      const { project_id, type } = vResp.rows[0];
+      
+      // 1. Clear existing final flag for this project/type
+      // 1. Clear ALL is_last_final flags for this project and type first (BOMs don't affect BOQs etc)
+      await query("UPDATE boq_versions SET is_last_final = FALSE WHERE project_id = $1 AND type = $2", [project_id, type]);
+      // Double check - ensures no "floating" flags on other projects by mistake
+      await query("UPDATE boq_versions SET is_last_final = FALSE WHERE id = $1", ["some-bogus-id-that-wont-exist"]); // Just a dummy sync
+      
+      // 2. Set this one as final
+      const updateRes = await query("UPDATE boq_versions SET is_last_final = TRUE WHERE id = $1", [id]);
+      console.log(`[make-final] Set version ${id} to is_last_final=TRUE. Result: ${updateRes.rowCount} rows.`);
+      
+      // 3. Sync the project price to this new final version
+      await recalculateProjectValue(project_id, id);
+      
+      res.json({ message: "Version set as final" });
+    } catch (err) {
+      console.error("[make-final] Error:", err);
+      res.status(500).json({ message: "Failed to mark as final" });
+    }
+  });
 
   // POST /api/boq-versions/:versionId/save-edits - Batch save edits for BOQ items in a version
   app.post(
@@ -4925,7 +5101,7 @@ export async function registerRoutes(
         // Recalculate project value for the version's project
         const verRes = await query(`SELECT project_id FROM boq_versions WHERE id = $1`, [versionId]);
         if (verRes.rows.length > 0) {
-          await recalculateProjectValue(verRes.rows[0].project_id);
+          await recalculateProjectValue(verRes.rows[0].project_id, versionId);
         }
 
         // Log edit in history
@@ -5339,25 +5515,26 @@ export async function registerRoutes(
   );
 
   // Helper function to update project_value in boq_projects table
-  async function recalculateProjectValue(projectId: string) {
+  async function recalculateProjectValue(projectId: string, versionId?: string) {
     try {
-      // Find the latest version of the project
-      const versionResult = await query(
-        `SELECT id FROM boq_versions WHERE project_id = $1 ORDER BY version_number DESC LIMIT 1`,
-        [projectId],
-      );
-
-      if (versionResult.rows.length === 0) {
-        await query(`UPDATE boq_projects SET project_value = '0', updated_at = NOW() WHERE id = $1`, [projectId]);
-        return;
+      // 1. Determine which version to calculate
+      let targetVersionId = versionId;
+      if (!targetVersionId) {
+        const versionResult = await query(
+          `SELECT id FROM boq_versions WHERE project_id = $1 ORDER BY version_number DESC LIMIT 1`,
+          [projectId],
+        );
+        if (versionResult.rows.length === 0) {
+          await query(`UPDATE boq_projects SET project_value = '0', updated_at = NOW() WHERE id = $1`, [projectId]);
+          return;
+        }
+        targetVersionId = versionResult.rows[0].id;
       }
-
-      const latestVersionId = versionResult.rows[0].id;
 
       // Fetch all items for this version
       const itemsResult = await query(
         `SELECT id, table_data, estimator, created_at FROM boq_items WHERE version_id = $1`,
-        [latestVersionId],
+        [targetVersionId],
       );
 
       const archivedIds = archiveService.getArchivedItemIds('boq_items');
@@ -5429,11 +5606,31 @@ export async function registerRoutes(
         }
       }
 
+      // 2. Update the specific version's price snapshot
+      await query(
+        `UPDATE boq_versions SET project_value = $1, updated_at = NOW() WHERE id = $2`,
+        [totalValue.toString(), targetVersionId]
+      );
+
+      // 3. Sync the main project value from the "Last Final" version
+      const finalVerResult = await query(`
+         SELECT project_value 
+         FROM boq_versions 
+         WHERE project_id = $1 AND (status = 'approved' OR is_last_final = TRUE)
+         ORDER BY is_last_final DESC NULLS LAST, version_number DESC 
+         LIMIT 1
+      `, [projectId]);
+
+      let consolidatedValue = totalValue.toString();
+      if (finalVerResult.rows.length > 0) {
+        consolidatedValue = finalVerResult.rows[0].project_value;
+      }
       await query(
         `UPDATE boq_projects SET project_value = $1, updated_at = NOW() WHERE id = $2`,
-        [totalValue.toString(), projectId],
+        [consolidatedValue, projectId],
       );
-      console.log(`[recalculateProjectValue] Updated project ${projectId} value to ${totalValue}`);
+
+      console.log(`[recalculateProjectValue] Updated version ${targetVersionId} price. Project ${projectId} consolidated value: ${consolidatedValue}`);
     } catch (err) {
       console.error(`[recalculateProjectValue] Error for project ${projectId}:`, err);
     }
@@ -5491,7 +5688,7 @@ export async function registerRoutes(
         );
 
         // Recalculate project value
-        await recalculateProjectValue(project_id);
+        await recalculateProjectValue(project_id, version_id);
 
         // Confirm row persisted by selecting it back
         try {
@@ -5580,7 +5777,7 @@ export async function registerRoutes(
         }
 
         // Recalculate project value once after all items are added
-        await recalculateProjectValue(project_id);
+        await recalculateProjectValue(project_id, version_id);
 
         res.status(201).json({ message: "Batch items saved successfully", count: items.length });
       } catch (err) {
@@ -5809,9 +6006,9 @@ export async function registerRoutes(
         );
 
         // Recalculate project value
-        const itemRes = await query(`SELECT project_id FROM boq_items WHERE id = $1`, [itemId]);
+        const itemRes = await query(`SELECT project_id, version_id FROM boq_items WHERE id = $1`, [itemId]);
         if (itemRes.rows.length > 0) {
-          await recalculateProjectValue(itemRes.rows[0].project_id);
+          await recalculateProjectValue(itemRes.rows[0].project_id, itemRes.rows[0].version_id);
         }
 
         res.json({ message: "BOQ item updated successfully" });
@@ -5847,7 +6044,7 @@ export async function registerRoutes(
 
         // Recalculate project value
         if (projectId) {
-          await recalculateProjectValue(projectId);
+          await recalculateProjectValue(projectId, itemData.version_id);
         }
 
         res.json({ message: "BOQ item archived" });
@@ -7554,6 +7751,19 @@ export async function registerRoutes(
       res.status(500).json({ message: "Failed to preview vendors" });
     }
   });
+  
+  // GET /api/purchase-orders/check-existence?versionId=...
+  app.get("/api/purchase-orders/check-existence", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { versionId } = req.query;
+      if (!versionId) return res.status(400).json({ message: "Version ID is required" });
+      const result = await query("SELECT id FROM purchase_orders WHERE version_id = $1 LIMIT 1", [versionId]);
+      res.json({ exists: result.rowCount > 0 });
+    } catch (err) {
+      console.error("GET /api/purchase-orders/check-existence error", err);
+      res.status(500).json({ message: "Failed to check PO existence" });
+    }
+  });
 
 
   // POST /api/purchase-orders/generate
@@ -7562,7 +7772,7 @@ export async function registerRoutes(
     authMiddleware,
     async (req: Request, res: Response) => {
       try {
-        const { projectId, versionId } = req.body;
+        const { projectId, versionId, versionNumber } = req.body;
         if (!projectId || !versionId) {
           return res
             .status(400)
@@ -7610,23 +7820,28 @@ export async function registerRoutes(
             if (Array.isArray(tableData.materialLines)) {
               const engineLines = tableData.materialLines.map((l: any) => {
                 const baseQty = Number(l.baseQty || l.qty || 0);
+                const applyR = l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : (l.applyRounding !== undefined ? Boolean(l.applyRounding) : true);
+                
                 // Excel/BOQ Logic: Round up at basis, then scale, then round off for PO
                 // Per instructions, exclude wastage for PO (use baseQty directly)
-                const roundedQtyAtBasis = Math.ceil(baseQty);
-                const perUnitQty = roundedQtyAtBasis / base;
-                const scaledQty = perUnitQty * target;
-                const roundOffQty = Math.ceil(scaledQty);
+                const roundedQtyAtBasis = applyR ? Math.ceil(baseQty) : baseQty;
+                const computedPerUnitQty = base > 0 ? roundedQtyAtBasis / base : 0;
+                // Use l.perUnitQty if it exists (allows respecting edits from Generate PO / BOM Edit screen)
+                const perUnitQty = l.perUnitQty !== undefined ? Number(l.perUnitQty) : computedPerUnitQty;
+                
+                const scaledQty = Number((perUnitQty * target).toFixed(2));
+                const roundOffQty = applyR ? Math.ceil(scaledQty) : scaledQty;
 
                 const sRate = Number(l.supply_rate || l.supplyRate || 0);
                 const iRate = Number(l.install_rate || l.installRate || 0);
                 const rate = sRate + iRate;
-                const amount = roundOffQty * rate;
+                const amount = Number((roundOffQty * rate).toFixed(2));
 
                 return {
                   ...l,
                   qty: roundOffQty,
                   rate: rate,
-                  amount: amount,
+                  amount: Number((roundOffQty * rate).toFixed(2)),
                   item: l.name || l.material_name || "Unknown Item"
                 };
               });
@@ -7645,7 +7860,7 @@ export async function registerRoutes(
                   ...it,
                   qty,
                   rate,
-                  amount,
+                  amount: Number((qty * rate).toFixed(2)),
                   item: it.title || it.name || "Unknown Item"
                 };
               });
@@ -7697,9 +7912,9 @@ export async function registerRoutes(
 
           // Create the PO first to get an ID
           const poResult = await query(
-            `INSERT INTO purchase_orders (po_number, project_id, vendor_id, vendor_name, status, total) 
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-            [poNumber, projectId, vendorId, vendorName, "draft", 0],
+            `INSERT INTO purchase_orders (po_number, project_id, vendor_id, vendor_name, status, total, version_id, version_number) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+            [poNumber, projectId, vendorId, vendorName, "draft", 0, versionId, versionNumber || null],
           );
 
 
@@ -7711,7 +7926,7 @@ export async function registerRoutes(
             const supplyRate = parseFloat(item.supply_rate || item.supplyRate || item.rate || 0) || 0;
             const installRate = parseFloat(item.install_rate || item.installRate || 0) || 0;
             const rate = supplyRate + installRate;
-            const amount = parseFloat(item.amount || 0) || (qty * rate) || 0;
+            const amount = Number((parseFloat(item.amount || 0) || (qty * rate) || 0).toFixed(2));
             totalAmount += amount;
 
             await query(
@@ -7825,8 +8040,8 @@ export async function registerRoutes(
         queryStr += ` AND status = $${params.length}`;
       }
 
-      if (user.role === 'admin' || user.role === 'software_team') {
-        // Admins and software team see all requests
+      if (user.role === 'admin' || user.role === 'software_team' || user.role === 'purchase_team') {
+        // Admins, software team and purchase team see all requests
       } else if (view !== 'my') {
         params.push(user.id);
         queryStr += ` AND project_id IN (SELECT project_id FROM user_project_permissions WHERE user_id = $${params.length})`;
@@ -8185,7 +8400,14 @@ export async function registerRoutes(
       const user = (req as any).user;
       let queryStr = `
         SELECT po.*, po.total as total_amount, p.name as project_name,
-        COALESCE(po.vendor_name, s.name, po.vendor_id) as vendor_name
+        COALESCE(po.vendor_name, s.name, po.vendor_id) as vendor_name,
+        COALESCE(po.version_number, (
+          SELECT CAST(v.version_number AS TEXT)
+          FROM boq_versions v
+          WHERE v.project_id = po.project_id AND v.created_at <= po.created_at
+          ORDER BY v.created_at DESC
+          LIMIT 1
+        )) as version_number
         FROM purchase_orders po
         LEFT JOIN boq_projects p ON po.project_id = p.id
         LEFT JOIN shops s ON(po.vendor_id:: text = s.id:: text OR TRIM(s.name) = TRIM(po.vendor_name))
@@ -8198,7 +8420,7 @@ export async function registerRoutes(
         params.push(status);
       }
 
-      if (user.role !== 'admin' && user.role !== 'software_team') {
+      if (user.role !== 'admin' && user.role !== 'software_team' && user.role !== 'purchase_team') {
         whereConditions.push(`po.project_id IN (SELECT project_id FROM user_project_permissions WHERE user_id = $${params.length + 1})`);
         params.push(user.id);
       }
@@ -8227,6 +8449,20 @@ export async function registerRoutes(
         `SELECT po.*, po.total as total_amount,
         p.name as project_name, p.client as project_client, p.location as project_location,
         COALESCE(po.vendor_name, s.name, po.vendor_id) as vendor_name,
+        COALESCE(po.version_number, (
+          SELECT CAST(v.version_number AS TEXT)
+          FROM boq_versions v
+          WHERE v.project_id = po.project_id AND v.created_at <= po.created_at
+          ORDER BY v.created_at DESC
+          LIMIT 1
+        )) as version_number,
+        COALESCE(po.version_id, (
+          SELECT CAST(v.id AS TEXT)
+          FROM boq_versions v
+          WHERE v.project_id = po.project_id AND v.created_at <= po.created_at
+          ORDER BY v.created_at DESC
+          LIMIT 1
+        )) as version_id,
         s.location as vendor_location, s.new_location as vendor_new_location, s.city as vendor_city,
         s.state as vendor_state, s.pincode as vendor_pincode, s.gstno as vendor_gstin,
         s.contactnumber as vendor_phone, s.phonecountrycode as vendor_phone_code,
@@ -8289,11 +8525,74 @@ export async function registerRoutes(
         }
       }
 
+      // Fetch BOM Items for original quantity reference
+      let bomItems: any[] = [];
+      if (currentPo.version_id) {
+        const bomResult = await query(
+          `SELECT * FROM boq_items WHERE version_id = $1`,
+          [currentPo.version_id]
+        );
+        
+        for (const boqItem of bomResult.rows) {
+          const tableData = typeof boqItem.table_data === 'string' ? JSON.parse(boqItem.table_data) : boqItem.table_data;
+          
+          if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
+             const base = Number(tableData.baseRequiredQty || tableData.configBasis?.baseRequiredQty || 1);
+             const target = Number(tableData.targetRequiredQty) || 0;
+             
+             if (Array.isArray(tableData.materialLines)) {
+               tableData.materialLines.forEach((l: any) => {
+                 const baseQty = Number(l.baseQty || l.qty || 0);
+                 const applyR = l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : true;
+                 const roundedQtyAtBasis = applyR ? Math.ceil(baseQty) : baseQty;
+                 const perUnitQty = l.perUnitQty !== undefined ? Number(l.perUnitQty) : (base > 0 ? roundedQtyAtBasis / base : 0);
+                 const theoreticalQty = perUnitQty * target;
+                 
+                 const itemName = l.name || l.material_name;
+                 const desc = l.description || "";
+                 const existing = bomItems.find(i => i.item === itemName && i.description === desc);
+                 if (existing) {
+                   existing.qty += theoreticalQty;
+                 } else {
+                   bomItems.push({
+                     item: itemName,
+                     description: desc,
+                     qty: theoreticalQty,
+                     unit: l.unit
+                   });
+                 }
+               });
+             }
+             
+             if (Array.isArray(tableData.step11_items)) {
+               tableData.step11_items.filter((it: any) => it.manual).forEach((it: any) => {
+                 const itemName = it.item || it.title;
+                 const desc = it.description || "";
+                 const qty = Number(it.qty || 0);
+                 
+                 const existing = bomItems.find(i => i.item === itemName && i.description === desc);
+                 if (existing) {
+                   existing.qty += qty;
+                 } else {
+                   bomItems.push({
+                     item: itemName,
+                     description: desc,
+                     qty: qty,
+                     unit: it.unit
+                   });
+                 }
+               });
+             }
+          }
+        }
+      }
+
       res.json({
         purchaseOrder: currentPo,
         items: itemsResult.rows,
         relatedPos: relatedPosResult.rows,
-        parentItems: parentItems
+        parentItems: parentItems,
+        bomItems: bomItems
       });
     } catch (err) {
       console.error("GET /api/purchase-orders/:id error:", err);
@@ -8305,16 +8604,37 @@ export async function registerRoutes(
   app.patch("/api/purchase-orders/:id/status", authMiddleware, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
+      const { status, delivery_date, dc_number, dc_date } = req.body;
 
-      if (!status) {
-        res.status(400).json({ message: "Status is required" });
-        return;
+      const setFields: string[] = [];
+      const params: any[] = [];
+      let paramCount = 1;
+
+      if (status !== undefined) {
+        setFields.push(`status = $${paramCount++}`);
+        params.push(status);
+      }
+      if (delivery_date !== undefined) {
+        setFields.push(`delivery_date = $${paramCount++}`);
+        params.push(delivery_date || null);
+      }
+      if (dc_number !== undefined) {
+        setFields.push(`dc_number = $${paramCount++}`);
+        params.push(dc_number || null);
+      }
+      if (dc_date !== undefined) {
+        setFields.push(`dc_date = $${paramCount++}`);
+        params.push(dc_date || null);
       }
 
+      if (setFields.length === 0) {
+        return res.status(400).json({ message: "No fields to update" });
+      }
+
+      params.push(id);
       const result = await query(
-        `UPDATE purchase_orders SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING * `,
-        [status, id]
+        `UPDATE purchase_orders SET ${setFields.join(', ')}, updated_at = NOW() WHERE id = $${paramCount} RETURNING * `,
+        params
       );
 
       if (result.rows.length === 0) {
