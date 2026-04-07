@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Reorder, useDragControls } from "framer-motion";
-import { ChevronUp, ChevronDown, Loader2, CheckCircle2, XCircle, Lock, History, Clock, Briefcase, MapPin, IndianRupee, GripVertical, Search, ArrowUp, Plus, Trash2, Save, MessageSquare, Users, ChevronsUpDown, Check, X, RefreshCw } from "lucide-react";
+import { ChevronUp, ChevronDown, Loader2, CheckCircle2, XCircle, Lock, History, Clock, Briefcase, MapPin, IndianRupee, GripVertical, Search, ArrowUp, Plus, Trash2, Save, MessageSquare, Users, ChevronsUpDown, Check, X, RefreshCw, Star } from "lucide-react";
 import { fuzzySearch, cn } from "@/lib/utils";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,13 +33,19 @@ import { useData } from "@/lib/store";
 type Project = { id: string; name: string; client: string; budget: string; location?: string; status?: string; project_status?: string };
 
 const PROJECT_STATUSES: { value: string; label: string; color: string }[] = [
-  { value: 'started', label: 'Started', color: 'bg-blue-100 text-blue-700' },
-  { value: 'in_progress', label: 'In Progress', color: 'bg-amber-100 text-amber-700' },
-  { value: 'hold', label: 'Hold', color: 'bg-orange-100 text-orange-700' },
+  { value: 'started', label: 'Started', color: 'bg-slate-100 text-slate-700' },
+  { value: 'in_progress', label: 'In Progress', color: 'bg-cyan-100 text-cyan-700' },
+  { value: 'bom_stage', label: 'BOM Stage', color: 'bg-blue-100 text-blue-700' },
+  { value: 'boq_stage', label: 'BOQ Stage', color: 'bg-indigo-100 text-indigo-700' },
+  { value: 'client_approval', label: 'Client Approval', color: 'bg-amber-100 text-amber-700' },
+  { value: 'work_in_execution', label: 'Work in Execution', color: 'bg-green-100 text-green-700' },
+  { value: 'finance', label: 'Finance', color: 'bg-purple-100 text-purple-700' },
+  { value: 'hold', label: 'On Hold', color: 'bg-orange-100 text-orange-700' },
   { value: 'cancelled', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
   { value: 'closed', label: 'Closed', color: 'bg-gray-200 text-gray-600' },
 ];
-const getProjectStatusMeta = (s?: string) => PROJECT_STATUSES.find(x => x.value === s) ?? { label: s || 'Started', color: 'bg-blue-100 text-blue-700' };
+
+const getProjectStatusMeta = (s?: string) => PROJECT_STATUSES.find(x => x.value === s) ?? { label: s || 'Started', color: 'bg-slate-100 text-slate-700' };
 type BOMVersion = { id: string; project_id: string; version_number: number; status: "draft" | "submitted" | "pending_approval" | "approved" | "rejected" | "edit_requested"; created_at: string; rejection_reason?: string; updated_at: string; project_name?: string; project_client?: string; project_location?: string };
 type BOMItem = { id: string; estimator: string; session_id: string; table_data: any; created_at: string };
 type Product = { id: string; name: string; code: string; image?: string; category?: string; subcategory?: string; description?: string; category_name?: string; subcategory_name?: string; tax_code_type?: string; tax_code_value?: string; hsn_code?: string; sac_code?: string };
@@ -888,11 +894,13 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
   const previewRateValue = parseFloat(localRate) || 0;
   const previewAmount = Number((previewQtyValue * previewRateValue).toFixed(2));
 
-  // Sync local state with props
-  useEffect(() => { setLocalDesc(desc); }, [desc]);
-  useEffect(() => { setLocalUnit(unit); }, [unit]);
-  useEffect(() => { setLocalQty(baseQty.toString()); }, [baseQty]);
-  useEffect(() => { setLocalRate(rate.toString()); }, [rate]);
+  // Sync local state with props — ONLY if not being currently focused to prevent cursor jumping or value resets
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => { if (!isFocused) setLocalDesc(desc); }, [desc, isFocused]);
+  useEffect(() => { if (!isFocused) setLocalUnit(unit); }, [unit, isFocused]);
+  useEffect(() => { if (!isFocused) setLocalQty(baseQty.toString()); }, [baseQty, isFocused]);
+  useEffect(() => { if (!isFocused) setLocalRate(rate.toString()); }, [rate, isFocused]);
 
   return (
     <tr
@@ -943,11 +951,11 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
         <Input
           value={localDesc}
           onChange={(e) => setLocalDesc(e.target.value)}
-          onBlur={() => updateEditedField(itemKey, "description", localDesc)}
+          onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "description", localDesc); }}
           placeholder="Description..."
           className="h-7 text-xs border-gray-200 focus:border-blue-400"
           disabled={isVersionSubmitted}
-          onFocus={checkBudgetEarly}
+          onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
       </td>}
       <td className="border px-2 py-2 text-center w-16">
@@ -955,10 +963,10 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           type="text"
           value={localUnit}
           onChange={(e) => setLocalUnit(e.target.value)}
-          onBlur={() => updateEditedField(itemKey, "unit", localUnit)}
+          onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "unit", localUnit); }}
           className="h-7 w-12 text-xs text-center border-gray-200 focus:border-blue-400"
           disabled={isVersionSubmitted}
-          onFocus={checkBudgetEarly}
+          onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
       </td>
       <td className="border px-2 py-2 text-center w-20">
@@ -975,10 +983,10 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
               updateEditedField(itemKey, "qty", 0);
             }
           }}
-          onBlur={() => updateEditedField(itemKey, "qty", parseFloat(localQty) || 0)}
+          onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "qty", parseFloat(localQty) || 0); }}
           className="h-7 w-16 text-xs text-center border-gray-200 focus:border-blue-400"
           disabled={isVersionSubmitted}
-          onFocus={checkBudgetEarly}
+          onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
       </td>
       {/* Required Qty — manual items show qty directly (no scaling) */}
@@ -1006,6 +1014,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
             }
           }}
           onBlur={() => {
+            setIsFocused(false);
             const v = parseFloat(localRate) || 0;
             updateEditedField(itemKey, "rate", v);
             updateEditedField(itemKey, "supply_rate", v);
@@ -1013,7 +1022,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           }}
           className="h-7 w-20 text-xs text-center border-gray-200 focus:border-blue-400"
           disabled={isVersionSubmitted}
-          onFocus={checkBudgetEarly}
+          onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
       </td>
       <td className="border px-2 py-2 text-center w-28 font-bold text-green-700 bg-green-50">
@@ -2173,9 +2182,34 @@ export default function CreateBom() {
 
       const saveResp = await res.json();
       if (saveResp?.updatedItems?.length) {
-        setEditedFields({});
-        editedFieldsRef.current = {};
-        await loadBoqItemsAndEdits();
+        // Incrementally clear ONLY the fields we sent, instead of a blanket reset.
+        // This prevents overwriting new typing that happened while the request was in flight.
+        setEditedFields(prev => {
+          const next = { ...prev };
+          Object.keys(payload).forEach(key => {
+             // Only clear if the current edit state matches what we just sent
+             // (Prevents clearing items if user kept typing)
+             if (JSON.stringify(next[key]) === JSON.stringify(payload[key])) {
+                delete next[key];
+             }
+          });
+          editedFieldsRef.current = next;
+          return next;
+        });
+
+        // Update local items state with authoritative server data immediately
+        // This stops the "flicker" where values jump between old/new state during re-loads.
+        setBoqItems((prev: BOMItem[]) => {
+          const updatedMap = new Map((saveResp.updatedItems || []).map((i: any) => [i.id, i]));
+          return prev.map(i => {
+            const up = updatedMap.get(i.id);
+            if (!up) return i;
+            return { ...i, table_data: parseTableData(up.table_data) };
+          });
+        });
+
+        // Still reload background data (history) but the primary UI stays smooth
+        loadHistory();
       }
 
       toast({ title: "Success", description: "Draft saved automatically" });
@@ -2844,14 +2878,84 @@ export default function CreateBom() {
                     <div className="flex-[3] min-w-[500px] space-y-1.5 text-slate-900">
                       <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Version & Actions</Label>
                       <div className="flex flex-wrap gap-2">
-                        <Select value={selectedVersionId || ""} onValueChange={setSelectedVersionId}>
-                          <SelectTrigger className="flex-1 min-w-[140px] bg-slate-50 border-slate-200 h-9 px-3">
-                            <SelectValue placeholder="Select version" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {versions.map((v: BOMVersion) => <SelectItem value={v.id} key={v.id}>V{v.version_number} ({VERSION_LABEL[v.status] ?? v.status})</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <div className="flex gap-1">
+                          <Select value={selectedVersionId || ""} onValueChange={setSelectedVersionId}>
+                            <SelectTrigger className="flex-1 min-w-[140px] bg-slate-50 border-slate-200 h-9 px-3">
+                              <SelectValue placeholder="Select version" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {versions.map((v: BOMVersion) => {
+                                const isManualFinal = (v as any).is_last_final;
+                                const isLatestApproved = !versions.some(x => (x as any).is_last_final) && v.status === 'approved' && v.version_number === Math.max(...versions.filter(x => x.status === 'approved').map(x => x.version_number), 0);
+                                const isFinal = isManualFinal || isLatestApproved;
+                                return (
+                                  <SelectItem value={v.id} key={v.id}>
+                                    <div className="flex items-center justify-between w-full gap-2">
+                                      <span>V{v.version_number} ({VERSION_LABEL[v.status] ?? v.status})</span>
+                                      {isFinal && <span className="bg-green-600 text-white text-[8px] h-3.5 px-1 rounded-sm leading-none uppercase font-bold shrink-0 flex items-center">Last Final</span>}
+                                    </div>
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectContent>
+                          </Select>
+                          {(() => {
+                            const latestApprovedVer = versions.reduce((prev: any, current: any) => {
+                              if ((current as any).is_last_final) return current;
+                              if (prev && (prev as any).is_last_final) return prev;
+                              return (current.status === 'approved' && (!prev || current.version_number > prev.version_number)) ? current : prev;
+                            }, null);
+
+                            const showJump = latestApprovedVer && selectedVersionId !== latestApprovedVer.id;
+                            const currentV = versions.find(v => v.id === selectedVersionId);
+                            const showMark = currentV && currentV.status === 'approved' && !(currentV as any).is_last_final;
+
+                            return (
+                              <div className="flex items-center gap-1">
+                                {showJump && (
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-9 w-9 border-green-200 text-green-600 hover:bg-green-50 shadow-sm shrink-0"
+                                    title="Jump to Last Final Version"
+                                    onClick={() => setSelectedVersionId(latestApprovedVer.id)}
+                                  >
+                                    <CheckCircle2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+
+                                {showMark && (
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-9 w-9 border-slate-200 text-slate-400 hover:text-green-600 hover:border-green-200 shadow-sm shrink-0"
+                                    title="Mark this as Last Final"
+                                    onClick={async () => {
+                                      if (!confirm("Are you sure you want to mark this version as the Last Final version?")) return;
+                                      try {
+                                        const resp = await apiFetch(`/api/boq-versions/${selectedVersionId}/make-final`, { method: "POST" });
+                                        if (resp.ok) {
+                                          toast({ title: "Success", description: "Version marked as Last Final" });
+                                          // Refresh versions
+                                          const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=bom`);
+                                          if (boqResp.ok) {
+                                            const boqData = await boqResp.json();
+                                            setVersions(boqData.versions || []);
+                                          }
+                                        }
+                                      } catch (e) {
+                                        console.error("Failed to mark final", e);
+                                        toast({ title: "Error", description: "Failed to mark as final", variant: "destructive" });
+                                      }
+                                    }}
+                                  >
+                                    <Star className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
                         <Button
                           variant="outline"
                           size="sm"
