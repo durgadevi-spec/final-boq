@@ -14,7 +14,7 @@ export async function registerRoutes(
   app: Express,
 ): Promise<Server> {
   const { archiveService } = await import("./archive_service");
-  
+
   // Ensure Column Exists with DEFAULT false, and sync current state to prevent sorting bugs (NULLS vs FALSE)
   await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_last_final BOOLEAN DEFAULT FALSE");
   await query("UPDATE boq_versions SET is_last_final = FALSE WHERE is_last_final IS NULL");
@@ -269,12 +269,12 @@ export async function registerRoutes(
     await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE");
     await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS last_template_snapshot JSONB");
     await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_last_final BOOLEAN DEFAULT FALSE");
-    
+
     // Fix unique constraint to include type
     try {
       await query(`ALTER TABLE boq_versions DROP CONSTRAINT IF EXISTS boq_versions_project_id_version_number_key CASCADE`);
       await query(`ALTER TABLE boq_versions ADD CONSTRAINT boq_versions_project_id_type_version_number_key UNIQUE(project_id, type, version_number)`);
-    } catch(e: any) {
+    } catch (e: any) {
       // 42P07 = duplicate_object: constraint already exists, safe to ignore
       if (e?.code !== '42P07') {
         console.warn("[migrations] Could not update unique constraint for boq_versions:", e?.message || e);
@@ -3925,7 +3925,22 @@ export async function registerRoutes(
         SELECT
           p.*,
           s.name as subcategory_name,
-          c.name as category_name
+          c.name as category_name,
+          EXISTS (
+            SELECT 1 FROM (
+              SELECT si.material_id, COALESCE(si.supply_rate, si.rate) AS config_rate
+              FROM step11_products sp
+              JOIN step11_product_items si ON si.step11_product_id = sp.id
+              WHERE sp.product_id = p.id
+              UNION ALL
+              SELECT ci.material_id, COALESCE(ci.supply_rate, ci.rate) AS config_rate
+              FROM product_step3_config pc
+              JOIN product_step3_config_items ci ON ci.step3_config_id = pc.id
+              WHERE pc.product_id = p.id::varchar
+            ) cfg
+            JOIN materials m ON m.id::text = cfg.material_id::text
+            WHERE ABS(cfg.config_rate - m.rate) > 0.01
+          ) AS has_price_updates
         FROM products p
         LEFT JOIN material_subcategories s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
         LEFT JOIN material_categories c ON LOWER(TRIM(s.category)) = LOWER(TRIM(c.name))
@@ -4495,9 +4510,11 @@ export async function registerRoutes(
         `;
         const params: any[] = [];
 
-        const privilegedRoles = ['admin', 'software_team'];
+        // Roles that bypass project-level access restrictions (see all projects)
+        // Only vendors/suppliers are restricted to their assigned projects
+        const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
 
-        // Only allow admins to bypass project restrictions
+        // Only allow privileged roles to bypass project restrictions; vendors/suppliers are filtered
         if (privilegedRoles.includes(user?.role)) {
           // Privileged roles see all projects
         } else {
@@ -4875,7 +4892,7 @@ export async function registerRoutes(
 
             const productKey = (td?.product_name || item.estimator || item.id).toLowerCase().trim();
             const existing = seenProducts.get(productKey);
-            
+
             if (!existing) {
               seenProducts.set(productKey, item);
             } else {
@@ -4930,26 +4947,26 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const vResp = await query("SELECT project_id, type FROM boq_versions WHERE id = $1", [id]);
-      
+
       if (vResp.rows.length === 0) {
         return res.status(404).json({ message: "Version not found" });
       }
-      
+
       const { project_id, type } = vResp.rows[0];
-      
+
       // 1. Clear existing final flag for this project/type
       // 1. Clear ALL is_last_final flags for this project and type first (BOMs don't affect BOQs etc)
       await query("UPDATE boq_versions SET is_last_final = FALSE WHERE project_id = $1 AND type = $2", [project_id, type]);
       // Double check - ensures no "floating" flags on other projects by mistake
       await query("UPDATE boq_versions SET is_last_final = FALSE WHERE id = $1", ["some-bogus-id-that-wont-exist"]); // Just a dummy sync
-      
+
       // 2. Set this one as final
       const updateRes = await query("UPDATE boq_versions SET is_last_final = TRUE WHERE id = $1", [id]);
       console.log(`[make-final] Set version ${id} to is_last_final=TRUE. Result: ${updateRes.rowCount} rows.`);
-      
+
       // 3. Sync the project price to this new final version
       await recalculateProjectValue(project_id, id);
-      
+
       res.json({ message: "Version set as final" });
     } catch (err) {
       console.error("[make-final] Error:", err);
@@ -5230,8 +5247,10 @@ export async function registerRoutes(
     async (req: Request, res: Response) => {
       try {
         const user = (req as any).user;
-        // Ensure is_cleared column exists
+        // Ensure columns exist
         await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_cleared BOOLEAN DEFAULT FALSE");
+        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS purchase_approval_status TEXT DEFAULT 'pending'");
+        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS purchase_rejection_reason TEXT");
 
         let queryStr = "SELECT * FROM boq_versions WHERE status != 'draft' AND ((is_cleared IS FALSE OR is_cleared IS NULL) OR status = 'edit_requested')";
         const params: any[] = [];
@@ -5333,6 +5352,68 @@ export async function registerRoutes(
       } catch (err) {
         console.error("POST /api/bom-approvals/:id/clear error:", err);
         res.status(500).json({ message: "Failed to clear BOM version" });
+      }
+    }
+  );
+
+  // ==================== PURCHASE TEAM BOM APPROVAL ROUTES ====================
+
+  app.get(
+    "/api/purchase-team-bom-approvals",
+    authMiddleware,
+    requireRole("admin", "purchase_team"),
+    async (req: Request, res: Response) => {
+      try {
+        const user = (req as any).user;
+        // Purchase team views ALL BOM versions that aren't drafts and pending purchase approval
+        let queryStr = "SELECT * FROM boq_versions WHERE status != 'draft' AND (purchase_approval_status = 'pending' OR purchase_approval_status IS NULL)";
+        const params: any[] = [];
+        queryStr += " ORDER BY created_at DESC";
+
+        const result = await query(queryStr, params);
+        res.json({ approvals: result.rows });
+      } catch (err) {
+        console.error("GET /api/purchase-team-bom-approvals error:", err);
+        res.status(500).json({ message: "Failed to load" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/purchase-team-bom-approvals/:id/approve",
+    authMiddleware,
+    requireRole("admin", "purchase_team"),
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        await query(
+          "UPDATE boq_versions SET purchase_approval_status = 'approved', updated_at = NOW() WHERE id = $1",
+          [id]
+        );
+        res.json({ message: "Purchase team approved version successfully" });
+      } catch (err) {
+        console.error("POST /api/purchase-team-bom-approvals/:id/approve error:", err);
+        res.status(500).json({ message: "Failed to approve" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/purchase-team-bom-approvals/:id/reject",
+    authMiddleware,
+    requireRole("admin", "purchase_team"),
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { reason } = req.body;
+        await query(
+          "UPDATE boq_versions SET purchase_approval_status = 'rejected', purchase_rejection_reason = $1, updated_at = NOW() WHERE id = $2",
+          [reason, id]
+        );
+        res.json({ message: "Purchase team rejected version successfully" });
+      } catch (err) {
+        console.error("POST /api/purchase-team-bom-approvals/:id/reject error:", err);
+        res.status(500).json({ message: "Failed to reject" });
       }
     }
   );
@@ -5553,7 +5634,7 @@ export async function registerRoutes(
 
         const productKey = (tableData?.product_name || row.estimator || row.id).toLowerCase().trim();
         const existing = seenProducts.get(productKey);
-        
+
         if (!existing) {
           seenProducts.set(productKey, { row, tableData });
         } else {
@@ -5581,7 +5662,7 @@ export async function registerRoutes(
               itemSubtotal += (requiredQty * perUnitQty) * rate;
             });
           }
-          
+
           // Also add manual items attached to this engine product
           if (Array.isArray(tableData.step11_items)) {
             tableData.step11_items.forEach((item: any) => {
@@ -7751,7 +7832,7 @@ export async function registerRoutes(
       res.status(500).json({ message: "Failed to preview vendors" });
     }
   });
-  
+
   // GET /api/purchase-orders/check-existence?versionId=...
   app.get("/api/purchase-orders/check-existence", authMiddleware, async (req: Request, res: Response) => {
     try {
@@ -7821,14 +7902,14 @@ export async function registerRoutes(
               const engineLines = tableData.materialLines.map((l: any) => {
                 const baseQty = Number(l.baseQty || l.qty || 0);
                 const applyR = l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : (l.applyRounding !== undefined ? Boolean(l.applyRounding) : true);
-                
+
                 // Excel/BOQ Logic: Round up at basis, then scale, then round off for PO
                 // Per instructions, exclude wastage for PO (use baseQty directly)
                 const roundedQtyAtBasis = applyR ? Math.ceil(baseQty) : baseQty;
                 const computedPerUnitQty = base > 0 ? roundedQtyAtBasis / base : 0;
                 // Use l.perUnitQty if it exists (allows respecting edits from Generate PO / BOM Edit screen)
                 const perUnitQty = l.perUnitQty !== undefined ? Number(l.perUnitQty) : computedPerUnitQty;
-                
+
                 const scaledQty = Number((perUnitQty * target).toFixed(2));
                 const roundOffQty = applyR ? Math.ceil(scaledQty) : scaledQty;
 
@@ -8420,7 +8501,8 @@ export async function registerRoutes(
         params.push(status);
       }
 
-      if (user.role !== 'admin' && user.role !== 'software_team' && user.role !== 'purchase_team') {
+      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+      if (!privilegedRoles.includes(user.role)) {
         whereConditions.push(`po.project_id IN (SELECT project_id FROM user_project_permissions WHERE user_id = $${params.length + 1})`);
         params.push(user.id);
       }
@@ -8532,57 +8614,57 @@ export async function registerRoutes(
           `SELECT * FROM boq_items WHERE version_id = $1`,
           [currentPo.version_id]
         );
-        
+
         for (const boqItem of bomResult.rows) {
           const tableData = typeof boqItem.table_data === 'string' ? JSON.parse(boqItem.table_data) : boqItem.table_data;
-          
+
           if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
-             const base = Number(tableData.baseRequiredQty || tableData.configBasis?.baseRequiredQty || 1);
-             const target = Number(tableData.targetRequiredQty) || 0;
-             
-             if (Array.isArray(tableData.materialLines)) {
-               tableData.materialLines.forEach((l: any) => {
-                 const baseQty = Number(l.baseQty || l.qty || 0);
-                 const applyR = l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : true;
-                 const roundedQtyAtBasis = applyR ? Math.ceil(baseQty) : baseQty;
-                 const perUnitQty = l.perUnitQty !== undefined ? Number(l.perUnitQty) : (base > 0 ? roundedQtyAtBasis / base : 0);
-                 const theoreticalQty = perUnitQty * target;
-                 
-                 const itemName = l.name || l.material_name;
-                 const desc = l.description || "";
-                 const existing = bomItems.find(i => i.item === itemName && i.description === desc);
-                 if (existing) {
-                   existing.qty += theoreticalQty;
-                 } else {
-                   bomItems.push({
-                     item: itemName,
-                     description: desc,
-                     qty: theoreticalQty,
-                     unit: l.unit
-                   });
-                 }
-               });
-             }
-             
-             if (Array.isArray(tableData.step11_items)) {
-               tableData.step11_items.filter((it: any) => it.manual).forEach((it: any) => {
-                 const itemName = it.item || it.title;
-                 const desc = it.description || "";
-                 const qty = Number(it.qty || 0);
-                 
-                 const existing = bomItems.find(i => i.item === itemName && i.description === desc);
-                 if (existing) {
-                   existing.qty += qty;
-                 } else {
-                   bomItems.push({
-                     item: itemName,
-                     description: desc,
-                     qty: qty,
-                     unit: it.unit
-                   });
-                 }
-               });
-             }
+            const base = Number(tableData.baseRequiredQty || tableData.configBasis?.baseRequiredQty || 1);
+            const target = Number(tableData.targetRequiredQty) || 0;
+
+            if (Array.isArray(tableData.materialLines)) {
+              tableData.materialLines.forEach((l: any) => {
+                const baseQty = Number(l.baseQty || l.qty || 0);
+                const applyR = l.apply_rounding !== undefined ? Boolean(l.apply_rounding) : true;
+                const roundedQtyAtBasis = applyR ? Math.ceil(baseQty) : baseQty;
+                const perUnitQty = l.perUnitQty !== undefined ? Number(l.perUnitQty) : (base > 0 ? roundedQtyAtBasis / base : 0);
+                const theoreticalQty = perUnitQty * target;
+
+                const itemName = l.name || l.material_name;
+                const desc = l.description || "";
+                const existing = bomItems.find(i => i.item === itemName && i.description === desc);
+                if (existing) {
+                  existing.qty += theoreticalQty;
+                } else {
+                  bomItems.push({
+                    item: itemName,
+                    description: desc,
+                    qty: theoreticalQty,
+                    unit: l.unit
+                  });
+                }
+              });
+            }
+
+            if (Array.isArray(tableData.step11_items)) {
+              tableData.step11_items.filter((it: any) => it.manual).forEach((it: any) => {
+                const itemName = it.item || it.title;
+                const desc = it.description || "";
+                const qty = Number(it.qty || 0);
+
+                const existing = bomItems.find(i => i.item === itemName && i.description === desc);
+                if (existing) {
+                  existing.qty += qty;
+                } else {
+                  bomItems.push({
+                    item: itemName,
+                    description: desc,
+                    qty: qty,
+                    unit: it.unit
+                  });
+                }
+              });
+            }
           }
         }
       }
@@ -9095,8 +9177,10 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const userId = req.user.id;
       const registry = await query(`SELECT id FROM user_management_registry WHERE user_id = $1`, [userId]);
       if (registry.rows.length === 0) {
-        // Even if not custom managed for modules, we want to return project info
-        const projectsRes = await query(`SELECT project_id FROM user_project_permissions WHERE user_id = $1`, [userId]);
+        const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+        const projectsRes = privilegedRoles.includes(req.user.role) 
+          ? await query(`SELECT id as project_id FROM boq_projects`)
+          : await query(`SELECT project_id FROM user_project_permissions WHERE user_id = $1`, [userId]);
         const userRes = await query(`SELECT current_project_id FROM users WHERE id = $1`, [userId]);
         res.json({
           isCustomManaged: false,
@@ -9107,7 +9191,10 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         return;
       }
       const perms = await query(`SELECT module_name FROM user_sidebar_permissions WHERE user_id = $1 ORDER BY module_name`, [userId]);
-      const projectsRes = await query(`SELECT project_id FROM user_project_permissions WHERE user_id = $1`, [userId]);
+      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+      const projectsRes = privilegedRoles.includes(req.user.role)
+        ? await query(`SELECT id as project_id FROM boq_projects`)
+        : await query(`SELECT project_id FROM user_project_permissions WHERE user_id = $1`, [userId]);
       const userRes = await query(`SELECT current_project_id FROM users WHERE id = $1`, [userId]);
 
       res.json({
@@ -9132,10 +9219,14 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const { projectId } = req.body;
       const userId = req.user.id;
 
-      // Verify that the user has permission for this project (unless admin/software_team)
-      const check = await query(`SELECT 1 FROM user_project_permissions WHERE user_id = $1 AND project_id = $2`, [userId, projectId]);
-      if (check.rows.length === 0 && projectId !== null) {
-        return res.status(403).json({ message: 'No permission for this project' });
+      // Verify that the user has permission for this project (unless admin/software_team/purchase_team/pre_sales/product_manager)
+      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+      
+      if (!privilegedRoles.includes(req.user.role)) {
+        const check = await query(`SELECT 1 FROM user_project_permissions WHERE user_id = $1 AND project_id = $2`, [userId, projectId]);
+        if (check.rows.length === 0 && projectId !== null) {
+          return res.status(403).json({ message: 'No permission for this project' });
+        }
       }
 
       await query(`UPDATE users SET current_project_id = $1 WHERE id = $2`, [projectId, userId]);
@@ -10225,7 +10316,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const params: any[] = [];
 
       if (userRole === 'supplier') {
-      const shopRes = await query("SELECT id FROM shops WHERE owner_id::text = $1::text LIMIT 1", [userId]);
+        const shopRes = await query("SELECT id FROM shops WHERE owner_id::text = $1::text LIMIT 1", [userId]);
         if (shopRes.rows.length > 0) {
           q += " WHERE vendor_id = $1";
           params.push(shopRes.rows[0].id);
