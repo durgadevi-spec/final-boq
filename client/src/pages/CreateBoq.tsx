@@ -2541,7 +2541,7 @@ export default function CreateBom() {
       }
 
       XLSX.utils.book_append_sheet(workbook, worksheet, "BOQ");
-      const filename = `${selectedProject?.name || "BOQ"}_${selectedVersion ? `V${selectedVersion.version_number}` : "draft"}_BOQ.xlsx`;
+      const filename = `${selectedProject?.name || "BOQ"}_${selectedVersion ? `V${selectedVersion.version_number}` : "draft"}_BOM.xlsx`;
 
       XLSX.writeFile(workbook, filename);
       toast({ title: "Success", description: `Downloaded ${filename}` });
@@ -2768,7 +2768,7 @@ export default function CreateBom() {
         doc.text("GST Extra", 10, finalY + 6);
       }
 
-      const filename = `${selectedProject?.name || "BOQ"}_${selectedVersion ? `V${selectedVersion.version_number}` : "draft"}_BOQ.pdf`;
+      const filename = `${selectedProject?.name || "BOQ"}_${selectedVersion ? `V${selectedVersion.version_number}` : "draft"}_BOM.pdf`;
       doc.save(filename);
       toast({ title: "Success", description: `Downloaded ${filename}` });
     } catch (err) {
