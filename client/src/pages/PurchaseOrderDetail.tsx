@@ -346,6 +346,9 @@ export default function PurchaseOrderDetail() {
     const [deletedItems, setDeletedItems] = useState<PurchaseOrderItem[]>([]);
     const [showReviseDialog, setShowReviseDialog] = useState(false);
     const [reviseReason, setReviseReason] = useState("");
+    const [showAddItemDialog, setShowAddItemDialog] = useState(false);
+    const [materialSearch, setMaterialSearch] = useState("");
+    const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
 
     // Zoho Books Enhancements UI State
     const [taxPreference, setTaxPreference] = useState<"exclusive" | "inclusive">("exclusive");
@@ -485,7 +488,7 @@ export default function PurchaseOrderDetail() {
         setIsReviseMode(true);
         setEditedItems(items.map(i => ({ ...i })));
         setDeletedItems([]);
-        setEditableVendorId(po.vendor_id);
+        setEditableVendorId(po.vendor_id || "");
 
         // Default availability is true for original items
         const initialAvail: Record<string, boolean> = {};
@@ -497,6 +500,54 @@ export default function PurchaseOrderDetail() {
         setShippingAddress(po.shipping_address || "");
         setPaymentTerms(po.payment_terms || "");
     };
+
+    const handleOpenAddItemDialog = async () => {
+        if (materials.length === 0) {
+            setIsLoadingMaterials(true);
+            try {
+                const res = await apiFetch('/api/materials');
+                if (res.ok) {
+                    const data = await res.json();
+                    setMaterials(data.materials || []);
+                }
+            } catch (error) {
+                console.error("Failed to load materials for add item dialog", error);
+                toast({ title: "Error", description: "Unable to load materials for selection.", variant: "destructive" });
+            } finally {
+                setIsLoadingMaterials(false);
+            }
+        }
+        setMaterialSearch("");
+        setShowAddItemDialog(true);
+    };
+
+    const handleSelectMaterial = (material: any) => {
+        const rateValue = parseFloat(material.rate || material.price || material.supplyRate || "0") || 0;
+        const newItem: PurchaseOrderItem = {
+            id: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            item: material.name || material.item || material.material_name || "Material",
+            item_name: material.name || material.item || material.material_name || "Material",
+            description: material.description || material.technicalSpecification || material.technicalspecification || null,
+            unit: material.unit || null,
+            qty: "1",
+            rate: rateValue.toString(),
+            amount: rateValue.toString(),
+            hsn_code: material.hsn_code || material.hsnCode || null,
+            sac_code: material.sac_code || material.sacCode || null,
+            tax_rate: 18,
+        };
+        setEditedItems(prev => [...prev, newItem]);
+        setShowAddItemDialog(false);
+        toast({ title: "Item Added", description: `${newItem.item} added to the PO.` });
+    };
+
+    const filteredMaterials = materials.filter((material: any) => {
+        const query = materialSearch.trim().toLowerCase();
+        if (!query) return true;
+        return [material.name, material.item, material.material_name, material.description, material.code, material.hsn_code, material.sac_code]
+            .filter(Boolean)
+            .some((value: string) => value.toLowerCase().includes(query));
+    });
 
     const confirmDeleteAndRevise = async () => {
         if (!existingRevisionToDelete) return;
@@ -1119,7 +1170,10 @@ export default function PurchaseOrderDetail() {
 
                             {/* Items Table Control Bar */}
                             {isReviseMode && (
-                                <div className="flex justify-end mb-2 no-print">
+                                <div className="flex flex-col sm:flex-row sm:justify-between gap-3 mb-2 no-print">
+                                    <Button variant="outline" onClick={handleOpenAddItemDialog} disabled={isLoadingMaterials}>
+                                        {isLoadingMaterials ? "Loading..." : "+ Add Item"}
+                                    </Button>
                                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded border border-slate-200">
                                         <span className="text-sm font-medium text-slate-600">Tax Preference (Global):</span>
                                         <select
@@ -1449,6 +1503,136 @@ export default function PurchaseOrderDetail() {
                             >
                                 {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                                 {approvalAction === "approve" ? "Confirm Approve" : "Confirm Reject"}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Add Item Dialog */}
+                <Dialog open={showAddItemDialog} onOpenChange={setShowAddItemDialog}>
+                    <DialogContent className="max-w-4xl">
+                        <DialogHeader>
+                            <DialogTitle>Add Material Item</DialogTitle>
+                            <DialogDescription>
+                                Select a material from the catalogue and add it to the PO. You can update the quantity in the PO table afterward.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 pt-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <Input
+                                    placeholder="Search materials by name, code, HSN, SAC..."
+                                    value={materialSearch}
+                                    onChange={(e) => setMaterialSearch(e.target.value)}
+                                    className="w-full sm:w-80"
+                                />
+                                <div className="text-sm text-slate-500">{filteredMaterials.length} materials found</div>
+                            </div>
+                            <div className="max-h-[480px] overflow-y-auto border border-slate-200 rounded-lg">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-slate-100 border-b border-slate-200">
+                                            <TableHead className="text-[10px] text-slate-700 w-8">#</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700">Material</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700 text-center">Unit</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700 text-right">Rate</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700 text-right">Action</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredMaterials.length > 0 ? filteredMaterials.map((material: any, idx: number) => (
+                                            <TableRow key={material.id || idx} className="border-b border-slate-200">
+                                                <TableCell className="text-[11px] py-2">{idx + 1}</TableCell>
+                                                <TableCell className="text-[11px] py-2">
+                                                    <div className="font-semibold text-slate-800">{material.name || material.item || material.material_name}</div>
+                                                    {material.description && <div className="text-[10px] text-slate-500 truncate">{material.description}</div>}
+                                                </TableCell>
+                                                <TableCell className="text-[11px] text-center py-2">{material.unit || "-"}</TableCell>
+                                                <TableCell className="text-[11px] text-right py-2">{parseFloat(material.rate || material.price || "0").toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
+                                                <TableCell className="text-[11px] text-right py-2">
+                                                    <Button size="sm" variant="outline" onClick={() => handleSelectMaterial(material)}>
+                                                        Add
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        )) : (
+                                            <TableRow>
+                                                <TableCell colSpan={5} className="text-center text-slate-500 py-8 text-sm">
+                                                    {isLoadingMaterials ? "Loading materials..." : "No materials match your search."}
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowAddItemDialog(false)}>
+                                Cancel
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Add Item Dialog */}
+                <Dialog open={showAddItemDialog} onOpenChange={setShowAddItemDialog}>
+                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden">
+                        <DialogHeader>
+                            <DialogTitle>Add Material Item</DialogTitle>
+                            <DialogDescription>
+                                Select a material from the catalogue and add it to the PO. You can change quantity afterward.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 pt-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <Input
+                                    placeholder="Search materials by name, code, HSN, SAC..."
+                                    value={materialSearch}
+                                    onChange={(e) => setMaterialSearch(e.target.value)}
+                                    className="w-full sm:w-80"
+                                />
+                                <div className="text-sm text-slate-500">{filteredMaterials.length} materials found</div>
+                            </div>
+                            <div className="max-h-[460px] overflow-y-auto border border-slate-200 rounded-lg">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-slate-100 border-b border-slate-200">
+                                            <TableHead className="text-[10px] text-slate-700 w-8">#</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700">Material</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700 text-center">Unit</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700 text-right">Rate</TableHead>
+                                            <TableHead className="text-[10px] text-slate-700 text-right">Action</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredMaterials.length > 0 ? filteredMaterials.map((material: any, idx: number) => (
+                                            <TableRow key={material.id || idx} className="border-b border-slate-200">
+                                                <TableCell className="text-[11px] py-2">{idx + 1}</TableCell>
+                                                <TableCell className="text-[11px] py-2">
+                                                    <div className="font-semibold text-slate-800">{material.name || material.item || material.material_name}</div>
+                                                    {material.description && <div className="text-[10px] text-slate-500 truncate">{material.description}</div>}
+                                                </TableCell>
+                                                <TableCell className="text-[11px] text-center py-2">{material.unit || "-"}</TableCell>
+                                                <TableCell className="text-[11px] text-right py-2">{parseFloat(material.rate || material.price || "0").toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
+                                                <TableCell className="text-[11px] text-right py-2">
+                                                    <Button size="sm" variant="outline" onClick={() => handleSelectMaterial(material)}>
+                                                        Add
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        )) : (
+                                            <TableRow>
+                                                <TableCell colSpan={5} className="text-center text-slate-500 py-8 text-sm">
+                                                    {isLoadingMaterials ? "Loading materials..." : "No materials match your search."}
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowAddItemDialog(false)}>
+                                Cancel
                             </Button>
                         </DialogFooter>
                     </DialogContent>
