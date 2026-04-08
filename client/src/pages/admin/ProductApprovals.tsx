@@ -71,6 +71,7 @@ export default function ProductApprovals() {
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [editApproval, setEditApproval] = useState<Approval | null>(null);
   const [editItems, setEditItems] = useState<ApprovalItem[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
   const { toast } = useToast();
   const { user } = useData();
 
@@ -381,8 +382,15 @@ export default function ProductApprovals() {
     }
   };
 
-  const pendingApprovals = approvals.filter(a => a.status === "pending");
-  const pendingCount = pendingApprovals.filter(a => a.status === "pending").length;
+  const filteredApprovals = approvals.filter(app => 
+    app.product_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    app.config_name?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const pendingApprovals = filteredApprovals.filter(a => a.status === 'pending');
+  const rejectedApprovals = filteredApprovals.filter(a => a.status === 'rejected');
+
+  const pendingCount = pendingApprovals.length;
 
   return (
     <Layout>
@@ -424,6 +432,17 @@ export default function ProductApprovals() {
                     <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])} disabled={actionLoading != null} className="h-8 px-3">Clear</Button>
                   </div>
                 )}
+                <div className="mb-6">
+                  <div className="relative max-w-sm">
+                    <Input
+                      placeholder="Search by product or config..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-4 h-10 border-slate-200 shadow-sm focus:ring-blue-500 rounded-lg"
+                    />
+                  </div>
+                </div>
+
                 <div className="rounded-xl border shadow-sm overflow-hidden bg-white">
                   <Table>
                     <TableHeader className="bg-muted/30">
@@ -432,7 +451,7 @@ export default function ProductApprovals() {
                         <TableHead className="w-[40px]">
                           <div className="flex items-center justify-center">
                             <Checkbox
-                              checked={approvals.length > 0 && selectedIds.length === approvals.length}
+                              checked={filteredApprovals.length > 0 && selectedIds.length === filteredApprovals.length}
                               onCheckedChange={(v) => toggleSelectAll(v as boolean)}
                               onClick={(e) => e.stopPropagation()}
                             />
