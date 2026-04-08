@@ -57,7 +57,7 @@ export default function ProductPicker({
   useEffect(() => {
     const loadProducts = async () => {
       try {
-        const response = await apiFetch("/api/products", {
+        const response = await apiFetch("/api/products?approvedOnly=true", {
           headers: {},
         });
         if (response.ok) {
