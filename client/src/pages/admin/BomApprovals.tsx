@@ -45,6 +45,7 @@ export default function BomApprovals() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isEditingBOM, setIsEditingBOM] = useState<string | null>(null);
     const [editBOMItems, setEditBOMItems] = useState<BOMItem[]>([]);
+    const [searchTerm, setSearchTerm] = useState("");
     const { toast } = useToast();
 
     const fetchApprovals = async () => {
@@ -61,6 +62,11 @@ export default function BomApprovals() {
             setLoading(false);
         }
     };
+
+    const filteredApprovals = approvals.filter(app => 
+        app.project_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        app.project_client?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
     useEffect(() => {
         fetchApprovals();
@@ -257,7 +263,7 @@ export default function BomApprovals() {
         setSelectedIds(prev => checked ? [...prev, id] : prev.filter(item => item !== id));
     };
 
-    const visibleApprovals = approvals;
+    const visibleApprovals = filteredApprovals;
 
     const toggleSelectAll = (checked: boolean) => {
         if (!checked) {
@@ -807,6 +813,18 @@ export default function BomApprovals() {
                             </div>
                         ) : (
                             <>
+                                <div className="mb-6">
+                                    <div className="relative max-w-sm">
+                                        <Loader2 className={`absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground ${searchTerm ? 'opacity-0' : 'opacity-0'}`} />
+                                        <Input
+                                            placeholder="Search by project or client..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            className="pl-4 h-10 border-slate-200 shadow-sm focus:ring-blue-500"
+                                        />
+                                    </div>
+                                </div>
+
                                 {selectedIds.length > 0 && (
                                     <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-center gap-4 animate-in fade-in slide-in-from-top-2">
                                         <div className="text-sm font-bold text-blue-700">{selectedIds.length} selected</div>
@@ -816,9 +834,9 @@ export default function BomApprovals() {
                                         <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])} disabled={actionLoading != null} className="h-8 px-3">Clear Selection</Button>
                                     </div>
                                 )}
-                                {visibleApprovals.length === 0 ? (
+                                {filteredApprovals.length === 0 ? (
                                     <div className="text-center py-20 text-muted-foreground italic">
-                                        No BOM approval requests found.
+                                        {searchTerm ? `No results found for "${searchTerm}"` : "No BOM approval requests found."}
                                     </div>
                                 ) : (
                                     <Tabs defaultValue={editRequests.length > 0 ? "edit-requests" : "bom-approvals"} className="w-full">
