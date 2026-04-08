@@ -2079,8 +2079,7 @@ export default function FinalizeBoq() {
       }
       // ─────────────────────────────────────────────────────────────────────────
 
-      const typeStr = activeVersion ? activeVersion.type.toUpperCase() : "BOM";
-      const filename = `${selectedProject?.name || "BOQ"}_${activeVersion ? `V${activeVersion.version_number}` : "draft"}_${typeStr}.xlsx`;
+      const filename = `${selectedProject?.name || "BOQ"}_${activeVersion ? `V${activeVersion.version_number}` : "draft"}_BOQ.xlsx`;
       XLSX.writeFile(wb, filename, { cellStyles: true });
 
       setIsExportDialogOpen(false);
@@ -2495,7 +2494,8 @@ export default function FinalizeBoq() {
             try {
               const base64Img = fetchedImages[data.row.index];
               const format = base64Img.startsWith('data:image/png') ? "PNG" : "JPEG";
-              doc.addImage(base64Img, format, data.cell.x + 2, data.cell.y + 1, 25, 25);
+              const imgSize = Math.min(18, (data.cell.height || 18) - 2);
+              doc.addImage(base64Img, format, data.cell.x + 2, data.cell.y + 1, imgSize, imgSize);
             } catch (e) {
               console.warn("Failed to add image to PDF cell", e);
             }
@@ -2515,8 +2515,7 @@ export default function FinalizeBoq() {
         doc.text(lines, 10, finalY + 6);
       }
 
-      const typeStr = activeVersion ? activeVersion.type.toUpperCase() : "BOM";
-      const filename = `${projNameStr}_${activeVersion ? `V${activeVersion.version_number}` : "draft"}_${typeStr}.pdf`;
+      const filename = `${projNameStr}_${activeVersion ? `V${activeVersion.version_number}` : "draft"}_BOQ.pdf`;
       doc.save(filename);
       toast({ title: "Success", description: `Downloaded ${filename}` });
     } catch (err) {
@@ -3281,12 +3280,26 @@ export default function FinalizeBoq() {
                         if (!confirm("Restoring all hidden totals, columns, and rows for all lines?")) return;
                         setHideSystemTotalFooter(false);
                         setHiddenPredefinedCols({});
+                        
+                        // Update local state immediately
+                        const updatedCustomCols: Record<string, any[]> = {};
+                        boqItems.forEach(item => {
+                          updatedCustomCols[item.id] = (customColumns[item.id] || []).map(c => ({ ...c, hideTotal: false, hideColumn: false }));
+                        });
+                        setCustomColumns(prev => ({ ...prev, ...updatedCustomCols }));
+                        
+                        // Update database - clear ALL visibility flags
                         const updates = boqItems.map(item => {
-                          const nextCols = (customColumns[item.id] || []).map(c => ({ ...c, hideTotal: false, hideColumn: false }));
-                          setCustomColumns(prev => ({ ...prev, [item.id]: nextCols }));
                           let td = item.table_data || {};
                           if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
-                          const updatedTd = { ...td, finalize_hide_row: false };
+                          const nextCols = (customColumns[item.id] || []).map(c => ({ ...c, hideTotal: false, hideColumn: false }));
+                          const updatedTd = { 
+                            ...td, 
+                            finalize_hide_row: false,
+                            finalize_columns: nextCols,
+                            finalize_hidden_predefined_cols: {},
+                            finalize_hide_system_total: false
+                          };
                           return apiFetch(`/api/boq-items/${item.id}`, {
                             method: "PUT",
                             headers: { "Content-Type": "application/json" },
@@ -3294,6 +3307,24 @@ export default function FinalizeBoq() {
                           });
                         });
                         await Promise.all(updates);
+                        
+                        // Update local boqItems state to reflect reset
+                        setBoqItems(prev => prev.map(item => {
+                          let td = item.table_data || {};
+                          if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
+                          const nextCols = (customColumns[item.id] || []).map(c => ({ ...c, hideTotal: false, hideColumn: false }));
+                          return { 
+                            ...item, 
+                            table_data: { 
+                              ...td, 
+                              finalize_hide_row: false,
+                              finalize_columns: nextCols,
+                              finalize_hidden_predefined_cols: {},
+                              finalize_hide_system_total: false
+                            } 
+                          };
+                        }));
+                        
                         loadBoqItemsAndEdits(activeVersionId);
                         toast({ title: "Visibility Restored", description: "All hidden rows, columns and totals are now visible." });
                       }}
