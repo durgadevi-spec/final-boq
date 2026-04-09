@@ -354,7 +354,9 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
         title: line.name, description: line.name, unit: line.unit, shop_name: line.shop_name,
         qtyPerSqf: qty, requiredQty: reqQty, roundOff: roundOff,
         rateSqft: rate, amount: Number((roundOff * rate).toFixed(2)), s_no: idx + 1, manual: false,
-        _materialIdx: idx, itemKey
+        _materialIdx: idx, itemKey,
+        freezeAndEdit: line.freezeAndEdit,
+        freeze_and_edit: line.freeze_and_edit
       };
     });
     const manualStep11 = step11Items.map((it: any, s11Idx: number) => {
@@ -845,8 +847,28 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
   // Rendering them through the editable path reads supply_rate=0, causing the "0 rate" bug.
   const perItemIsEngine = isEngineBased && !item.manual;
 
+  // ── Shared Editable States ──────────────────────────────────────
+  const baseQty = Number(getEditedValue(itemKey, "qty", item.qty ?? 0)) || 0;
+  const sRate = Number(getEditedValue(itemKey, "supply_rate", item.supply_rate ?? item.rateSqft ?? 0)) || 0;
+  const iRate = Number(getEditedValue(itemKey, "install_rate", item.install_rate ?? 0)) || 0;
+  const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
+  const desc = getEditedValue(itemKey, "description", item.description || "");
+  const unit = getEditedValue(itemKey, "unit", item.unit || "nos");
+
+  // Local state for smooth typing
+  const [localDesc, setLocalDesc] = useState(desc);
+  const [localUnit, setLocalUnit] = useState(unit);
+  const [localQty, setLocalQty] = useState(baseQty.toString());
+  const [localRate, setLocalRate] = useState(rate.toString());
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => { if (!isFocused) setLocalDesc(desc); }, [desc, isFocused]);
+  useEffect(() => { if (!isFocused) setLocalUnit(unit); }, [unit, isFocused]);
+  useEffect(() => { if (!isFocused) setLocalQty(baseQty.toString()); }, [baseQty, isFocused]);
+  useEffect(() => { if (!isFocused) setLocalRate(rate.toString()); }, [rate, isFocused]);
+
   if (perItemIsEngine) {
-    // Read-only display for engine-computed items
+    // Read-only display for engine-computed items (with optional rate editing)
     return (
       <tr
         className={`border-b border-gray-200 hover:bg-gray-50 transition-colors text-xs ${isDragOver ? 'bg-blue-50 border-blue-300' : ''}`}
@@ -872,7 +894,40 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
         <td className="border px-2 py-2 text-center w-20 font-medium">{(item.qtyPerSqf ?? 0).toFixed(3)}</td>
         <td className="border px-2 py-2 text-center w-24 text-blue-600 font-medium">{(item.requiredQty ?? 0).toFixed(2)}</td>
         {!isCompactView && <td className="border px-2 py-2 text-center w-24 font-bold">{item.roundOff}</td>}
-        <td className={`border px-2 py-2 text-center w-24 ${mismatch ? 'bg-amber-50' : ''}`}><span className={mismatch ? 'text-amber-700 font-bold' : ''}>₹{(item.rateSqft || 0).toLocaleString()}</span></td>
+        <td className={`border px-2 py-2 text-center w-24 ${mismatch ? 'bg-amber-50' : ''}`}>
+          {(item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1 || item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1) && !tableData.is_finalized ? (
+            <Input
+              type="text"
+              value={localRate}
+              onChange={(e) => {
+                const val = e.target.value;
+                setLocalRate(val);
+                const parsed = parseFloat(val);
+                if (!isNaN(parsed)) {
+                  updateEditedField(itemKey, "rate", parsed);
+                  updateEditedField(itemKey, "supply_rate", parsed);
+                  updateEditedField(itemKey, "install_rate", 0);
+                } else if (val === "") {
+                  updateEditedField(itemKey, "rate", 0);
+                  updateEditedField(itemKey, "supply_rate", 0);
+                  updateEditedField(itemKey, "install_rate", 0);
+                }
+              }}
+              onBlur={() => {
+                setIsFocused(false);
+                const v = parseFloat(localRate) || 0;
+                updateEditedField(itemKey, "rate", v);
+                updateEditedField(itemKey, "supply_rate", v);
+                updateEditedField(itemKey, "install_rate", 0);
+              }}
+              className="h-7 w-20 text-xs text-center border-gray-200 focus:border-blue-400"
+              disabled={isVersionSubmitted}
+              onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
+            />
+          ) : (
+            <span className={mismatch ? 'text-amber-700 font-bold' : ''}>₹{(item.rateSqft || 0).toLocaleString()}</span>
+          )}
+        </td>
         <td className="border px-2 py-2 text-center w-28 font-bold text-green-700 bg-green-50">₹{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td className="border px-2 py-2 text-center w-16">
           <div className="flex items-center gap-1">
@@ -885,31 +940,10 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
   }
 
   // ── Manual / non-engine editable path ──────────────────────────────────────
-  const baseQty = Number(getEditedValue(itemKey, "qty", item.qty ?? 0)) || 0;
-  const sRate = Number(getEditedValue(itemKey, "supply_rate", item.supply_rate ?? item.rateSqft ?? 0)) || 0;
-  const iRate = Number(getEditedValue(itemKey, "install_rate", item.install_rate ?? 0)) || 0;
-  const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
-  const desc = getEditedValue(itemKey, "description", item.description || "");
-  const unit = getEditedValue(itemKey, "unit", item.unit || "nos");
-
-  // Local state for smooth typing
-  const [localDesc, setLocalDesc] = useState(desc);
-  const [localUnit, setLocalUnit] = useState(unit);
-  const [localQty, setLocalQty] = useState(baseQty.toString());
-  const [localRate, setLocalRate] = useState(rate.toString());
-
   // Preview values — manual items: qty × rate directly, no project-target scaling
   const previewQtyValue = parseFloat(localQty) || 0;
   const previewRateValue = parseFloat(localRate) || 0;
   const previewAmount = Number((previewQtyValue * previewRateValue).toFixed(2));
-
-  // Sync local state with props — ONLY if not being currently focused to prevent cursor jumping or value resets
-  const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => { if (!isFocused) setLocalDesc(desc); }, [desc, isFocused]);
-  useEffect(() => { if (!isFocused) setLocalUnit(unit); }, [unit, isFocused]);
-  useEffect(() => { if (!isFocused) setLocalQty(baseQty.toString()); }, [baseQty, isFocused]);
-  useEffect(() => { if (!isFocused) setLocalRate(rate.toString()); }, [rate, isFocused]);
 
   return (
     <tr
@@ -963,7 +997,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "description", localDesc); }}
           placeholder="Description..."
           className="h-7 text-xs border-gray-200 focus:border-blue-400"
-          disabled={isVersionSubmitted}
+          disabled={isVersionSubmitted || (item.freezeAndEdit || item.freeze_and_edit)}
           onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
       </td>}
@@ -974,7 +1008,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           onChange={(e) => setLocalUnit(e.target.value)}
           onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "unit", localUnit); }}
           className="h-7 w-12 text-xs text-center border-gray-200 focus:border-blue-400"
-          disabled={isVersionSubmitted}
+          disabled={isVersionSubmitted || (item.freezeAndEdit || item.freeze_and_edit)}
           onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
       </td>
@@ -994,7 +1028,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           }}
           onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "qty", parseFloat(localQty) || 0); }}
           className="h-7 w-16 text-xs text-center border-gray-200 focus:border-blue-400"
-          disabled={isVersionSubmitted}
+          disabled={isVersionSubmitted || (item.freezeAndEdit || item.freeze_and_edit)}
           onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
       </td>
@@ -2534,7 +2568,8 @@ export default function CreateBom() {
             wastagePct: item.wastage_pct != null ? Number(item.wastage_pct) : undefined,
             supplyRate: Number(item.supply_rate ?? item.rate ?? 0),
             installRate: Number(item.install_rate ?? 0),
-            shop_name: item.shop_name
+            shop_name: item.shop_name,
+            freeze_and_edit: (item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1 || item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1)
           }));
         }
       }
