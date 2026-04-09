@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Reorder, useDragControls } from "framer-motion";
-import { ChevronUp, ChevronDown, Loader2, CheckCircle2, XCircle, Lock, History, Clock, Briefcase, MapPin, IndianRupee, GripVertical, Search, ArrowUp, Plus, Trash2, Save, MessageSquare, Users, ChevronsUpDown, Check, X, RefreshCw, Star } from "lucide-react";
+import { ChevronUp, ChevronDown, Loader2, CheckCircle2, XCircle, Lock, History, Clock, Briefcase, MapPin, IndianRupee, GripVertical, Search, ArrowUp, Plus, Trash2, Save, MessageSquare, Users, ChevronsUpDown, Check, X, RefreshCw, Star, Edit } from "lucide-react";
 import { fuzzySearch, cn } from "@/lib/utils";
 import { Layout } from "@/components/layout/Layout";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,11 +18,20 @@ import { getEstimatorTypeFromProduct } from "@/lib/estimatorUtils";
 import ProductPicker from "@/components/ProductPicker";
 import MaterialPicker from "@/components/MaterialPicker";
 import Step11Preview from "@/components/Step11Preview";
+import { BomSketchCompareDialog } from "@/components/BomSketchCompareDialog";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from 'xlsx';
 import { DeleteConfirmationDialog } from "@/components/ui/DeleteConfirmationDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
@@ -1095,6 +1104,348 @@ function HistorySection({ history }: { history: BOMHistory[] }) {
   );
 }
 
+// ─── Approvals Components ───────────────────────────────────────────────────
+
+function ApprovalsList({
+  approvals,
+  onPreview,
+  onAction,
+  actionLoading
+}: {
+  approvals: any[],
+  onPreview: (a: any) => void,
+  onAction: (id: string, action: 'approve' | 'reject' | 'approve-edit' | 'reject-edit') => void,
+  actionLoading: string | null
+}) {
+  const [listType, setListType] = React.useState("bom");
+
+  const pending = approvals.filter(a => a.status === 'pending_approval' || a.status === 'submitted');
+  const editRequests = approvals.filter(a => a.status === 'edit_requested');
+  const others = approvals.filter(a => a.status !== 'pending_approval' && a.status !== 'submitted' && a.status !== 'edit_requested');
+
+  const currentList = listType === "bom" ? pending : listType === "edit" ? editRequests : others;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-center mb-6">
+        <Tabs value={listType} onValueChange={setListType} className="w-fit">
+          <TabsList className="bg-slate-100/80 p-1 border border-slate-200">
+            <TabsTrigger
+              value="edit"
+              className="px-8 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm"
+            >
+              Edit Requests
+              {editRequests.length > 0 && <Badge variant="secondary" className="ml-2 bg-slate-200 text-slate-700">{editRequests.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger
+              value="bom"
+              className="px-8 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm"
+            >
+              BOM Approvals
+              {pending.length > 0 && <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-600">{pending.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="px-8 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm"
+            >
+              History
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm ring-1 ring-slate-900/5">
+        <Table>
+          <TableHeader className="bg-slate-50/80">
+            <TableRow className="hover:bg-transparent border-b-slate-200">
+              <TableHead className="w-12 text-center text-[10px] font-bold text-slate-400">
+                <div className="flex items-center justify-center"><ChevronDown className="h-3 w-3" /></div>
+              </TableHead>
+              <TableHead className="w-10 px-0">
+                <div className="w-4 h-4 border border-slate-300 rounded bg-slate-50/50"></div>
+              </TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 py-4">Project</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Client</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">Version</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">Type</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">Status</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Date</TableHead>
+              <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-500 text-right pr-8">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {currentList.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={9} className="py-24 text-center">
+                  <div className="flex flex-col items-center justify-center gap-3">
+                    <div className="p-4 bg-slate-50 rounded-full">
+                      <CheckCircle2 className="h-10 w-10 text-slate-200" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-bold text-slate-600">No {listType === 'history' ? 'approval history' : listType === 'bom' ? 'pending BOM approvals' : 'edit requests'}</p>
+                      <p className="text-sm text-slate-400">You're all caught up for now.</p>
+                    </div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              currentList.map((a) => (
+                <TableRow key={a.id} className="hover:bg-slate-50/50 transition-colors border-b-slate-100">
+                  <TableCell className="w-12 py-4">
+                    <button
+                      className="flex items-center justify-center w-full text-slate-400 hover:text-blue-600 transition-colors"
+                      onClick={() => onPreview(a)}
+                      title="Expand View"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </TableCell>
+                  <TableCell className="w-10 px-0">
+                    <div className="w-4 h-4 border border-slate-200 rounded hover:border-blue-400 transition-colors"></div>
+                  </TableCell>
+                  <TableCell className="font-bold text-slate-900 text-sm py-4">{a.project_name}</TableCell>
+                  <TableCell className="text-sm text-slate-600 italic font-medium">{a.project_client}</TableCell>
+                  <TableCell className="text-center font-bold text-slate-500 text-xs">V{a.version_number}</TableCell>
+                  <TableCell className="text-center py-4">
+                    <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-100 font-bold px-2 py-0 text-[10px] h-5">BOM</Badge>
+                  </TableCell>
+                  <TableCell className="text-center py-4">
+                    {a.status === 'edit_requested' ? (
+                      <Badge className="bg-amber-50 text-amber-600 border-amber-100 font-bold text-[10px] h-6 px-3">Edit Requested</Badge>
+                    ) : a.status === 'approved' ? (
+                      <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100 font-bold text-[10px] h-6 px-3">Approved</Badge>
+                    ) : a.status === 'rejected' ? (
+                      <Badge className="bg-rose-50 text-rose-600 border-rose-100 font-bold text-[10px] h-6 px-3">Rejected</Badge>
+                    ) : (
+                      <Badge className="bg-orange-50 text-orange-600 border-orange-100 font-bold text-[10px] h-6 px-3">Pending</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-[11px] font-medium text-slate-500 whitespace-nowrap">
+                    {new Date(a.created_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell className="text-right pr-8 py-4">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs font-bold border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300"
+                        onClick={() => onPreview(a)}
+                      >
+                        <Edit className="h-3 w-3 mr-1.5" /> Edit BOM
+                      </Button>
+
+                      {(a.status === 'pending_approval' || a.status === 'submitted' || a.status === 'edit_requested') && (
+                        <>
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs font-bold bg-green-600 hover:bg-green-700 text-white shadow-sm px-4"
+                            onClick={() => onAction(a.id, a.status === 'edit_requested' ? 'approve-edit' : 'approve')}
+                            disabled={!!actionLoading}
+                          >
+                            {actionLoading === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Approve"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-8 text-xs font-bold bg-red-500 hover:bg-red-600 text-white shadow-sm px-4 border-none"
+                            onClick={() => onAction(a.id, a.status === 'edit_requested' ? 'reject-edit' : 'reject')}
+                            disabled={!!actionLoading}
+                          >
+                            {actionLoading === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Reject"}
+                          </Button>
+                        </>
+                      )}
+
+                      {/* Add Clear button for approved/rejected if needed, similar to screenshot */}
+                      {(a.status === 'approved' || a.status === 'rejected') && (
+                        <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-400 hover:text-slate-600">Clear</Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function ApprovalPreviewDialog({
+  approval,
+  items,
+  loading,
+  open,
+  onClose,
+  onAction,
+  actionLoading
+}: {
+  approval: any,
+  items: any[],
+  loading: boolean,
+  open: boolean,
+  onClose: () => void,
+  onAction: (id: string, action: 'approve' | 'reject' | 'approve-edit' | 'reject-edit') => void,
+  actionLoading: string | null
+}) {
+  if (!approval) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-7xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogHeader className="px-6 py-4 border-b bg-slate-50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg text-blue-700">
+                <Briefcase className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl font-bold text-slate-900">{approval.project_name}</DialogTitle>
+                <DialogDescription className="text-sm font-medium text-slate-500">
+                  {approval.project_client} • Version V{approval.version_number} • {approval.status === 'edit_requested' ? "Edit Request" : "Standard Approval"}
+                </DialogDescription>
+              </div>
+            </div>
+            <div className="flex gap-2 mr-8">
+              <Button
+                variant="outline"
+                className="border-red-200 text-red-700 hover:bg-red-50 font-bold"
+                onClick={() => onAction(approval.id, approval.status === 'edit_requested' ? 'reject-edit' : 'reject')}
+                disabled={!!actionLoading}
+              >
+                {actionLoading === approval.id ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <XCircle className="h-4 w-4 mr-2" />}
+                Reject
+              </Button>
+              <Button
+                className="bg-green-600 hover:bg-green-700 text-white font-bold"
+                onClick={() => onAction(approval.id, approval.status === 'edit_requested' ? 'approve-edit' : 'approve')}
+                disabled={!!actionLoading}
+              >
+                {actionLoading === approval.id ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                Approve
+              </Button>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto p-6 bg-slate-100/30">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-400">
+              <Loader2 className="h-10 w-10 animate-spin" />
+              <span className="font-bold">Loading BOM Details...</span>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {items.map((item, idx) => {
+                const td = typeof item.table_data === 'string' ? JSON.parse(item.table_data) : item.table_data;
+                const step11Items = Array.isArray(td.step11_items) ? td.step11_items : [];
+                let displayLines = [];
+
+                if (td.materialLines && td.targetRequiredQty !== undefined) {
+                  const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
+                  displayLines = res.computed.map((line: any) => ({
+                    title: line.name,
+                    description: line.name,
+                    unit: line.unit,
+                    shop_name: line.shop_name,
+                    qtyPerSqf: line.perUnitQty,
+                    requiredQty: line.scaledQty,
+                    roundOff: line.roundOffQty,
+                    rateSqft: line.supplyRate + line.installRate,
+                    amount: line.lineTotal
+                  }));
+                  const manualAdditions = step11Items.filter((i: any) => i && i.manual).map((it: any) => ({
+                    ...it,
+                    qtyPerSqf: it.qtyPerSqf ?? 0,
+                    requiredQty: it.qty ?? 0,
+                    roundOff: it.qty ?? 0,
+                    rateSqft: it.rate || (it.supply_rate + it.install_rate),
+                    amount: (it.qty ?? 0) * (it.rate || (it.supply_rate + it.install_rate))
+                  }));
+                  displayLines = [...displayLines, ...manualAdditions];
+                } else {
+                  displayLines = step11Items.map((it: any) => ({
+                    ...it,
+                    qtyPerSqf: it.qtyPerSqf ?? 0,
+                    requiredQty: it.qty ?? 0,
+                    roundOff: it.qty ?? 0,
+                    rateSqft: it.rate || (it.supply_rate + it.install_rate),
+                    amount: (it.qty ?? 0) * (it.rate || (it.supply_rate + it.install_rate))
+                  }));
+                }
+
+                return (
+                  <Card key={item.id} className="border-slate-200 overflow-hidden shadow-sm">
+                    <CardHeader className="bg-slate-50 py-3 px-4 border-b">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400 font-bold">#{idx + 1}</span>
+                          <span className="font-bold text-slate-800 uppercase tracking-tight">{td.product_name || item.estimator}</span>
+                        </div>
+                        {td.targetRequiredQty && (
+                          <Badge variant="outline" className="bg-white font-bold border-blue-200 text-blue-700">
+                            Target: {td.targetRequiredQty} {td.configBasis?.requiredUnitType || "Unit"}
+                          </Badge>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <Table className="text-[11px]">
+                        <TableHeader className="bg-slate-50/50">
+                          <TableRow>
+                            <TableHead className="w-10">Sl</TableHead>
+                            <TableHead>Item / Material</TableHead>
+                            <TableHead>Shop</TableHead>
+                            <TableHead className="text-center">Unit</TableHead>
+                            <TableHead className="text-center">Qty/Unit</TableHead>
+                            <TableHead className="text-center">Required Qty</TableHead>
+                            <TableHead className="text-right">Rate</TableHead>
+                            <TableHead className="text-right px-6">Amount</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {displayLines.map((l: any, iIdx: number) => (
+                            <TableRow key={iIdx} className="hover:bg-slate-50/30">
+                              <TableCell className="text-slate-400 font-medium">{iIdx + 1}</TableCell>
+                              <TableCell className="font-semibold text-slate-700">
+                                {l.title}
+                                {l.manual && <Badge className="ml-2 scale-75 h-4 bg-amber-100 text-amber-700 border-amber-200 uppercase">Manual</Badge>}
+                              </TableCell>
+                              <TableCell className="text-slate-500">{l.shop_name || "—"}</TableCell>
+                              <TableCell className="text-center font-medium">{l.unit}</TableCell>
+                              <TableCell className="text-center">{Number(l.qtyPerSqf).toFixed(3)}</TableCell>
+                              <TableCell className="text-center font-bold text-blue-600">{Number(l.requiredQty).toFixed(2)}</TableCell>
+                              <TableCell className="text-right font-medium text-slate-600">₹{Number(l.rateSqft).toLocaleString()}</TableCell>
+                              <TableCell className="text-right px-6 font-bold text-slate-900 bg-slate-50/30">₹{Number(l.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                        <tfoot className="bg-slate-50/50 border-t font-bold">
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-right uppercase text-[10px] text-slate-500 font-extrabold tracking-widest">Product Total</TableCell>
+                            <TableCell className="text-right px-6 text-sm text-green-700">
+                              ₹{displayLines.reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </TableCell>
+                          </TableRow>
+                        </tfoot>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="px-6 py-4 border-t bg-slate-50">
+          <Button variant="ghost" onClick={onClose} className="font-bold text-slate-500 hover:text-slate-700">Close Preview</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export default function CreateBom() {
@@ -1148,6 +1499,14 @@ export default function CreateBom() {
   const [sketchTemplates, setSketchTemplates] = useState<any[]>([]);
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
+  const [showCompareDialog, setShowCompareDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState("bom");
+  const [approvals, setApprovals] = useState<any[]>([]);
+  const [loadingApprovals, setLoadingApprovals] = useState(false);
+  const [approvalActionLoading, setApprovalActionLoading] = useState<string | null>(null);
+  const [previewApprovalId, setPreviewApprovalId] = useState<string | null>(null);
+  const [previewApprovalItems, setPreviewApprovalItems] = useState<any[]>([]);
+  const [loadingPreviewItems, setLoadingPreviewItems] = useState(false);
   const [templateToSave, setTemplateToSave] = useState<BOMItem | null>(null);
   const [newTemplateName, setNewTemplateName] = useState("");
   const [templateSearch, setTemplateSearch] = useState("");
@@ -1172,6 +1531,81 @@ export default function CreateBom() {
     }
   }, []);
 
+  const fetchApprovals = useCallback(async () => {
+    try {
+      setLoadingApprovals(true);
+      const res = await apiFetch("/api/bom-approvals");
+      if (res.ok) {
+        const data = await res.json();
+        // Strictly filter for BOM type to separate from BOQ approvals
+        const filtered = (data.approvals || []).filter((a: any) =>
+          (a.type === 'bom' || !a.type)
+        );
+        setApprovals(filtered);
+      }
+    } catch (err) {
+      console.error("Failed to load BOM approvals:", err);
+    } finally {
+      setLoadingApprovals(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "approvals" && (user?.role === 'admin' || user?.role === 'software_team')) {
+      fetchApprovals();
+    }
+  }, [activeTab, user?.role, fetchApprovals]);
+
+  const handleApprovalAction = async (id: string, action: 'approve' | 'reject' | 'approve-edit' | 'reject-edit') => {
+    let reason = "";
+    if (action === 'reject' || action === 'reject-edit') {
+      const r = prompt("Please enter a reason for rejection:");
+      if (r === null) return;
+      reason = r;
+    } else {
+      const confirmMsg = action === 'approve-edit' ? "Approve this edit request?" : "Approve this BOM version?";
+      if (!confirm(confirmMsg)) return;
+    }
+
+    setApprovalActionLoading(id);
+    try {
+      const res = await apiFetch(`/api/bom-approvals/${id}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: reason ? JSON.stringify({ reason }) : undefined
+      });
+
+      if (res.ok) {
+        toast({ title: "Success", description: `BOM ${action.replace('-', ' ')}ed successfully.` });
+        fetchApprovals();
+        if (previewApprovalId === id) setPreviewApprovalId(null);
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.message || `Failed to ${action}`, variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: `Failed to ${action}`, variant: "destructive" });
+    } finally {
+      setApprovalActionLoading(null);
+    }
+  };
+
+  const handlePreviewApproval = async (approval: any) => {
+    setPreviewApprovalId(approval.id);
+    setLoadingPreviewItems(true);
+    try {
+      const res = await apiFetch(`/api/boq-items/version/${approval.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPreviewApprovalItems(data.items || []);
+      }
+    } catch (err) {
+      console.error("Failed to load items for preview:", err);
+    } finally {
+      setLoadingPreviewItems(false);
+    }
+  };
+
   const handleSaveAsTemplate = async (name: string, config: any) => {
     try {
       const resp = await apiFetch("/api/bom-templates", {
@@ -1195,7 +1629,11 @@ export default function CreateBom() {
   };
 
   const handleApplyTemplate = async (template: any) => {
-    if (!selectedVersionId || isSaving) return;
+    if (!selectedVersionId) {
+      toast({ title: "Version Required", description: "Please select or create a BOQ version first before applying templates.", variant: "destructive" });
+      return;
+    }
+    if (isSaving) return;
     setIsSaving(true);
 
     try {
@@ -1203,7 +1641,7 @@ export default function CreateBom() {
       const newItem = {
         project_id: selectedProjectId,
         version_id: selectedVersionId,
-        estimator: template.config.product_name || "Template Product",
+        estimator: (template.config.product_name || "Template Product").substring(0, 50),
         table_data: template.config,
         sort_order: boqItems.length,
       };
@@ -1221,6 +1659,9 @@ export default function CreateBom() {
         setBoqItems(prev => [...prev, itemWithParsedData]);
         setExpandedProductIds(prev => new Set(prev).add(created.id));
         setShowTemplateManager(false);
+      } else {
+        const errorData = await resp.json();
+        toast({ title: "Error", description: errorData.message || "Failed to apply template", variant: "destructive" });
       }
     } catch (e) {
       console.error("Apply template error:", e);
@@ -1231,7 +1672,11 @@ export default function CreateBom() {
   };
 
   const handleApplySketchTemplate = async (template: any) => {
-    if (!selectedProjectId || !selectedVersionId || isSaving) return;
+    if (!selectedProjectId || !selectedVersionId) {
+      toast({ title: "Version Required", description: "Please select or create a BOQ version first before applying sketch templates.", variant: "destructive" });
+      return;
+    }
+    if (isSaving) return;
     setIsSaving(true);
 
     try {
@@ -2187,11 +2632,11 @@ export default function CreateBom() {
         setEditedFields(prev => {
           const next = { ...prev };
           Object.keys(payload).forEach(key => {
-             // Only clear if the current edit state matches what we just sent
-             // (Prevents clearing items if user kept typing)
-             if (JSON.stringify(next[key]) === JSON.stringify(payload[key])) {
-                delete next[key];
-             }
+            // Only clear if the current edit state matches what we just sent
+            // (Prevents clearing items if user kept typing)
+            if (JSON.stringify(next[key]) === JSON.stringify(payload[key])) {
+              delete next[key];
+            }
           });
           editedFieldsRef.current = next;
           return next;
@@ -2791,697 +3236,731 @@ export default function CreateBom() {
     <>
       <Layout>
         <div className="space-y-6 pb-24 md:pb-32">
-          <h1 className="text-2xl font-semibold">Generate BOM</h1>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+              <h1 className="text-2xl font-semibold font-outfit text-slate-900 tracking-tight flex items-center gap-2">
+                Generate BOM
+                {activeTab === 'approvals' && <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200 uppercase tracking-widest text-[10px]">Approvals View</Badge>}
+              </h1>
 
-          {/* Project Selector */}
-          {/* Project & Version Selector (Compact & Professional) */}
-          <Card className="border-slate-200 shadow-sm overflow-hidden">
-            <CardContent className="p-4 bg-white">
-              <div className="flex flex-col gap-4">
-                {/* Top Row: Selectors & Actions */}
-                {/* Row 1: Project Filters */}
-                <div className="flex items-center gap-3 p-1.5 bg-slate-50 rounded-lg border border-slate-200 w-full">
-                  <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2 whitespace-nowrap">Project Filters:</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {PROJECT_STATUSES.map(s => (
-                      <button
-                        key={s.value}
-                        onClick={() => setProjectStatusFilter(s.value)}
-                        className={cn(
-                          "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
-                          projectStatusFilter === s.value ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
-                        )}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setProjectStatusFilter("all")}
-                      className={cn(
-                        "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
-                        projectStatusFilter === "all" ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
-                      )}
-                    >
-                      All
-                    </button>
-                  </div>
-                </div>
+              {(user?.role === 'admin' || user?.role === 'software_team') && (
+                <TabsList className="bg-slate-100 p-1 border border-slate-200 shadow-sm">
+                  <TabsTrigger value="bom" className="px-5 py-1.5 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm transition-all">
+                    BOM Builder
+                  </TabsTrigger>
+                  <TabsTrigger value="approvals" className="px-5 py-1.5 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm transition-all flex items-center gap-2">
+                    Approvals
+                    {approvals.length > 0 && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white font-bold">{approvals.length}</span>}
+                  </TabsTrigger>
+                </TabsList>
+              )}
+            </div>
 
-                {/* Row 2: Select Project & Version Actions */}
-                <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
-                  <div className="flex-[2] min-w-[350px] space-y-1">
-                    <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Select Project</Label>
-                    <Select onValueChange={v => setSelectedProjectId(v || null)} value={selectedProjectId || ""}>
-                      <SelectTrigger className="w-full bg-slate-50 border-slate-200 h-9 px-3 hover:bg-slate-100/50 transition-colors">
-                        <SelectValue placeholder={projects.length === 0 ? "No projects" : "Choose from filtered list..."} />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[300px] overflow-hidden flex flex-col">
-                        <div className="sticky top-0 z-10 bg-white p-2 border-b border-slate-100">
-                          <div className="relative">
-                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
-                            <Input
-                              placeholder="Search projects..."
-                              value={projectSearchTerm}
-                              onChange={(e) => setProjectSearchTerm(e.target.value)}
-                              onKeyDown={(e) => e.stopPropagation()}
-                              className="pl-7 h-8 text-[11px] border-slate-200 bg-slate-50 focus:bg-white transition-colors w-full"
-                            />
+            <TabsContent value="bom" className="space-y-6 mt-0">
+
+              {/* Project Selector */}
+              {/* Project & Version Selector (Compact & Professional) */}
+              <Card className="border-slate-200 shadow-sm overflow-hidden">
+                <CardContent className="p-4 bg-white">
+                  <div className="flex flex-col gap-4">
+                    {/* Top Row: Selectors & Actions */}
+                    {/* Row 1: Project Filters */}
+                    <div className="flex items-center gap-3 p-1.5 bg-slate-50 rounded-lg border border-slate-200 w-full">
+                      <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2 whitespace-nowrap">Project Filters:</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PROJECT_STATUSES.map(s => (
+                          <button
+                            key={s.value}
+                            onClick={() => setProjectStatusFilter(s.value)}
+                            className={cn(
+                              "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
+                              projectStatusFilter === s.value ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
+                            )}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setProjectStatusFilter("all")}
+                          className={cn(
+                            "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
+                            projectStatusFilter === "all" ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
+                          )}
+                        >
+                          All
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Select Project & Version Actions */}
+                    <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+                      <div className="flex-[2] min-w-[350px] space-y-1">
+                        <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Select Project</Label>
+                        <Select onValueChange={v => setSelectedProjectId(v || null)} value={selectedProjectId || ""}>
+                          <SelectTrigger className="w-full bg-slate-50 border-slate-200 h-9 px-3 hover:bg-slate-100/50 transition-colors">
+                            <SelectValue placeholder={projects.length === 0 ? "No projects" : "Choose from filtered list..."} />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px] overflow-hidden flex flex-col">
+                            <div className="sticky top-0 z-10 bg-white p-2 border-b border-slate-100">
+                              <div className="relative">
+                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                                <Input
+                                  placeholder="Search projects..."
+                                  value={projectSearchTerm}
+                                  onChange={(e) => setProjectSearchTerm(e.target.value)}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                  className="pl-7 h-8 text-[11px] border-slate-200 bg-slate-50 focus:bg-white transition-colors w-full"
+                                />
+                              </div>
+                            </div>
+                            <div className="overflow-y-auto max-h-[250px]">
+                              {projects
+                                .filter(p => {
+                                  // Filter by search term
+                                  if (projectSearchTerm && !fuzzySearch(projectSearchTerm, [p.name, p.client])) return false;
+
+                                  // Filter by status
+                                  if (projectStatusFilter === "all") return true;
+                                  return p.project_status === projectStatusFilter;
+                                })
+                                .map((p: Project) => {
+                                  const sm = getProjectStatusMeta(p.project_status);
+                                  return (
+                                    <SelectItem value={p.id} key={p.id}>
+                                      <span className="flex items-center gap-2">
+                                        {p.name}
+                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${sm.color}`}>{sm.label}</span>
+                                      </span>
+                                    </SelectItem>
+                                  );
+                                })}
+                            </div>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {selectedProjectId && (
+                        <div className="flex-[3] min-w-[500px] space-y-1.5 text-slate-900">
+                          <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Version & Actions</Label>
+                          <div className="flex flex-wrap gap-2">
+                            <div className="flex gap-1">
+                              <Select value={selectedVersionId || ""} onValueChange={setSelectedVersionId}>
+                                <SelectTrigger className="flex-1 min-w-[140px] bg-slate-50 border-slate-200 h-9 px-3">
+                                  <SelectValue placeholder="Select version" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {versions.map((v: BOMVersion) => {
+                                    const isManualFinal = (v as any).is_last_final;
+                                    const isLatestApproved = !versions.some(x => (x as any).is_last_final) && v.status === 'approved' && v.version_number === Math.max(...versions.filter(x => x.status === 'approved').map(x => x.version_number), 0);
+                                    const isFinal = isManualFinal || isLatestApproved;
+                                    return (
+                                      <SelectItem value={v.id} key={v.id}>
+                                        <div className="flex items-center justify-between w-full gap-2">
+                                          <span>V{v.version_number} ({VERSION_LABEL[v.status] ?? v.status})</span>
+                                          {isFinal && <span className="bg-green-600 text-white text-[8px] h-3.5 px-1 rounded-sm leading-none uppercase font-bold shrink-0 flex items-center">Last Final</span>}
+                                        </div>
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+                              {(() => {
+                                const latestApprovedVer = versions.reduce((prev: any, current: any) => {
+                                  if ((current as any).is_last_final) return current;
+                                  if (prev && (prev as any).is_last_final) return prev;
+                                  return (current.status === 'approved' && (!prev || current.version_number > prev.version_number)) ? current : prev;
+                                }, null);
+
+                                const showJump = latestApprovedVer && selectedVersionId !== latestApprovedVer.id;
+                                const currentV = versions.find(v => v.id === selectedVersionId);
+                                const showMark = currentV && currentV.status === 'approved' && !(currentV as any).is_last_final;
+
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    {showJump && (
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-9 w-9 border-green-200 text-green-600 hover:bg-green-50 shadow-sm shrink-0"
+                                        title="Jump to Last Final Version"
+                                        onClick={() => setSelectedVersionId(latestApprovedVer.id)}
+                                      >
+                                        <CheckCircle2 className="h-4 w-4" />
+                                      </Button>
+                                    )}
+
+                                    {showMark && (
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-9 w-9 border-slate-200 text-slate-400 hover:text-green-600 hover:border-green-200 shadow-sm shrink-0"
+                                        title="Mark this as Last Final"
+                                        onClick={async () => {
+                                          if (!confirm("Are you sure you want to mark this version as the Last Final version?")) return;
+                                          try {
+                                            const resp = await apiFetch(`/api/boq-versions/${selectedVersionId}/make-final`, { method: "POST" });
+                                            if (resp.ok) {
+                                              toast({ title: "Success", description: "Version marked as Last Final" });
+                                              // Refresh versions
+                                              const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=bom`);
+                                              if (boqResp.ok) {
+                                                const boqData = await boqResp.json();
+                                                setVersions(boqData.versions || []);
+                                              }
+                                            }
+                                          } catch (e) {
+                                            console.error("Failed to mark final", e);
+                                            toast({ title: "Error", description: "Failed to mark as final", variant: "destructive" });
+                                          }
+                                        }}
+                                      >
+                                        <Star className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-blue-600 gap-2 font-semibold"
+                              title="View History"
+                              onClick={() => setShowHistoryModal(true)}
+                              disabled={!selectedVersionId || history.length === 0}
+                            >
+                              <History className="h-4 w-4" />
+                              <span>History</span>
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-red-600 gap-2 font-semibold"
+                              title="Delete Version"
+                              onClick={handleDeleteVersion}
+                              disabled={!selectedVersionId}
+                            >
+                              <XCircle className="h-4 w-4" />
+                              <span>Delete</span>
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-emerald-600 gap-2 font-semibold"
+                              title="New Version"
+                              onClick={() => {
+                                if (versions.length > 0) {
+                                  const last = versions[0];
+                                  handleCreateNewVersion(confirm(`Copy items from V${last.version_number}?`));
+                                } else {
+                                  handleCreateNewVersion(false);
+                                }
+                              }}
+                            >
+                              <Clock className="h-4 w-4" />
+                              <span>New Version</span>
+                            </Button>
                           </div>
                         </div>
-                        <div className="overflow-y-auto max-h-[250px]">
-                          {projects
-                            .filter(p => {
-                              // Filter by search term
-                              if (projectSearchTerm && !fuzzySearch(projectSearchTerm, [p.name, p.client])) return false;
+                      )}
+                    </div>
 
-                              // Filter by status
-                              if (projectStatusFilter === "all") return true;
-                              return p.project_status === projectStatusFilter;
+                    {/* Row 3: Project Status & Actions */}
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
+                      {selectedProjectId && (() => {
+                        const selProj = projects.find(p => p.id === selectedProjectId);
+                        return (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-bold uppercase">Project Status:</span>
+                            <select
+                              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white font-semibold focus:ring-1 ring-blue-400 outline-none"
+                              value={selProj?.project_status || 'started'}
+                              onChange={async (e) => {
+                                const newStatus = e.target.value;
+                                try {
+                                  await apiFetch(`/api/boq-projects/${selectedProjectId}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ project_status: newStatus }),
+                                  });
+                                  setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, project_status: newStatus } : p));
+                                } catch (err) { console.error('Failed to update project status', err); }
+                              }}
+                            >
+                              {PROJECT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                            </select>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="flex gap-2 h-9 ml-auto">
+                        <Button onClick={() => setShowTemplateManager(true)} variant="outline" className="border-slate-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2" disabled={isVersionSubmitted || !selectedVersionId}>
+                          <History className="h-4 w-4" /> Load Template
+                        </Button>
+
+                        {approvedProposals.length > 0 && (
+                          <Button
+                            onClick={() => {
+                              setSelectedProposalImportIds([]);
+                              setShowProposalImportDialog(true);
+                            }}
+                            variant="outline"
+                            className="border-emerald-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2 text-emerald-700 hover:bg-emerald-50"
+                            disabled={isVersionSubmitted || !selectedVersionId}
+                          >
+                            <CheckCircle2 className="h-4 w-4" /> Import Approved Proposals ({approvedProposals.length})
+                          </Button>
+                        )}
+                        <Button onClick={() => setShowCompareDialog(true)} variant="outline" className="border-blue-200 h-full px-4 text-xs font-bold shadow-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-2" disabled={!selectedProjectId}>
+                          <ChevronsUpDown className="h-4 w-4" /> Compare
+                        </Button>
+                        <Button onClick={handleAddProduct} className="bg-primary text-white h-full px-5 text-xs font-bold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId}>+ Add Product</Button>
+                        <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-full px-5 text-xs font-bold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId}>+ Add Item</Button>
+                      </div>
+                    </div>
+
+                    {/* Version Comments Section */}
+                    {selectedVersionId && comments.length > 0 && (
+                      <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+                        <div className="flex items-center gap-2 mb-3">
+                          <MessageSquare className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-semibold text-gray-700">Version Comments</span>
+                          <Badge variant="secondary" className="text-xs">{comments.length}</Badge>
+                        </div>
+
+                        <div className="space-y-3 max-h-64 overflow-y-auto">
+                          {comments
+                            .filter(comment => {
+                              // Show comments visible to current user or created by current user
+                              return comment.user_id === user?.id ||
+                                comment.visible_to.length === 0 ||
+                                comment.visible_to.includes(user?.id || '');
                             })
-                            .map((p: Project) => {
-                              const sm = getProjectStatusMeta(p.project_status);
+                            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                            .map(comment => {
+                              const isProductComment = !!comment.product_id;
+                              const isItemComment = !!comment.item_id;
+                              const isOverallComment = !comment.item_id && !comment.product_id;
+
                               return (
-                                <SelectItem value={p.id} key={p.id}>
-                                  <span className="flex items-center gap-2">
-                                    {p.name}
-                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${sm.color}`}>{sm.label}</span>
-                                  </span>
-                                </SelectItem>
+                                <div key={comment.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                  <div className="flex items-start justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-semibold text-gray-900">{comment.user_full_name}</span>
+                                      <span className="text-xs text-gray-500">v{comment.version_number}</span>
+                                      {isOverallComment && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">Overall</Badge>}
+                                      {isProductComment && <Badge variant="outline" className="text-xs">Product</Badge>}
+                                      {isItemComment && <Badge variant="outline" className="text-xs">Item</Badge>}
+                                    </div>
+                                    <span className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString()}</span>
+                                  </div>
+                                  <p className="text-sm text-gray-700 mb-2">{comment.comment_text}</p>
+                                  {comment.visible_to.length > 0 && (
+                                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                                      <Users className="h-3 w-3" />
+                                      <span>Visible to: {comment.visible_to.map(id => {
+                                        const visibleUser = users.find(u => u.id === id);
+                                        return visibleUser ? visibleUser.displayName : id;
+                                      }).join(', ')}</span>
+                                    </div>
+                                  )}
+                                </div>
                               );
                             })}
                         </div>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedProjectId && (
-                    <div className="flex-[3] min-w-[500px] space-y-1.5 text-slate-900">
-                      <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Version & Actions</Label>
-                      <div className="flex flex-wrap gap-2">
-                        <div className="flex gap-1">
-                          <Select value={selectedVersionId || ""} onValueChange={setSelectedVersionId}>
-                            <SelectTrigger className="flex-1 min-w-[140px] bg-slate-50 border-slate-200 h-9 px-3">
-                              <SelectValue placeholder="Select version" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {versions.map((v: BOMVersion) => {
-                                const isManualFinal = (v as any).is_last_final;
-                                const isLatestApproved = !versions.some(x => (x as any).is_last_final) && v.status === 'approved' && v.version_number === Math.max(...versions.filter(x => x.status === 'approved').map(x => x.version_number), 0);
-                                const isFinal = isManualFinal || isLatestApproved;
-                                return (
-                                  <SelectItem value={v.id} key={v.id}>
-                                    <div className="flex items-center justify-between w-full gap-2">
-                                      <span>V{v.version_number} ({VERSION_LABEL[v.status] ?? v.status})</span>
-                                      {isFinal && <span className="bg-green-600 text-white text-[8px] h-3.5 px-1 rounded-sm leading-none uppercase font-bold shrink-0 flex items-center">Last Final</span>}
-                                    </div>
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-                          {(() => {
-                            const latestApprovedVer = versions.reduce((prev: any, current: any) => {
-                              if ((current as any).is_last_final) return current;
-                              if (prev && (prev as any).is_last_final) return prev;
-                              return (current.status === 'approved' && (!prev || current.version_number > prev.version_number)) ? current : prev;
-                            }, null);
-
-                            const showJump = latestApprovedVer && selectedVersionId !== latestApprovedVer.id;
-                            const currentV = versions.find(v => v.id === selectedVersionId);
-                            const showMark = currentV && currentV.status === 'approved' && !(currentV as any).is_last_final;
-
-                            return (
-                              <div className="flex items-center gap-1">
-                                {showJump && (
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-9 w-9 border-green-200 text-green-600 hover:bg-green-50 shadow-sm shrink-0"
-                                    title="Jump to Last Final Version"
-                                    onClick={() => setSelectedVersionId(latestApprovedVer.id)}
-                                  >
-                                    <CheckCircle2 className="h-4 w-4" />
-                                  </Button>
-                                )}
-
-                                {showMark && (
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-9 w-9 border-slate-200 text-slate-400 hover:text-green-600 hover:border-green-200 shadow-sm shrink-0"
-                                    title="Mark this as Last Final"
-                                    onClick={async () => {
-                                      if (!confirm("Are you sure you want to mark this version as the Last Final version?")) return;
-                                      try {
-                                        const resp = await apiFetch(`/api/boq-versions/${selectedVersionId}/make-final`, { method: "POST" });
-                                        if (resp.ok) {
-                                          toast({ title: "Success", description: "Version marked as Last Final" });
-                                          // Refresh versions
-                                          const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=bom`);
-                                          if (boqResp.ok) {
-                                            const boqData = await boqResp.json();
-                                            setVersions(boqData.versions || []);
-                                          }
-                                        }
-                                      } catch (e) {
-                                        console.error("Failed to mark final", e);
-                                        toast({ title: "Error", description: "Failed to mark as final", variant: "destructive" });
-                                      }
-                                    }}
-                                  >
-                                    <Star className="h-4 w-4" />
-                                  </Button>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-blue-600 gap-2 font-semibold"
-                          title="View History"
-                          onClick={() => setShowHistoryModal(true)}
-                          disabled={!selectedVersionId || history.length === 0}
-                        >
-                          <History className="h-4 w-4" />
-                          <span>History</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-red-600 gap-2 font-semibold"
-                          title="Delete Version"
-                          onClick={handleDeleteVersion}
-                          disabled={!selectedVersionId}
-                        >
-                          <XCircle className="h-4 w-4" />
-                          <span>Delete</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-emerald-600 gap-2 font-semibold"
-                          title="New Version"
-                          onClick={() => {
-                            if (versions.length > 0) {
-                              const last = versions[0];
-                              handleCreateNewVersion(confirm(`Copy items from V${last.version_number}?`));
-                            } else {
-                              handleCreateNewVersion(false);
-                            }
-                          }}
-                        >
-                          <Clock className="h-4 w-4" />
-                          <span>New Version</span>
-                        </Button>
                       </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Row 3: Project Status & Actions */}
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-                  {selectedProjectId && (() => {
-                    const selProj = projects.find(p => p.id === selectedProjectId);
-                    return (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-500 font-bold uppercase">Project Status:</span>
-                        <select
-                          className="text-xs border border-slate-200 rounded px-2 py-1 bg-white font-semibold focus:ring-1 ring-blue-400 outline-none"
-                          value={selProj?.project_status || 'started'}
-                          onChange={async (e) => {
-                            const newStatus = e.target.value;
-                            try {
-                              await apiFetch(`/api/boq-projects/${selectedProjectId}`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ project_status: newStatus }),
-                              });
-                              setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, project_status: newStatus } : p));
-                            } catch (err) { console.error('Failed to update project status', err); }
-                          }}
-                        >
-                          {PROJECT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="flex gap-2 h-9 ml-auto">
-                    <Button onClick={() => setShowTemplateManager(true)} variant="outline" className="border-slate-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2" disabled={isVersionSubmitted || !selectedVersionId}>
-                      <History className="h-4 w-4" /> Load Template
-                    </Button>
-
-                    {approvedProposals.length > 0 && (
-                      <Button
-                        onClick={() => {
-                          setSelectedProposalImportIds([]);
-                          setShowProposalImportDialog(true);
-                        }}
-                        variant="outline"
-                        className="border-emerald-200 h-full px-4 text-xs font-bold shadow-sm bg-white flex items-center gap-2 text-emerald-700 hover:bg-emerald-50"
-                        disabled={isVersionSubmitted || !selectedVersionId}
-                      >
-                        <CheckCircle2 className="h-4 w-4" /> Import Approved Proposals ({approvedProposals.length})
-                      </Button>
                     )}
-                    <Button onClick={handleAddProduct} className="bg-primary text-white h-full px-5 text-xs font-bold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId}>+ Add Product</Button>
-                    <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-full px-5 text-xs font-bold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId}>+ Add Item</Button>
-                  </div>
-                </div>
 
-                {/* Version Comments Section */}
-                {selectedVersionId && comments.length > 0 && (
-                  <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                      <MessageSquare className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-semibold text-gray-700">Version Comments</span>
-                      <Badge variant="secondary" className="text-xs">{comments.length}</Badge>
-                    </div>
+                    {/* Row 4: Project Info Summary & Comment */}
+                    {selectedVersion && (
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 py-2.5 px-4 bg-slate-50/50 border border-slate-100 rounded-lg overflow-hidden">
+                        <div className="flex items-center gap-2 min-w-fit">
+                          <div className="p-1.5 bg-blue-50 rounded text-blue-600"><Briefcase className="h-3.5 w-3.5" /></div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Client</span>
+                            <span className="text-xs font-semibold text-slate-700">{selectedVersion.project_client || "—"}</span>
+                          </div>
+                        </div>
 
-                    <div className="space-y-3 max-h-64 overflow-y-auto">
-                      {comments
-                        .filter(comment => {
-                          // Show comments visible to current user or created by current user
-                          return comment.user_id === user?.id ||
-                            comment.visible_to.length === 0 ||
-                            comment.visible_to.includes(user?.id || '');
-                        })
-                        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                        .map(comment => {
-                          const isProductComment = !!comment.product_id;
-                          const isItemComment = !!comment.item_id;
-                          const isOverallComment = !comment.item_id && !comment.product_id;
+                        <div className="hidden md:block w-px h-6 bg-slate-200" />
 
-                          return (
-                            <div key={comment.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                              <div className="flex items-start justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-gray-900">{comment.user_full_name}</span>
-                                  <span className="text-xs text-gray-500">v{comment.version_number}</span>
-                                  {isOverallComment && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">Overall</Badge>}
-                                  {isProductComment && <Badge variant="outline" className="text-xs">Product</Badge>}
-                                  {isItemComment && <Badge variant="outline" className="text-xs">Item</Badge>}
-                                </div>
-                                <span className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString()}</span>
-                              </div>
-                              <p className="text-sm text-gray-700 mb-2">{comment.comment_text}</p>
-                              {comment.visible_to.length > 0 && (
-                                <div className="flex items-center gap-1 text-xs text-gray-500">
-                                  <Users className="h-3 w-3" />
-                                  <span>Visible to: {comment.visible_to.map(id => {
-                                    const visibleUser = users.find(u => u.id === id);
-                                    return visibleUser ? visibleUser.displayName : id;
-                                  }).join(', ')}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                    </div>
-                  </div>
-                )}
+                        <div className="flex items-center gap-2 min-w-fit">
+                          <div className="p-1.5 bg-indigo-50 rounded text-indigo-600"><MapPin className="h-3.5 w-3.5" /></div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Location</span>
+                            <span className="text-xs font-semibold text-slate-700">{selectedVersion.project_location || "—"}</span>
+                          </div>
+                        </div>
 
-                {/* Row 4: Project Info Summary & Comment */}
-                {selectedVersion && (
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 py-2.5 px-4 bg-slate-50/50 border border-slate-100 rounded-lg overflow-hidden">
-                    <div className="flex items-center gap-2 min-w-fit">
-                      <div className="p-1.5 bg-blue-50 rounded text-blue-600"><Briefcase className="h-3.5 w-3.5" /></div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Client</span>
-                        <span className="text-xs font-semibold text-slate-700">{selectedVersion.project_client || "—"}</span>
-                      </div>
-                    </div>
+                        <div className="hidden md:block w-px h-6 bg-slate-200" />
 
-                    <div className="hidden md:block w-px h-6 bg-slate-200" />
+                        <div className="flex items-center gap-2 min-w-fit">
+                          <div className="p-1.5 bg-emerald-50 rounded text-emerald-600"><IndianRupee className="h-3.5 w-3.5" /></div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Budget</span>
+                            <span className="text-xs font-semibold text-slate-700">₹{currentProjectValue.toLocaleString()}</span>
+                          </div>
+                        </div>
 
-                    <div className="flex items-center gap-2 min-w-fit">
-                      <div className="p-1.5 bg-indigo-50 rounded text-indigo-600"><MapPin className="h-3.5 w-3.5" /></div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Location</span>
-                        <span className="text-xs font-semibold text-slate-700">{selectedVersion.project_location || "—"}</span>
-                      </div>
-                    </div>
-
-                    <div className="hidden md:block w-px h-6 bg-slate-200" />
-
-                    <div className="flex items-center gap-2 min-w-fit">
-                      <div className="p-1.5 bg-emerald-50 rounded text-emerald-600"><IndianRupee className="h-3.5 w-3.5" /></div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Budget</span>
-                        <span className="text-xs font-semibold text-slate-700">₹{currentProjectValue.toLocaleString()}</span>
-                      </div>
-                    </div>
-
-                    <div className="ml-auto flex items-center gap-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-blue-600 gap-2 font-semibold"
-                        title="Add Overall Comment"
-                        onClick={() => {
-                          if (!selectedVersionId) return;
-                          setCommentTarget({
-                            type: 'product', // Reusing product type for modal title context
-                            id: selectedVersionId,
-                            name: `Version V${versions.find(v => v.id === selectedVersionId)?.version_number || ''} (Overall)`
-                          });
-                          setShowCommentDialog(true);
-                        }}
-                        disabled={!selectedVersionId}
-                      >
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        <span className="text-xs">Comment</span>
-                      </Button>
-
-                      {selectedVersion.status === "approved" ? (
-                        <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] font-bold px-2 py-0 h-6">
-                          <CheckCircle2 className="h-2.5 w-2.5 mr-1" /> APPROVED
-                        </Badge>
-                      ) : selectedVersion.status === "edit_requested" ? (
-                        <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-[10px] font-bold px-2 py-0 h-6">
-                          <Clock className="h-2.5 w-2.5 mr-1" /> EDIT REQUESTED
-                        </Badge>
-                      ) : isVersionSubmitted ? (
-                        <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] font-bold px-2 py-0 h-6">
-                          <Lock className="h-2.5 w-2.5 mr-1" /> SUBMITTED
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] font-bold px-2 py-0 h-6">
-                          <Clock className="h-2.5 w-2.5 mr-1" /> DRAFT
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-
-            {/* History Modal */}
-            <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle className="text-lg font-bold flex items-center gap-2">
-                    <History className="h-5 w-5 text-blue-600" />
-                    Approval & Activity History
-                  </DialogTitle>
-                  <DialogDescription>
-                    Tracking all major actions and approval status changes.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="py-4 max-h-[60vh] overflow-y-auto px-1">
-                  <HistorySection history={history} />
-                </div>
-                <DialogFooter>
-                  <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={showProposalImportDialog} onOpenChange={setShowProposalImportDialog}>
-              <DialogContent className="sm:max-w-[700px]">
-                <DialogHeader>
-                  <DialogTitle className="text-lg font-bold flex items-center gap-2">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                    Finalized Vendor Proposals
-                  </DialogTitle>
-                  <DialogDescription>
-                    Select one or more approved proposals to import their items into your current BOM draft.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="py-4">
-                  <div className="border rounded-md overflow-hidden bg-white">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr>
-                          <th className="w-10 px-4 py-3 text-center">
-                            <input
-                              type="checkbox"
-                              className="rounded border-slate-300"
-                              checked={selectedProposalImportIds.length === approvedProposals.length && approvedProposals.length > 0}
-                              onChange={(e) => {
-                                if (e.target.checked) setSelectedProposalImportIds(approvedProposals.map(p => p.id));
-                                else setSelectedProposalImportIds([]);
-                              }}
-                            />
-                          </th>
-                          <th className="px-4 py-3 text-left font-bold text-slate-700">Proposal Details</th>
-                          <th className="px-4 py-3 text-right font-bold text-slate-700">Final Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {approvedProposals.map((prop) => (
-                          <React.Fragment key={prop.id}>
-                            <tr
-                              className={`hover:bg-slate-50 transition-colors cursor-pointer border-t border-slate-100 ${selectedProposalImportIds.includes(prop.id) ? 'bg-emerald-50/20' : ''}`}
-                              onClick={() => {
-                                setSelectedProposalImportIds(prev =>
-                                  prev.includes(prop.id) ? prev.filter(id => id !== prop.id) : [...prev, prop.id]
-                                );
-                              }}
-                            >
-                              <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                <input
-                                  type="checkbox"
-                                  className="rounded border-slate-300 h-4 w-4 accent-emerald-600"
-                                  checked={selectedProposalImportIds.includes(prop.id)}
-                                  onChange={(e) => {
-                                    setSelectedProposalImportIds(prev =>
-                                      e.target.checked ? [...prev, prop.id] : prev.filter(id => id !== prop.id)
-                                    );
-                                  }}
-                                />
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-start gap-3">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); toggleProposalPreview(prop.id); }}
-                                    className="mt-1 p-1 hover:bg-slate-200 rounded transition-colors text-slate-400 hover:text-slate-600"
-                                  >
-                                    {expandedProposalId === prop.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                  </button>
-                                  <div className="flex flex-col">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-bold text-slate-900 text-sm">{prop.vendor_name}</span>
-                                      <Badge className="text-[10px] h-4 bg-emerald-100 text-emerald-700 border-emerald-200 font-bold">V{prop.version_number}</Badge>
-                                    </div>
-                                    <span className="text-[11px] text-slate-500 font-bold mt-0.5">Project: {prop.project_name || selectedProject?.name || "Target Project"}</span>
-                                    <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium">
-                                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Approved: {new Date(prop.updated_at || prop.created_at).toLocaleDateString()}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <span className="font-extrabold text-slate-950 text-sm">
-                                  ₹{getProposalTotal(prop).toLocaleString()}
-                                </span>
-                              </td>
-                            </tr>
-
-                            {/* Expandable Material List Preview */}
-                            {expandedProposalId === prop.id && (
-                              <tr className="bg-slate-50/50">
-                                <td colSpan={3} className="px-4 py-0">
-                                  <div className="p-4 border-l-2 border-emerald-500 my-2 ml-10">
-                                    <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-                                      <table className="w-full text-[11px]">
-                                        <thead className="bg-slate-100/80 text-slate-600 font-bold uppercase tracking-wider border-b">
-                                          <tr>
-                                            <th className="px-3 py-2 text-left">Item Name</th>
-                                            <th className="px-3 py-2 text-center">Qty</th>
-                                            <th className="px-3 py-2 text-center">Unit</th>
-                                            <th className="px-3 py-2 text-right">Rate</th>
-                                            <th className="px-3 py-2 text-right w-24">Total</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                          {loadingPreviewId === prop.id ? (
-                                            <tr>
-                                              <td colSpan={5} className="px-3 py-4 text-center">
-                                                <div className="flex items-center justify-center gap-2 text-slate-500">
-                                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                                  <span>Loading materials list...</span>
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          ) : (proposalItemsPreview[prop.id]?.length || 0) > 0 ? (
-                                            proposalItemsPreview[prop.id]?.map((item, idx) => (
-                                              <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                                                <td className="px-3 py-2 font-medium text-slate-800">{item.item_name}</td>
-                                                <td className="px-3 py-2 text-center font-bold text-slate-700">{item.qty}</td>
-                                                <td className="px-3 py-2 text-center text-slate-500">{item.unit || "nos"}</td>
-                                                <td className="px-3 py-2 text-right font-medium text-slate-600">₹{Number(item.rate).toLocaleString()}</td>
-                                                <td className="px-3 py-2 text-right font-bold text-slate-900 bg-slate-100/30">₹{(Number(item.rate) * Number(item.qty)).toLocaleString()}</td>
-                                              </tr>
-                                            ))
-                                          ) : (
-                                            <tr>
-                                              <td colSpan={5} className="px-3 py-8 text-center text-slate-400 italic">No materials found in this proposal.</td>
-                                            </tr>
-                                          )}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <DialogFooter className="bg-slate-50 p-4 rounded-b-lg border-t border-slate-200">
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-bold text-slate-500">{selectedProposalImportIds.length} proposals selected</span>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setShowProposalImportDialog(false)}>Cancel</Button>
-                      <Button
-                        disabled={selectedProposalImportIds.length === 0 || isSaving}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                        onClick={handleImportApprovedProposals}
-                      >
-                        {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-                        Import Selected Items
-                      </Button>
-                    </div>
-                  </div>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
-            <ProductPicker open={showProductPicker} onOpenChange={setShowProductPicker} onSelectProduct={handleSelectProduct} selectedProjectId={selectedProjectId!} />
-            <MaterialPicker open={showMaterialPicker} onOpenChange={setShowMaterialPicker} onSelectTemplate={handleSelectMaterialTemplate} />
-
-            {selectedProduct && (
-              <Step11Preview product={selectedProduct} open={showStep11Preview} onClose={() => { setShowStep11Preview(false); setTimeout(() => setSelectedProduct(null), 300); }} onAddToBoq={handleAddToBom} />
-            )}
-          </Card>
-
-          {/* BOQ Items */}
-          {selectedProjectId && (
-            <Card>
-              <CardContent className="space-y-4 pt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-bold text-gray-800">BOQ Items</h2>
-                  <div className="flex items-center gap-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsCompactView(!isCompactView)}
-                      className={`h-9 px-3 font-semibold ${isCompactView ? 'bg-blue-50 text-blue-600 border-blue-300' : 'text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                    >
-                      Compact View
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRefreshRates}
-                      disabled={isUpdatingRates || isVersionSubmitted}
-                      className="h-9 px-3 font-semibold text-emerald-600 border-emerald-200 hover:bg-emerald-50 gap-2"
-                      title="Sync all items with latest market rates"
-                    >
-                      <RefreshCw className={`h-4 w-4 ${isUpdatingRates ? 'animate-spin' : ''}`} />
-                      <span>Refresh Rates</span>
-                    </Button>
-                    <div className="relative w-72">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        placeholder="Search products..."
-                        value={productSearch}
-                        onChange={(e) => setProductSearch(e.target.value)}
-                        className="pl-9 h-9 text-sm border-slate-200 focus:ring-blue-500 shadow-sm"
-                      />
-                    </div>
-                  </div>
-                </div>
-                {boqItems.length === 0
-                  ? <div className="text-gray-500 text-center py-4">No products added yet. Click Add Product +</div>
-                  : <div className="space-y-6">
-                    {boqItems
-                      .filter(item => {
-                        const td = parseTableData(item.table_data);
-                        const name = td.product_name || item.estimator || "";
-                        const desc = td.finalize_description || "";
-                        return fuzzySearch(productSearch, [name, desc]);
-                      })
-                      .map((boqItem: BOMItem, boqIdx: number) => (
-                        <div key={boqItem.id} id={`boq-item-card-${boqItem.id}`} className="transition-all duration-300">
-                          <BoqItemCard boqItem={boqItem} boqIdx={boqIdx} isVersionSubmitted={isVersionSubmitted}
-                            expandedProductIds={expandedProductIds} setExpandedProductIds={setExpandedProductIds}
-                            getEditedValue={getEditedValue} updateEditedField={updateEditedField}
-                            handleDeleteRow={handleDeleteRow} handleFinalizeProduct={handleFinalizeProduct}
-                            handleAddItem={handleAddItem} loadBoqItemsAndEdits={loadBoqItemsAndEdits} setBoqItems={setBoqItems}
-                            checkBudgetEarly={checkBudgetEarly} handleSaveProject={handleSaveProject}
-                            isCardDragOver={cardDragOverIdx === boqIdx}
-                            onCardDragStart={(e) => { cardDragIdxRef.current = boqIdx; e.dataTransfer.effectAllowed = 'move'; }}
-                            onCardDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setCardDragOverIdx(boqIdx); }}
-                            onCardDrop={(e) => {
-                              e.preventDefault();
-                              setCardDragOverIdx(null);
-                              const fromIdx = cardDragIdxRef.current;
-                              if (fromIdx === null || fromIdx === boqIdx) return;
-                              const reordered = [...boqItems];
-                              const [moved] = reordered.splice(fromIdx, 1);
-                              reordered.splice(boqIdx, 0, moved);
-                              setBoqItems(reordered);
-                              // Persist the new order
-                              apiFetch('/api/boq-items/reorder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemIds: reordered.map(i => i.id) }) }).catch(console.error);
-                              cardDragIdxRef.current = null;
-                            }}
-                            mismatches={activeMismatches.filter(m => m.boqItemId === boqItem.id)}
-                            isCompactView={isCompactView}
-                            onSaveAsTemplate={(item) => {
-                              setTemplateToSave(item);
-                              setNewTemplateName(parseTableData(item.table_data).product_name || item.estimator);
-                              setShowSaveTemplateDialog(true);
-                            }}
-                            editedFields={editedFields}
-                            comments={comments}
-                            users={users}
-                            onAddComment={(versionId: string, itemId?: string) => {
-                              const productName = parseTableData(boqItem.table_data).product_name || boqItem.estimator;
-                              setCommentTarget({ type: itemId ? 'item' : 'product', id: itemId || boqItem.id, name: itemId ? `${productName} - Item ${itemId}` : productName });
+                        <div className="ml-auto flex items-center gap-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-blue-600 gap-2 font-semibold"
+                            title="Add Overall Comment"
+                            onClick={() => {
+                              if (!selectedVersionId) return;
+                              setCommentTarget({
+                                type: 'product', // Reusing product type for modal title context
+                                id: selectedVersionId,
+                                name: `Version V${versions.find(v => v.id === selectedVersionId)?.version_number || ''} (Overall)`
+                              });
                               setShowCommentDialog(true);
                             }}
-                            selectedVersionId={selectedVersionId}
+                            disabled={!selectedVersionId}
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span className="text-xs">Comment</span>
+                          </Button>
+
+                          {selectedVersion.status === "approved" ? (
+                            <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] font-bold px-2 py-0 h-6">
+                              <CheckCircle2 className="h-2.5 w-2.5 mr-1" /> APPROVED
+                            </Badge>
+                          ) : selectedVersion.status === "edit_requested" ? (
+                            <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-[10px] font-bold px-2 py-0 h-6">
+                              <Clock className="h-2.5 w-2.5 mr-1" /> EDIT REQUESTED
+                            </Badge>
+                          ) : isVersionSubmitted ? (
+                            <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] font-bold px-2 py-0 h-6">
+                              <Lock className="h-2.5 w-2.5 mr-1" /> SUBMITTED
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] font-bold px-2 py-0 h-6">
+                              <Clock className="h-2.5 w-2.5 mr-1" /> DRAFT
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+
+                {/* History Modal */}
+                <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
+                  <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                      <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                        <History className="h-5 w-5 text-blue-600" />
+                        Approval & Activity History
+                      </DialogTitle>
+                      <DialogDescription>
+                        Tracking all major actions and approval status changes.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 max-h-[60vh] overflow-y-auto px-1">
+                      <HistorySection history={history} />
+                    </div>
+                    <DialogFooter>
+                      <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                <Dialog open={showProposalImportDialog} onOpenChange={setShowProposalImportDialog}>
+                  <DialogContent className="sm:max-w-[700px]">
+                    <DialogHeader>
+                      <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                        <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                        Finalized Vendor Proposals
+                      </DialogTitle>
+                      <DialogDescription>
+                        Select one or more approved proposals to import their items into your current BOM draft.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                      <div className="border rounded-md overflow-hidden bg-white">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 border-b border-slate-200">
+                            <tr>
+                              <th className="w-10 px-4 py-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-slate-300"
+                                  checked={selectedProposalImportIds.length === approvedProposals.length && approvedProposals.length > 0}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setSelectedProposalImportIds(approvedProposals.map(p => p.id));
+                                    else setSelectedProposalImportIds([]);
+                                  }}
+                                />
+                              </th>
+                              <th className="px-4 py-3 text-left font-bold text-slate-700">Proposal Details</th>
+                              <th className="px-4 py-3 text-right font-bold text-slate-700">Final Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {approvedProposals.map((prop) => (
+                              <React.Fragment key={prop.id}>
+                                <tr
+                                  className={`hover:bg-slate-50 transition-colors cursor-pointer border-t border-slate-100 ${selectedProposalImportIds.includes(prop.id) ? 'bg-emerald-50/20' : ''}`}
+                                  onClick={() => {
+                                    setSelectedProposalImportIds(prev =>
+                                      prev.includes(prop.id) ? prev.filter(id => id !== prop.id) : [...prev, prop.id]
+                                    );
+                                  }}
+                                >
+                                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      className="rounded border-slate-300 h-4 w-4 accent-emerald-600"
+                                      checked={selectedProposalImportIds.includes(prop.id)}
+                                      onChange={(e) => {
+                                        setSelectedProposalImportIds(prev =>
+                                          e.target.checked ? [...prev, prop.id] : prev.filter(id => id !== prop.id)
+                                        );
+                                      }}
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-start gap-3">
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); toggleProposalPreview(prop.id); }}
+                                        className="mt-1 p-1 hover:bg-slate-200 rounded transition-colors text-slate-400 hover:text-slate-600"
+                                      >
+                                        {expandedProposalId === prop.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                      </button>
+                                      <div className="flex flex-col">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-bold text-slate-900 text-sm">{prop.vendor_name}</span>
+                                          <Badge className="text-[10px] h-4 bg-emerald-100 text-emerald-700 border-emerald-200 font-bold">V{prop.version_number}</Badge>
+                                        </div>
+                                        <span className="text-[11px] text-slate-500 font-bold mt-0.5">Project: {prop.project_name || selectedProject?.name || "Target Project"}</span>
+                                        <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 font-medium">
+                                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Approved: {new Date(prop.updated_at || prop.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className="font-extrabold text-slate-950 text-sm">
+                                      ₹{getProposalTotal(prop).toLocaleString()}
+                                    </span>
+                                  </td>
+                                </tr>
+
+                                {/* Expandable Material List Preview */}
+                                {expandedProposalId === prop.id && (
+                                  <tr className="bg-slate-50/50">
+                                    <td colSpan={3} className="px-4 py-0">
+                                      <div className="p-4 border-l-2 border-emerald-500 my-2 ml-10">
+                                        <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+                                          <table className="w-full text-[11px]">
+                                            <thead className="bg-slate-100/80 text-slate-600 font-bold uppercase tracking-wider border-b">
+                                              <tr>
+                                                <th className="px-3 py-2 text-left">Item Name</th>
+                                                <th className="px-3 py-2 text-center">Qty</th>
+                                                <th className="px-3 py-2 text-center">Unit</th>
+                                                <th className="px-3 py-2 text-right">Rate</th>
+                                                <th className="px-3 py-2 text-right w-24">Total</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                              {loadingPreviewId === prop.id ? (
+                                                <tr>
+                                                  <td colSpan={5} className="px-3 py-4 text-center">
+                                                    <div className="flex items-center justify-center gap-2 text-slate-500">
+                                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                                      <span>Loading materials list...</span>
+                                                    </div>
+                                                  </td>
+                                                </tr>
+                                              ) : (proposalItemsPreview[prop.id]?.length || 0) > 0 ? (
+                                                proposalItemsPreview[prop.id]?.map((item, idx) => (
+                                                  <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                                                    <td className="px-3 py-2 font-medium text-slate-800">{item.item_name}</td>
+                                                    <td className="px-3 py-2 text-center font-bold text-slate-700">{item.qty}</td>
+                                                    <td className="px-3 py-2 text-center text-slate-500">{item.unit || "nos"}</td>
+                                                    <td className="px-3 py-2 text-right font-medium text-slate-600">₹{Number(item.rate).toLocaleString()}</td>
+                                                    <td className="px-3 py-2 text-right font-bold text-slate-900 bg-slate-100/30">₹{(Number(item.rate) * Number(item.qty)).toLocaleString()}</td>
+                                                  </tr>
+                                                ))
+                                              ) : (
+                                                <tr>
+                                                  <td colSpan={5} className="px-3 py-8 text-center text-slate-400 italic">No materials found in this proposal.</td>
+                                                </tr>
+                                              )}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <DialogFooter className="bg-slate-50 p-4 rounded-b-lg border-t border-slate-200">
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-xs font-bold text-slate-500">{selectedProposalImportIds.length} proposals selected</span>
+                        <div className="flex gap-2">
+                          <Button variant="outline" onClick={() => setShowProposalImportDialog(false)}>Cancel</Button>
+                          <Button
+                            disabled={selectedProposalImportIds.length === 0 || isSaving}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                            onClick={handleImportApprovedProposals}
+                          >
+                            {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                            Import Selected Items
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                <ProductPicker open={showProductPicker} onOpenChange={setShowProductPicker} onSelectProduct={handleSelectProduct} selectedProjectId={selectedProjectId!} />
+                <MaterialPicker open={showMaterialPicker} onOpenChange={setShowMaterialPicker} onSelectTemplate={handleSelectMaterialTemplate} />
+
+                {selectedProduct && (
+                  <Step11Preview product={selectedProduct} open={showStep11Preview} onClose={() => { setShowStep11Preview(false); setTimeout(() => setSelectedProduct(null), 300); }} onAddToBoq={handleAddToBom} />
+                )}
+              </Card>
+
+              {/* BOQ Items */}
+              {selectedProjectId && (
+                <Card>
+                  <CardContent className="space-y-4 pt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-bold text-gray-800">BOQ Items</h2>
+                      <div className="flex items-center gap-4">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsCompactView(!isCompactView)}
+                          className={`h-9 px-3 font-semibold ${isCompactView ? 'bg-blue-50 text-blue-600 border-blue-300' : 'text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        >
+                          Compact View
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleRefreshRates}
+                          disabled={isUpdatingRates || isVersionSubmitted}
+                          className="h-9 px-3 font-semibold text-emerald-600 border-emerald-200 hover:bg-emerald-50 gap-2"
+                          title="Sync all items with latest market rates"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${isUpdatingRates ? 'animate-spin' : ''}`} />
+                          <span>Refresh Rates</span>
+                        </Button>
+                        <div className="relative w-72">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                          <Input
+                            placeholder="Search products..."
+                            value={productSearch}
+                            onChange={(e) => setProductSearch(e.target.value)}
+                            className="pl-9 h-9 text-sm border-slate-200 focus:ring-blue-500 shadow-sm"
                           />
                         </div>
-                      ))}
-                  </div>
-                }
-              </CardContent>
-            </Card>
-          )}
+                      </div>
+                    </div>
+                    {boqItems.length === 0
+                      ? <div className="text-gray-500 text-center py-4">No products added yet. Click Add Product +</div>
+                      : <div className="space-y-6">
+                        {boqItems
+                          .filter(item => {
+                            const td = parseTableData(item.table_data);
+                            const name = td.product_name || item.estimator || "";
+                            const desc = td.finalize_description || "";
+                            return fuzzySearch(productSearch, [name, desc]);
+                          })
+                          .map((boqItem: BOMItem, boqIdx: number) => (
+                            <div key={boqItem.id} id={`boq-item-card-${boqItem.id}`} className="transition-all duration-300">
+                              <BoqItemCard boqItem={boqItem} boqIdx={boqIdx} isVersionSubmitted={isVersionSubmitted}
+                                expandedProductIds={expandedProductIds} setExpandedProductIds={setExpandedProductIds}
+                                getEditedValue={getEditedValue} updateEditedField={updateEditedField}
+                                handleDeleteRow={handleDeleteRow} handleFinalizeProduct={handleFinalizeProduct}
+                                handleAddItem={handleAddItem} loadBoqItemsAndEdits={loadBoqItemsAndEdits} setBoqItems={setBoqItems}
+                                checkBudgetEarly={checkBudgetEarly} handleSaveProject={handleSaveProject}
+                                isCardDragOver={cardDragOverIdx === boqIdx}
+                                onCardDragStart={(e) => { cardDragIdxRef.current = boqIdx; e.dataTransfer.effectAllowed = 'move'; }}
+                                onCardDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setCardDragOverIdx(boqIdx); }}
+                                onCardDrop={(e) => {
+                                  e.preventDefault();
+                                  setCardDragOverIdx(null);
+                                  const fromIdx = cardDragIdxRef.current;
+                                  if (fromIdx === null || fromIdx === boqIdx) return;
+                                  const reordered = [...boqItems];
+                                  const [moved] = reordered.splice(fromIdx, 1);
+                                  reordered.splice(boqIdx, 0, moved);
+                                  setBoqItems(reordered);
+                                  // Persist the new order
+                                  apiFetch('/api/boq-items/reorder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemIds: reordered.map(i => i.id) }) }).catch(console.error);
+                                  cardDragIdxRef.current = null;
+                                }}
+                                mismatches={activeMismatches.filter(m => m.boqItemId === boqItem.id)}
+                                isCompactView={isCompactView}
+                                onSaveAsTemplate={(item) => {
+                                  setTemplateToSave(item);
+                                  setNewTemplateName(parseTableData(item.table_data).product_name || item.estimator);
+                                  setShowSaveTemplateDialog(true);
+                                }}
+                                editedFields={editedFields}
+                                comments={comments}
+                                users={users}
+                                onAddComment={(versionId: string, itemId?: string) => {
+                                  const productName = parseTableData(boqItem.table_data).product_name || boqItem.estimator;
+                                  setCommentTarget({ type: itemId ? 'item' : 'product', id: itemId || boqItem.id, name: itemId ? `${productName} - Item ${itemId}` : productName });
+                                  setShowCommentDialog(true);
+                                }}
+                                selectedVersionId={selectedVersionId}
+                              />
+                            </div>
+                          ))}
+                      </div>
+                    }
+                  </CardContent>
+                </Card>
+              )}
 
-          {/* Action Buttons */}
-          {selectedProjectId && selectedVersionId && (
-            <Card>
-              <CardContent className="space-y-3 pt-6">
-                {selectedVersion && <VersionStatusBanner version={selectedVersion} />}
-                <PriceUpdateBanner
-                  mismatches={activeMismatches}
-                  onApplyAll={handleUpdateAllRates}
-                  onApplySingle={handleUpdateSingleMismatch}
-                  onIgnoreSingle={handleIgnoreMismatch}
-                  onViewSingle={handleViewMismatch}
-                  isUpdating={isUpdatingRates}
-                />
+              {/* Action Buttons */}
+              {selectedProjectId && selectedVersionId && (
+                <Card>
+                  <CardContent className="space-y-3 pt-6">
+                    {selectedVersion && <VersionStatusBanner version={selectedVersion} />}
+                    <PriceUpdateBanner
+                      mismatches={activeMismatches}
+                      onApplyAll={handleUpdateAllRates}
+                      onApplySingle={handleUpdateSingleMismatch}
+                      onIgnoreSingle={handleIgnoreMismatch}
+                      onViewSingle={handleViewMismatch}
+                      isUpdating={isUpdatingRates}
+                    />
 
-                {/* Version History Modal */}
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                  <Button onClick={withBudgetCheck(() => currentProjectValue, handleSaveProject)} variant="outline" disabled={isVersionSubmitted || Object.keys(editedFields).length === 0}>Save Draft</Button>
-                  <Button onClick={() => handleSubmitVersion("submitted")} variant="outline" className="border-primary text-primary hover:bg-primary/5 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Lock Version</Button>
-                  <Button onClick={() => handleSubmitVersion("pending_approval")} variant="default" className="bg-primary hover:bg-primary/90 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Submit for Approval</Button>
-                  <Button onClick={handleDownloadExcel} variant="outline" disabled={boqItems.length === 0}>Download Excel</Button>
-                  <Button onClick={handleDownloadPdf} variant="outline" disabled={boqItems.length === 0}>Download PDF</Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    {/* Version History Modal */}
+                    <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                      <Button onClick={withBudgetCheck(() => currentProjectValue, handleSaveProject)} variant="outline" disabled={isVersionSubmitted || Object.keys(editedFields).length === 0}>Save Draft</Button>
+                      <Button onClick={() => handleSubmitVersion("submitted")} variant="outline" className="border-primary text-primary hover:bg-primary/5 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Lock Version</Button>
+                      <Button onClick={() => handleSubmitVersion("pending_approval")} variant="default" className="bg-primary hover:bg-primary/90 font-bold" disabled={isVersionSubmitted || boqItems.length === 0}>Submit for Approval</Button>
+                      <Button onClick={handleDownloadExcel} variant="outline" disabled={boqItems.length === 0}>Download Excel</Button>
+                      <Button onClick={handleDownloadPdf} variant="outline" disabled={boqItems.length === 0}>Download PDF</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="approvals" className="mt-0">
+              <ApprovalsList
+                approvals={approvals}
+                onPreview={handlePreviewApproval}
+                onAction={handleApprovalAction}
+                actionLoading={approvalActionLoading}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </Layout>
 
@@ -3654,6 +4133,12 @@ export default function CreateBom() {
               />
             </div>
           </div>
+          {!selectedVersionId && (
+            <div className="mx-0 mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <div className="text-xs font-bold text-red-800">⚠️ No Version Selected</div>
+              <div className="text-xs text-red-700">Please select or create a BOQ version first to apply templates.</div>
+            </div>
+          )}
           <div className="py-2">
             <Tabs defaultValue="bom" className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-4">
@@ -3939,6 +4424,24 @@ export default function CreateBom() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <BomSketchCompareDialog
+        isOpen={showCompareDialog}
+        onClose={() => setShowCompareDialog(false)}
+        projectId={selectedProjectId}
+        currentBomVersionId={selectedVersionId}
+        onItemAdded={() => {
+          loadBoqItemsAndEdits();
+        }}
+      />
+      <ApprovalPreviewDialog
+        approval={approvals.find(a => a.id === previewApprovalId)}
+        items={previewApprovalItems}
+        loading={loadingPreviewItems}
+        open={!!previewApprovalId}
+        onClose={() => setPreviewApprovalId(null)}
+        onAction={handleApprovalAction}
+        actionLoading={approvalActionLoading}
+      />
     </>
   );
 }
