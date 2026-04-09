@@ -425,6 +425,172 @@ export async function sendAuditSummaryEmail(
 }
 
 /**
+ * Send Material Rate Change Notification to Admins
+ */
+export async function sendMaterialRateChangeEmail(
+  adminEmails: string[],
+  changeInfo: {
+    materialName: string;
+    materialCode?: string;
+    category?: string;
+    oldRate: number | string;
+    newRate: number | string;
+    changedBy: string;
+    changedByRole?: string;
+    shopName?: string;
+    materialId: string;
+  }
+) {
+  if (!resend) {
+    console.warn("[EMAIL] Resend not configured — skipping material rate change notification");
+    return;
+  }
+
+  if (!adminEmails || adminEmails.length === 0) {
+    console.warn("[EMAIL] No admin emails provided for rate change notification");
+    return;
+  }
+
+  const {
+    materialName,
+    materialCode,
+    category,
+    oldRate,
+    newRate,
+    changedBy,
+    changedByRole,
+    shopName,
+    materialId,
+  } = changeInfo;
+
+  const oldRateNum = parseFloat(String(oldRate)) || 0;
+  const newRateNum = parseFloat(String(newRate)) || 0;
+  const diff = newRateNum - oldRateNum;
+  const isIncrease = diff > 0;
+  const percentChange = oldRateNum > 0 ? ((Math.abs(diff) / oldRateNum) * 100).toFixed(1) : "N/A";
+  const changeColor = isIncrease ? "#ef4444" : "#10b981";
+  const changeLabel = isIncrease ? "📈 INCREASED" : "📉 DECREASED";
+  const changeArrow = isIncrease ? "▲" : "▼";
+
+  const emailHtml = `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 650px; margin: 0 auto; padding: 0; background-color: #f8fafc;">
+      
+      <!-- Header -->
+      <div style="background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%); padding: 28px 30px; border-radius: 8px 8px 0 0; text-align: center;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;">
+          🔔 Material Rate Change Alert
+        </h1>
+        <p style="color: #bfdbfe; margin: 6px 0 0 0; font-size: 14px;">BOQ Management System — Admin Notification</p>
+      </div>
+
+      <!-- Alert Banner -->
+      <div style="background-color: ${isIncrease ? '#fef2f2' : '#ecfdf5'}; border-left: 5px solid ${changeColor}; padding: 14px 20px; margin: 0;">
+        <p style="margin: 0; color: ${changeColor}; font-weight: 700; font-size: 16px;">
+          ${changeArrow} Rate ${changeLabel} by ₹${Math.abs(diff).toFixed(2)} (${percentChange}%)
+        </p>
+      </div>
+
+      <!-- Material Details Card -->
+      <div style="background-color: #ffffff; padding: 28px 30px; margin: 0; border: 1px solid #e2e8f0;">
+        
+        <h2 style="font-size: 16px; color: #1e40af; border-left: 4px solid #2563eb; padding-left: 12px; margin: 0 0 20px 0;">
+          Material Details
+        </h2>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 24px;">
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600; width: 40%;">Material Name</td>
+            <td style="padding: 10px 8px; color: #0f172a; font-weight: 700;">${materialName || "N/A"}</td>
+          </tr>
+          ${materialCode ? `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600;">Material Code</td>
+            <td style="padding: 10px 8px; color: #0f172a;">${materialCode}</td>
+          </tr>` : ""}
+          ${category ? `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600;">Category</td>
+            <td style="padding: 10px 8px; color: #0f172a;">${category}</td>
+          </tr>` : ""}
+          ${shopName ? `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600;">Vendor / Shop</td>
+            <td style="padding: 10px 8px; color: #0f172a;">${shopName}</td>
+          </tr>` : ""}
+        </table>
+
+        <!-- Rate Change Highlight Box -->
+        <div style="background-color: #f8fafc; border-radius: 10px; padding: 20px; border: 1px solid #e2e8f0; text-align: center; margin-bottom: 24px;">
+          <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Rate Change Summary</p>
+          <div style="display: inline-table; width: 100%;">
+            <div style="display: table-cell; width: 33%; vertical-align: middle; padding: 10px;">
+              <p style="margin: 0; color: #64748b; font-size: 12px; font-weight: 600; margin-bottom: 6px;">PREVIOUS RATE</p>
+              <p style="margin: 0; color: #475569; font-size: 24px; font-weight: 700;">₹${oldRateNum.toFixed(2)}</p>
+            </div>
+            <div style="display: table-cell; width: 33%; vertical-align: middle; padding: 10px; text-align: center;">
+              <p style="margin: 0; color: ${changeColor}; font-size: 28px; font-weight: 900;">${changeArrow}</p>
+              <p style="margin: 4px 0 0 0; color: ${changeColor}; font-size: 12px; font-weight: 700;">${percentChange !== "N/A" ? percentChange + "%" : ""}</p>
+            </div>
+            <div style="display: table-cell; width: 33%; vertical-align: middle; padding: 10px;">
+              <p style="margin: 0; color: #64748b; font-size: 12px; font-weight: 600; margin-bottom: 6px;">NEW RATE</p>
+              <p style="margin: 0; color: ${changeColor}; font-size: 24px; font-weight: 700;">₹${newRateNum.toFixed(2)}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Changed By Info -->
+        <h2 style="font-size: 16px; color: #1e40af; border-left: 4px solid #2563eb; padding-left: 12px; margin: 0 0 16px 0;">
+          Change Details
+        </h2>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600; width: 40%;">Changed By</td>
+            <td style="padding: 10px 8px; color: #0f172a; font-weight: 600;">${changedBy}</td>
+          </tr>
+          ${changedByRole ? `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600;">Role</td>
+            <td style="padding: 10px 8px; color: #0f172a;">${changedByRole}</td>
+          </tr>` : ""}
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600;">Timestamp</td>
+            <td style="padding: 10px 8px; color: #0f172a;">${new Date().toLocaleString("en-IN", { dateStyle: "full", timeStyle: "medium" })}</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 8px; color: #64748b; font-weight: 600;">Material ID</td>
+            <td style="padding: 10px 8px; color: #94a3b8; font-size: 12px; font-family: monospace;">${materialId}</td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Footer -->
+      <div style="background-color: #f1f5f9; padding: 20px 30px; border-radius: 0 0 8px 8px; text-align: center; border: 1px solid #e2e8f0; border-top: none;">
+        <p style="margin: 0; font-size: 13px; color: #64748b;">
+          ⚠️ This is an automated alert from the <strong>BOQ Management System</strong>.
+        </p>
+        <p style="margin: 6px 0 0 0; font-size: 12px; color: #94a3b8;">
+          Please review this change and take action if required. &copy; ${new Date().getFullYear()} Concept Trunk Interiors.
+        </p>
+      </div>
+    </div>
+  `;
+
+  try {
+    const response = await resend.emails.send({
+      from: fromEmail,
+      to: adminEmails,
+      subject: `🔔 Rate Alert: ${materialName} — ₹${oldRateNum.toFixed(2)} → ₹${newRateNum.toFixed(2)} (${isIncrease ? "+" : "-"}${Math.abs(diff).toFixed(2)})`,
+      html: emailHtml,
+    });
+    console.log("[EMAIL] Material rate change notification sent to admins:", adminEmails);
+    return response;
+  } catch (error) {
+    console.error("[EMAIL ERROR] sendMaterialRateChangeEmail:", error);
+    // Don't throw — email failure should not block the rate update
+  }
+}
+
+/**
  * Send Proposal Status Email (Approved/Rejected)
  */
 export async function sendProposalStatusEmail(
