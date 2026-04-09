@@ -4512,7 +4512,7 @@ export async function registerRoutes(
 
         // Roles that bypass project-level access restrictions (see all projects)
         // Only vendors/suppliers are restricted to their assigned projects
-        const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+        const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
 
         // Only allow privileged roles to bypass project restrictions; vendors/suppliers are filtered
         if (privilegedRoles.includes(user?.role)) {
@@ -4857,8 +4857,8 @@ export async function registerRoutes(
         }
 
         await query(
-          `INSERT INTO boq_versions (id, project_id, project_name, project_client, project_location, project_client_address, project_gst_no, project_value, version_number, status, type, column_config, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())`,
+          `INSERT INTO boq_versions (id, project_id, project_name, project_client, project_location, project_client_address, project_gst_no, project_value, version_number, status, type, column_config, is_locked, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, NOW(), NOW())`,
           [versionId, project_id, projectName, projectClient, projectLocation, projectClientAddress, projectGstNo, projectVal, nextVersion, "draft", type, initialColumnConfig],
         );
 
@@ -5169,36 +5169,48 @@ export async function registerRoutes(
     async (req: Request, res: Response) => {
       try {
         const { versionId } = req.params;
-        const { status } = req.body;
-
-
+        const { status, column_config, is_locked, type: newType, is_boq_submission } = req.body;
 
         if (status && !["draft", "submitted", "pending_approval", "approved", "rejected", "edit_requested"].includes(status)) {
           res.status(400).json({ message: "Invalid status" });
           return;
         }
 
-        if (!status && req.body.column_config === undefined) {
-          // allow updating just column_config without status
-        }
-
-
-        if (req.body.column_config !== undefined) {
+        if (column_config !== undefined) {
           await query(
             `UPDATE boq_versions SET column_config = $1, updated_at = NOW() WHERE id = $2`,
-            [req.body.column_config, versionId]
+            [column_config, versionId]
           );
         }
 
-        if (req.body.is_locked !== undefined) {
+        if (is_boq_submission !== undefined) {
+          await query(
+            `UPDATE boq_versions SET is_boq_submission = $1, updated_at = NOW() WHERE id = $2`,
+            [is_boq_submission, versionId]
+          );
+        }
+
+        // Allow changing type (e.g. Finance team upgrading a BOM → BOQ when submitting for BOQ approval)
+        if (newType && ["bom", "boq"].includes(newType)) {
+          await query(
+            `UPDATE boq_versions SET type = $1, updated_at = NOW() WHERE id = $2`,
+            [newType, versionId]
+          );
+        }
+
+        if (is_locked !== undefined) {
           await query(
             `UPDATE boq_versions SET is_locked = $1, updated_at = NOW() WHERE id = $2`,
-            [req.body.is_locked, versionId]
+            [is_locked, versionId]
           );
 
-          if (req.body.is_locked) {
+          if (is_locked) {
             try {
               const user = (req as any).user;
+              // Also ensure status is 'submitted' if locked by non-admin
+              if (user.role !== 'admin' && user.role !== 'software_team') {
+                await query(`UPDATE boq_versions SET status = 'submitted' WHERE id = $1 AND status = 'draft'`, [versionId]);
+              }
               await query(
                 `INSERT INTO boq_history (version_id, user_id, user_full_name, action, created_at)
                  VALUES ($1, $2, $3, 'locked', NOW())`,
@@ -5213,10 +5225,9 @@ export async function registerRoutes(
         if (status) {
           await query(
             `UPDATE boq_versions SET status = $1, updated_at = NOW() WHERE id = $2`,
-            [status, versionId],
+            [status, versionId]
           );
 
-          // Log status change in history
           try {
             const user = (req as any).user;
             await query(
@@ -5229,12 +5240,44 @@ export async function registerRoutes(
           }
         }
 
-        res.json({ message: "Version updated" });
+        res.json({ message: "Version updated successfully" });
       } catch (err) {
-        console.error("PUT /api/boq-versions error", err);
+        console.error("PUT /api/boq-versions/:versionId error", err);
         res.status(500).json({ message: "Failed to update version" });
       }
-    },
+    }
+  );
+
+  // POST /api/boq-versions/:id/request-edit
+  app.post(
+    "/api/boq-versions/:id/request-edit",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { reason } = req.body;
+        const result = await query(
+          "UPDATE boq_versions SET status = 'edit_requested', is_locked = TRUE, updated_at = NOW() WHERE id = $1 AND status = 'approved' RETURNING id",
+          [id]
+        );
+
+        if (result.rowCount === 0) {
+          return res.status(400).json({ message: "Can only request edit for approved versions" });
+        }
+
+        const user = (req as any).user;
+        await query(
+          `INSERT INTO boq_history (version_id, user_id, user_full_name, action, reason, created_at)
+           VALUES ($1, $2, $3, 'edit_requested', $4, NOW())`,
+          [id, user?.id, user?.fullName || user?.username, reason]
+        );
+
+        res.json({ message: "Edit request submitted successfully" });
+      } catch (err) {
+        console.error("POST /api/boq-versions/:id/request-edit error:", err);
+        res.status(500).json({ message: "Failed to submit edit request" });
+      }
+    }
   );
 
   // ==================== BOM APPROVAL ROUTES ====================
@@ -5243,7 +5286,7 @@ export async function registerRoutes(
   app.get(
     "/api/bom-approvals",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales"),
+    requireRole("admin", "software_team", "purchase_team", "product_manager", "pre_sales", "finance_team"),
     async (req: Request, res: Response) => {
       try {
         const user = (req as any).user;
@@ -5251,6 +5294,7 @@ export async function registerRoutes(
         await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_cleared BOOLEAN DEFAULT FALSE");
         await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS purchase_approval_status TEXT DEFAULT 'pending'");
         await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS purchase_rejection_reason TEXT");
+        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_boq_submission BOOLEAN DEFAULT FALSE");
 
         let queryStr = "SELECT * FROM boq_versions WHERE status != 'draft' AND ((is_cleared IS FALSE OR is_cleared IS NULL) OR status = 'edit_requested')";
         const params: any[] = [];
@@ -5282,10 +5326,22 @@ export async function registerRoutes(
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        await query(
-          "UPDATE boq_versions SET status = 'approved', updated_at = NOW() WHERE id = $1",
-          [id]
-        );
+        const { is_locked } = req.body;
+
+        if (is_locked !== undefined) {
+          await query(
+            "UPDATE boq_versions SET status = 'approved', is_locked = $1, updated_at = NOW() WHERE id = $2",
+            [is_locked, id]
+          );
+        } else {
+          // If no explicit lock state is passed (Standard Admin Dashboard Approval):
+          // 1. If it's a standard Engineering submission (is_boq_submission is false/null), UNLOCK it for Finance.
+          // 2. If it's a Finance BOQ submission (is_boq_submission is true), KEEP it locked.
+          await query(
+            "UPDATE boq_versions SET status = 'approved', is_locked = CASE WHEN is_boq_submission IS TRUE THEN TRUE ELSE FALSE END, updated_at = NOW() WHERE id = $1",
+            [id]
+          );
+        }
 
         // Log approval in history
         try {
@@ -5427,7 +5483,7 @@ export async function registerRoutes(
       try {
         const { id } = req.params;
         const result = await query(
-          "UPDATE boq_versions SET status = 'draft', updated_at = NOW() WHERE id = $1 AND status = 'edit_requested' RETURNING id",
+          "UPDATE boq_versions SET status = 'draft', is_locked = FALSE, updated_at = NOW() WHERE id = $1 AND status = 'edit_requested' RETURNING id",
           [id]
         );
 
@@ -8501,7 +8557,7 @@ export async function registerRoutes(
         params.push(status);
       }
 
-      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
       if (!privilegedRoles.includes(user.role)) {
         whereConditions.push(`po.project_id IN (SELECT project_id FROM user_project_permissions WHERE user_id = $${params.length + 1})`);
         params.push(user.id);
@@ -9177,7 +9233,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const userId = req.user.id;
       const registry = await query(`SELECT id FROM user_management_registry WHERE user_id = $1`, [userId]);
       if (registry.rows.length === 0) {
-        const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+        const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
         const projectsRes = privilegedRoles.includes(req.user.role) 
           ? await query(`SELECT id as project_id FROM boq_projects`)
           : await query(`SELECT project_id FROM user_project_permissions WHERE user_id = $1`, [userId]);
@@ -9191,7 +9247,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         return;
       }
       const perms = await query(`SELECT module_name FROM user_sidebar_permissions WHERE user_id = $1 ORDER BY module_name`, [userId]);
-      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
       const projectsRes = privilegedRoles.includes(req.user.role)
         ? await query(`SELECT id as project_id FROM boq_projects`)
         : await query(`SELECT project_id FROM user_project_permissions WHERE user_id = $1`, [userId]);
@@ -9220,7 +9276,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const userId = req.user.id;
 
       // Verify that the user has permission for this project (unless admin/software_team/purchase_team/pre_sales/product_manager)
-      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager'];
+      const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
       
       if (!privilegedRoles.includes(req.user.role)) {
         const check = await query(`SELECT 1 FROM user_project_permissions WHERE user_id = $1 AND project_id = $2`, [userId, projectId]);
