@@ -6,7 +6,7 @@ import { comparePasswords, generateToken } from "./auth";
 import { authMiddleware, requireRole } from "./middleware";
 import { randomUUID } from "crypto";
 import { query } from "./db/client";
-import { sendSketchPlanEmail, sendSiteReportEmail, sendProposalStatusEmail } from "./email";
+import { sendSketchPlanEmail, sendSiteReportEmail, sendProposalStatusEmail, sendMaterialRateChangeEmail } from "./email";
 import { logActivity } from "./audit";
 
 export async function registerRoutes(
@@ -1043,6 +1043,7 @@ export async function registerRoutes(
         install_rate DECIMAL(15,2),
         location VARCHAR(255),
         amount DECIMAL(15,4),
+        freeze_and_edit BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
@@ -1080,6 +1081,7 @@ export async function registerRoutes(
         install_rate DECIMAL(15,2),
         location VARCHAR(255),
         amount DECIMAL(15,4),
+        freeze_and_edit BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
@@ -1092,6 +1094,7 @@ export async function registerRoutes(
     await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS base_qty DECIMAL(15,2)`);
     await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS wastage_pct DECIMAL(15,4)`);
     await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)`);
+    await query(`ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE`);
 
     // Explicitly upgrade types if they already exist with old restrictive types
     await query(`ALTER TABLE product_step3_config ALTER COLUMN wastage_pct_default TYPE DECIMAL(15,4)`);
@@ -2507,13 +2510,71 @@ export async function registerRoutes(
       }
       if (fields.length === 0)
         return res.status(400).json({ message: "no fields" });
+
+      // --- Fetch old material record before updating (for rate change detection) ---
+      let oldMaterial: any = null;
+      try {
+        const oldRes = await query(
+          `SELECT m.*, s.name as shop_name FROM materials m LEFT JOIN shops s ON m.shop_id = s.id WHERE m.id = $1`,
+          [id]
+        );
+        oldMaterial = oldRes.rows[0] || null;
+      } catch (e) {
+        console.warn("[PUT /api/materials/:id] Could not fetch old material for rate comparison:", e);
+      }
+
       vals.push(id);
       const q = `UPDATE materials SET ${fields.join(", ")} WHERE id = $${idx} RETURNING *`;
       console.log('[PUT /api/materials/:id] body:', body);
       console.log('[PUT /api/materials/:id] query:', q);
       console.log('[PUT /api/materials/:id] vals:', vals);
       const result = await query(q, vals);
-      res.json({ material: result.rows[0] });
+      const updatedMaterial = result.rows[0];
+      res.json({ material: updatedMaterial });
+
+      // --- Send email notification if rate changed (fire-and-forget) ---
+      const newRate = body.rate !== undefined ? parseSafeNumeric(body.rate) : null;
+      const oldRate = oldMaterial ? parseFloat(String(oldMaterial.rate)) : null;
+      const rateActuallyChanged = newRate !== null && oldRate !== null && Math.abs(newRate - oldRate) > 0.001;
+
+      if (rateActuallyChanged && updatedMaterial) {
+        (async () => {
+          try {
+            // Get all admin user emails (username is used as email in this system)
+            const adminRes = await query(
+              `SELECT username FROM users WHERE role IN ('admin', 'software_team') AND approved = 'approved'`
+            );
+            const adminEmails: string[] = adminRes.rows
+              .map((r: any) => r.username)
+              .filter((email: string) => email && email.includes("@"));
+
+            // Also include ADMIN_EMAIL env var if set
+            const envAdminEmail = process.env.ADMIN_EMAIL;
+            if (envAdminEmail && !adminEmails.includes(envAdminEmail)) {
+              adminEmails.push(envAdminEmail);
+            }
+
+            if (adminEmails.length > 0) {
+              const user = (req as any).user;
+              await sendMaterialRateChangeEmail(adminEmails, {
+                materialName: updatedMaterial.name || oldMaterial?.name || "Unknown Material",
+                materialCode: updatedMaterial.code || oldMaterial?.code,
+                category: updatedMaterial.category || oldMaterial?.category,
+                oldRate: oldRate!,
+                newRate: newRate!,
+                changedBy: user?.username || "Unknown User",
+                changedByRole: user?.role,
+                shopName: updatedMaterial.shop_name || oldMaterial?.shop_name,
+                materialId: id,
+              });
+            } else {
+              console.warn("[EMAIL] No valid admin emails found for rate change notification. Set ADMIN_EMAIL in .env or ensure admin usernames are email addresses.");
+            }
+          } catch (emailErr) {
+            console.error("[EMAIL] Failed to send material rate change notification:", emailErr);
+          }
+        })();
+      }
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "error" });
@@ -6919,6 +6980,8 @@ export async function registerRoutes(
               await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE");
               await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS shop_name TEXT");
               await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS base_qty DECIMAL(10,4)");
+              await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
+              await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
 
               // Expand text column limits
               await query("ALTER TABLE step11_product_items ALTER COLUMN material_id TYPE TEXT");
@@ -6928,8 +6991,8 @@ export async function registerRoutes(
 
               await query(
                 `INSERT INTO step11_product_items 
-                 (step11_product_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, apply_wastage, shop_name, base_qty)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+                 (step11_product_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, freeze_and_edit, apply_wastage, shop_name, base_qty)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
                 [
                   step11ProductId,
                   item.materialId,
@@ -6941,6 +7004,7 @@ export async function registerRoutes(
                   item.installRate,
                   item.location,
                   item.amount,
+                  item.freezeAndEdit === true || item.freeze_and_edit === true,
                   item.applyWastage !== undefined ? item.applyWastage : true,
                   item.shopName || item.shop_name || null,
                   item.baseQty ?? item.qty
@@ -7043,7 +7107,9 @@ export async function registerRoutes(
             await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE");
 
             // Add shop_name to config items
+            await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
             await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS shop_name TEXT");
+            await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE");
 
             await query("ALTER TABLE product_step3_config_items ALTER COLUMN material_id TYPE TEXT");
             await query("ALTER TABLE product_step3_config_items ALTER COLUMN material_name TYPE TEXT");
@@ -7053,8 +7119,8 @@ export async function registerRoutes(
             for (const item of items) {
               await query(
                 `INSERT INTO product_step3_config_items
-                 (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, shop_name)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                 (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
                 [
                   step3ConfigId,
                   item.materialId,
@@ -7069,6 +7135,7 @@ export async function registerRoutes(
                   item.baseQty,
                   item.wastagePct,
                   item.applyWastage !== undefined ? item.applyWastage : true,
+                  item.freezeAndEdit === true || item.freeze_and_edit === true,
                   item.shopName || item.shop_name || null
                 ],
               );
@@ -7429,6 +7496,7 @@ export async function registerRoutes(
   // ==================== PRODUCT APPROVAL ROUTES ====================
   // Ensure product_approvals has rejection_reason column
   query("ALTER TABLE product_approvals ADD COLUMN IF NOT EXISTS rejection_reason TEXT").catch(() => { });
+  query("ALTER TABLE product_approval_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
 
   // POST /api/product-approvals - Submit for approval
   app.post(
@@ -7470,13 +7538,14 @@ export async function registerRoutes(
             for (const item of items) {
               await query(
                 `INSERT INTO product_approval_items
-                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, shop_name)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
                 [
                   approvalId, item.materialId, item.materialName, item.unit, item.qty, item.rate,
                   item.supplyRate, item.installRate, item.location, item.amount,
                   item.baseQty, item.wastagePct,
                   item.applyWastage !== undefined ? item.applyWastage : true,
+                  item.freezeAndEdit === true || item.freeze_and_edit === true,
                   item.shopName || item.shop_name || null
                 ]
               );
@@ -7593,14 +7662,15 @@ export async function registerRoutes(
             for (const item of items) {
               await query(
                 `INSERT INTO product_approval_items
-                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, shop_name)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                 (approval_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
                 [
                   id, item.material_id || item.materialId, item.material_name || item.materialName,
                   item.unit, item.qty, item.rate, item.supply_rate || item.supplyRate,
                   item.install_rate || item.installRate, item.location, item.amount,
                   item.base_qty || item.baseQty, item.wastage_pct || item.wastagePct,
                   item.apply_wastage !== undefined ? item.apply_wastage : (item.applyWastage !== undefined ? item.applyWastage : true),
+                  item.freeze_and_edit === true || item.freezeAndEdit === true,
                   item.shop_name || item.shopName || null
                 ]
               );
@@ -7670,17 +7740,18 @@ export async function registerRoutes(
           // Ensure item columns exist
           await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE").catch(() => { });
           await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)").catch(() => { });
+          await query("ALTER TABLE product_step3_config_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
 
           for (const item of appItems) {
             await query(
               `INSERT INTO product_step3_config_items
-               (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, shop_name)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+               (step3_config_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, base_qty, wastage_pct, apply_wastage, freeze_and_edit, shop_name)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
               [
                 step3Id, item.material_id, item.material_name, item.unit,
                 item.qty, item.rate, item.supply_rate, item.install_rate,
                 item.location, item.amount, item.base_qty, item.wastage_pct,
-                item.apply_wastage, item.shop_name
+                item.apply_wastage, item.freeze_and_edit === true || item.freezeAndEdit === true, item.shop_name
               ]
             );
           }
@@ -7711,17 +7782,21 @@ export async function registerRoutes(
           );
           const step11Id = step11Result.rows[0].id;
 
+          await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
           await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS apply_wastage BOOLEAN DEFAULT TRUE").catch(() => { });
           await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255)").catch(() => { });
+          await query("ALTER TABLE step11_product_items ADD COLUMN IF NOT EXISTS freeze_and_edit BOOLEAN DEFAULT FALSE").catch(() => { });
 
           for (const item of appItems) {
             await query(
-              `INSERT INTO step11_product_items (step11_product_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, apply_wastage, shop_name)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+              `INSERT INTO step11_product_items (step11_product_id, material_id, material_name, unit, qty, rate, supply_rate, install_rate, location, amount, freeze_and_edit, apply_wastage, shop_name)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
               [
                 step11Id, item.material_id, item.material_name, item.unit,
                 item.qty, item.rate, item.supply_rate, item.install_rate,
-                item.location, item.amount, item.apply_wastage, item.shop_name
+                item.location, item.amount,
+                item.freeze_and_edit === true || item.freezeAndEdit === true,
+                item.apply_wastage, item.shop_name
               ]
             );
           }
