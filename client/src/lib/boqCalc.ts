@@ -79,6 +79,7 @@ export function computeBoq(
         const wastagePctUsed = applyW ? (rowW !== undefined ? rowW : defaultW) : 0;
 
         const wastageQty = baseQty * wastagePctUsed;
+        const isFrozenQty = (l.freezeAndEdit === true || (l as any).freezeAndEdit === "true" || (l as any).freezeAndEdit === 1 || l.freeze_and_edit === true || l.freeze_and_edit === "true" || l.freeze_and_edit === 1);
         const effectiveQtyAtBasis = baseQty + wastageQty;
 
         // Excel Logic: The rounding happens at the "Basis" level (the recipe).
@@ -88,8 +89,8 @@ export function computeBoq(
         const roundedQtyAtBasis = applyR ? Math.ceil(effectiveQtyAtBasis) : effectiveQtyAtBasis;
         const perUnitQty = base > 0 ? roundedQtyAtBasis / base : 0;
 
-        const scaledQty = perUnitQty * target;
-        const roundOffQty = applyR ? Math.ceil(scaledQty) : scaledQty;
+        const scaledQty = isFrozenQty ? roundedQtyAtBasis : perUnitQty * target;
+        const roundOffQty = isFrozenQty ? roundedQtyAtBasis : (applyR ? Math.ceil(scaledQty) : scaledQty);
 
         const supplyRate = Number(l.supplyRate) || 0;
         const installRate = Number(l.installRate) || 0;
