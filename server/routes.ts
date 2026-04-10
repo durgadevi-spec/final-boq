@@ -6,7 +6,7 @@ import { comparePasswords, generateToken } from "./auth";
 import { authMiddleware, requireRole } from "./middleware";
 import { randomUUID } from "crypto";
 import { query } from "./db/client";
-import { sendSketchPlanEmail, sendSiteReportEmail, sendProposalStatusEmail, sendMaterialRateChangeEmail } from "./email";
+import { sendSketchPlanEmail, sendSiteReportEmail, sendProposalStatusEmail, sendMaterialRateChangeEmail, sendCommentMentionEmail } from "./email";
 import { logActivity } from "./audit";
 
 export async function registerRoutes(
@@ -219,9 +219,48 @@ export async function registerRoutes(
     await query(
       `CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at)`,
     );
+
+    // Create bom_comments table
+    await query(`
+      CREATE TABLE IF NOT EXISTS bom_comments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        version_id VARCHAR(100) NOT NULL,
+        product_id TEXT,
+        item_id TEXT,
+        user_id TEXT NOT NULL,
+        user_full_name TEXT NOT NULL,
+        comment_text TEXT NOT NULL,
+        version_number INTEGER NOT NULL,
+        visible_to TEXT[],
+        read_by TEXT[] DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+      )
+    `);
+    // Migration for existing tables that might have been created with UUID or missing columns
+    await query(`ALTER TABLE bom_comments ALTER COLUMN version_id TYPE VARCHAR(100)`);
+    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS visible_to TEXT[]`);
+    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS read_by TEXT[] DEFAULT '{}'`);
+    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS parent_id UUID`);
+    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS reply_to_text TEXT`);
+    await query(`ALTER TABLE bom_comments ADD COLUMN IF NOT EXISTS reply_to_user TEXT`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_bom_comments_version_id ON bom_comments (version_id)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_bom_comments_itemId ON bom_comments (item_id)`);
+
+    // Added missing /api/users route for tagging feature
+    app.get("/api/users", authMiddleware, async (req: Request, res: Response) => {
+      try {
+        const result = await query(`SELECT id, username, role, full_name as "fullName", department FROM users ORDER BY full_name ASC`);
+        res.json({ users: result.rows });
+      } catch (err) {
+        console.error("GET /api/users error", err);
+        res.status(500).json({ message: "Failed to fetch users" });
+      }
+    });
+
   } catch (err: unknown) {
     console.warn(
-      "[migrations] ensure messages table failed (continuing):",
+      "[migrations] ensure messages/comments tables failed (continuing):",
       (err as any)?.message || err,
     );
   }
@@ -5991,29 +6030,20 @@ export async function registerRoutes(
     authMiddleware,
     async (req: Request, res: Response) => {
       try {
-        // Cast table_data to jsonb to query inside it. 
-        // We use boolean check or string check depending on how it was stored.
-        // The frontend stores `is_finalized: true` (boolean), so ->> returns 'true' string.
         const result = await query(
           `SELECT id, project_id, version_id, estimator, table_data, created_at 
            FROM boq_items 
            WHERE (table_data::jsonb)->>'is_finalized' = 'true'
-           ORDER BY sort_order ASC, created_at DESC`, // Added sort_order
-          [],
+           ORDER BY sort_order ASC, created_at DESC`
         );
-
         const items = result.rows.map((row: any) => ({
           id: row.id,
           project_id: row.project_id,
           version_id: row.version_id,
           estimator: row.estimator,
-          table_data:
-            typeof row.table_data === "string"
-              ? JSON.parse(row.table_data)
-              : row.table_data,
+          table_data: typeof row.table_data === "string" ? JSON.parse(row.table_data) : row.table_data,
           created_at: row.created_at,
         }));
-
         res.json({ items });
       } catch (err) {
         console.error("GET /api/boq-items/finalized error", err);
@@ -6021,6 +6051,174 @@ export async function registerRoutes(
       }
     },
   );
+
+  // ==================== BOQ COMMENTS ROUTES ====================
+
+  // GET /api/boq-comments/:versionId - Get comments for a BOM version
+  app.get("/api/boq-comments/:versionId", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { versionId } = req.params;
+      const user = (req as any).user;
+      // Server-side visibility filter:
+      // Return a comment if:
+      //   1. visible_to is NULL or empty (visible to everyone), OR
+      //   2. the requesting user's username is in visible_to (tagged), OR
+      //   3. the requesting user is the sender (user_id = user.id)
+      const result = await query(
+        `SELECT id, version_id, product_id, item_id, user_id, user_full_name, comment_text, version_number, visible_to, read_by, parent_id, reply_to_text, reply_to_user, created_at, updated_at
+         FROM bom_comments
+         WHERE version_id = $1
+           AND (
+             visible_to IS NULL
+             OR visible_to = '{}'
+             OR cardinality(visible_to) = 0
+             OR $2 = ANY(visible_to)
+             OR user_id = $3
+           )
+         ORDER BY created_at ASC`,
+        [versionId, user.username, user.id]
+      );
+      res.json({ comments: result.rows });
+    } catch (err) {
+      console.error("GET /api/boq-comments error", err);
+      res.status(500).json({ message: "Failed to load comments" });
+    }
+  });
+
+  // POST /api/boq-comments - Save a new comment
+  app.post("/api/boq-comments", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { version_id, product_id, item_id, comment_text, version_number, visible_to, parent_id, reply_to_text, reply_to_user } = req.body;
+
+      if (!version_id || !comment_text) {
+        return res.status(400).json({ message: "version_id and comment_text are required" });
+      }
+
+      const result = await query(
+        `INSERT INTO bom_comments (version_id, product_id, item_id, user_id, user_full_name, comment_text, version_number, visible_to, read_by, parent_id, reply_to_text, reply_to_user, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+         RETURNING *`,
+        [
+          version_id,
+          product_id || null,
+          item_id || null,
+          user.id,
+          user.fullName || user.username,
+          comment_text,
+          version_number || 1,
+          visible_to || [],
+          [user.id], // Auto-mark as read by sender
+          parent_id || null,
+          reply_to_text || null,
+          reply_to_user || null
+        ]
+      );
+
+      const savedComment = result.rows[0];
+
+      // ── Email tagged users ──────────────────────────────────────
+      if (visible_to && visible_to.length > 0) {
+        try {
+          // Fetch usernames→email mapping for tagged users
+          const taggedUsersResult = await query(
+            `SELECT username, email, full_name FROM users WHERE username = ANY($1)`,
+            [visible_to]
+          );
+          const taggedUsersWithEmail = taggedUsersResult.rows.filter((u: any) => u.email);
+
+          if (taggedUsersWithEmail.length > 0) {
+            // Get version/project context for email body
+            const versionResult = await query(
+              `SELECT bv.version_number, bp.name AS project_name
+               FROM boq_versions bv
+               LEFT JOIN boq_projects bp ON bv.project_id = bp.id
+               WHERE bv.id = $1 LIMIT 1`,
+              [version_id]
+            );
+            const vCtx = versionResult.rows[0];
+
+            // Determine thread name
+            let threadName = "Overall Version Discussion";
+            if (product_id) {
+              const itemRes = await query(`SELECT estimator FROM boq_items WHERE id = $1 LIMIT 1`, [product_id]);
+              if (itemRes.rows[0]) threadName = itemRes.rows[0].estimator || "Product Discussion";
+            } else if (item_id) {
+              const productId = String(item_id).split('_')[0];
+              const itemRes = await query(`SELECT estimator FROM boq_items WHERE id = $1 LIMIT 1`, [productId]);
+              if (itemRes.rows[0]) threadName = `${itemRes.rows[0].estimator} (Material Discussion)`;
+            }
+
+            await sendCommentMentionEmail(
+              taggedUsersWithEmail.map((u: any) => u.email),
+              {
+                mentionedNames: taggedUsersWithEmail.map((u: any) => u.full_name || u.username),
+                senderName: user.fullName || user.username,
+                commentText: comment_text,
+                threadName,
+                projectName: vCtx?.project_name,
+                versionNumber: vCtx?.version_number,
+              }
+            );
+          }
+        } catch (emailErr) {
+          console.error("[EMAIL] Failed to send mention notification:", emailErr);
+          // Don't block the response — email failure is non-critical
+        }
+      }
+      // ────────────────────────────────────────────────────────────
+
+      res.status(201).json({ comment: savedComment });
+    } catch (err) {
+      console.error("POST /api/boq-comments error", err);
+      res.status(500).json({ message: "Failed to save comment" });
+    }
+  });
+
+  // PATCH /api/boq-comments/:id/read - Mark comment as read
+  app.patch("/api/boq-comments/:id/read", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+
+      await query(
+        `UPDATE bom_comments SET read_by = array_append(read_by, $1) 
+         WHERE id = $2 AND NOT ($1 = ANY(read_by))`,
+        [user.id, id]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error("PATCH /api/boq-comments/read error", err);
+      res.status(500).json({ message: "Failed to mark comment as read" });
+    }
+  });
+
+  // PATCH /api/boq-comments/read-all/:versionId - Mark all comments in a context as read
+  app.patch("/api/boq-comments/read-all/:versionId", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { versionId } = req.params;
+      const { itemId } = req.body;
+
+      let q = `UPDATE bom_comments SET read_by = array_append(read_by, $1) 
+               WHERE version_id = $2 AND NOT ($1 = ANY(read_by))`;
+      const params: any[] = [user.id, versionId];
+
+      if (itemId) {
+        q += ` AND (item_id = $3 OR product_id = $3)`;
+        params.push(itemId);
+      } else {
+        q += ` AND item_id IS NULL AND product_id IS NULL`; 
+      }
+
+      await query(q, params);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("PATCH /api/boq-comments/read-all error", err);
+      res.status(500).json({ message: "Failed to mark all as read" });
+    }
+  });
 
   // GET /api/boq-items/version/:versionId - Fetch BOQ items for a specific version
   app.get(
@@ -9309,7 +9507,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const registry = await query(`SELECT id FROM user_management_registry WHERE user_id = $1`, [userId]);
       if (registry.rows.length === 0) {
         const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
-        const projectsRes = privilegedRoles.includes(req.user.role) 
+        const projectsRes = privilegedRoles.includes(req.user.role)
           ? await query(`SELECT id as project_id FROM boq_projects`)
           : await query(`SELECT project_id FROM user_project_permissions WHERE user_id = $1`, [userId]);
         const userRes = await query(`SELECT current_project_id FROM users WHERE id = $1`, [userId]);
@@ -9352,7 +9550,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
 
       // Verify that the user has permission for this project (unless admin/software_team/purchase_team/pre_sales/product_manager)
       const privilegedRoles = ['admin', 'software_team', 'purchase_team', 'pre_sales', 'product_manager', 'finance_team'];
-      
+
       if (!privilegedRoles.includes(req.user.role)) {
         const check = await query(`SELECT 1 FROM user_project_permissions WHERE user_id = $1 AND project_id = $2`, [userId, projectId]);
         if (check.rows.length === 0 && projectId !== null) {
