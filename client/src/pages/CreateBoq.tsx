@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Reorder, useDragControls } from "framer-motion";
-import { ChevronUp, ChevronDown, Loader2, CheckCircle2, XCircle, Lock, History, Clock, Briefcase, MapPin, IndianRupee, GripVertical, Search, ArrowUp, Plus, Trash2, Save, MessageSquare, Users, ChevronsUpDown, Check, X, RefreshCw, Star, Edit } from "lucide-react";
+import { ChevronUp, ChevronDown, Loader2, CheckCircle2, XCircle, Lock, History, Clock, Briefcase, MapPin, IndianRupee, GripVertical, Search, ArrowUp, ArrowLeft, Plus, Trash2, Save, MessageSquare, Users, ChevronsUpDown, Check, X, RefreshCw, Star, Edit, Reply } from "lucide-react";
 import { fuzzySearch, cn } from "@/lib/utils";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -22,8 +22,8 @@ import { BomSketchCompareDialog } from "@/components/BomSketchCompareDialog";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from 'xlsx';
-import { DeleteConfirmationDialog } from "@/components/ui/DeleteConfirmationDialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DeleteConfirmationDialog } from "../components/ui/DeleteConfirmationDialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -31,11 +31,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
-import { useData } from "@/lib/store";
+} from "../components/ui/table";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "../components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Textarea } from "../components/ui/textarea";
+import { useData } from "../lib/store";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -60,8 +60,8 @@ type BOMItem = { id: string; estimator: string; session_id: string; table_data: 
 type Product = { id: string; name: string; code: string; image?: string; category?: string; subcategory?: string; description?: string; category_name?: string; subcategory_name?: string; tax_code_type?: string; tax_code_value?: string; hsn_code?: string; sac_code?: string };
 type Step11Item = { id?: string; s_no?: number; title?: string; description?: string; unit?: string; qty?: number; supply_rate?: number; install_rate?: number;[key: string]: any };
 type BOMHistory = { id: string; version_id: string; user_id: string; user_full_name: string; action: string; reason?: string; created_at: string };
-type BOMComment = { id: string; version_id: string; product_id?: string; item_id?: string; user_id: string; user_full_name: string; comment_text: string; version_number: number; visible_to: string[]; created_at: string; updated_at: string };
-type User = { id: string; username: string; fullName?: string; role: string; department?: string; displayName: string };
+type BOMComment = { id: string; version_id: string; product_id?: string; item_id?: string; user_id: string; user_full_name: string; comment_text: string; version_number: number; visible_to: string[]; read_by?: string[]; parent_id?: string; reply_to_text?: string; reply_to_user?: string; created_at: string; updated_at: string };
+type User = { id: string; username: string; fullName?: string; role: string; department?: string };
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
@@ -289,7 +289,7 @@ function VersionStatusBanner({ version }: { version: BOMVersion }) {
 
 // ─── BOQ Item Card ─────────────────────────────────────────────────────────────
 
-function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, setExpandedProductIds, getEditedValue, updateEditedField, handleDeleteRow, handleFinalizeProduct, handleAddItem, loadBoqItemsAndEdits, setBoqItems, checkBudgetEarly, handleSaveProject, onCardDragStart, onCardDragOver, onCardDrop, isCardDragOver, mismatches, isCompactView, onSaveAsTemplate, editedFields, comments, users, onAddComment, selectedVersionId }: {
+function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, setExpandedProductIds, getEditedValue, updateEditedField, handleDeleteRow, handleFinalizeProduct, handleAddItem, loadBoqItemsAndEdits, setBoqItems, checkBudgetEarly, handleSaveProject, onCardDragStart, onCardDragOver, onCardDrop, isCardDragOver, mismatches, isCompactView, onSaveAsTemplate, editedFields, comments, users, currentUser, onAddComment, selectedVersionId }: {
   boqItem: BOMItem; boqIdx: number; isVersionSubmitted: boolean;
   expandedProductIds: Set<string>; setExpandedProductIds: (fn: (p: Set<string>) => Set<string>) => void;
   getEditedValue: (k: string, f: string, v: any) => any;
@@ -311,6 +311,7 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
   editedFields: Record<string, any>;
   comments: BOMComment[];
   users: User[];
+  currentUser: any;
   onAddComment: (versionId: string, itemId?: string) => void;
   selectedVersionId: string | null;
 }) {
@@ -344,12 +345,15 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
     const boqResult = computeBoq(tableData.configBasis, tableData.materialLines, calculationTarget);
     const computedLines = boqResult.computed.map((line: any, idx: number) => {
       const itemKey = `${boqItem.id}-engine-${idx}`;
+      const isFrozen = line.freezeAndEdit || line.freeze_and_edit;
       const qty = Number(getEditedValue(itemKey, "qty", line.perUnitQty));
       const sRate = Number(getEditedValue(itemKey, "supply_rate", line.supplyRate));
       const iRate = Number(getEditedValue(itemKey, "install_rate", line.installRate));
       const rate = Number(getEditedValue(itemKey, "rate", sRate + iRate)) || (sRate + iRate);
-      const reqQty = Number((qty * calculationTarget).toFixed(2));
-      const roundOff = line.applyRounding !== false ? Math.ceil(reqQty) : reqQty;
+
+      const reqQty = isFrozen ? line.roundOffQty : Number((qty * calculationTarget).toFixed(2));
+      const roundOff = isFrozen ? line.roundOffQty : (line.applyRounding !== false ? Math.ceil(reqQty) : reqQty);
+
       return {
         title: line.name, description: line.name, unit: line.unit, shop_name: line.shop_name,
         qtyPerSqf: qty, requiredQty: reqQty, roundOff: roundOff,
@@ -625,9 +629,19 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
             )}
             <Button variant="default" size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white" disabled={isVersionSubmitted || tableData.is_finalized} onClick={() => handleFinalizeProduct(boqItem.id)}>Finalize</Button>
             <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted} onClick={() => onSaveAsTemplate?.(boqItem)}>Save as Template</Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onAddComment(selectedVersionId!, boqItem.id)}>
+            <Button variant="outline" size="sm" className="h-7 text-xs relative" onClick={() => onAddComment(selectedVersionId!, boqItem.id)}>
               <MessageSquare className="h-3 w-3 mr-1" />
-              Comments ({comments.filter(c => c.item_id === boqItem.id).length})
+              Comments ({comments.filter(c => c.product_id === boqItem.id || (c.item_id && c.item_id.startsWith(boqItem.id))).length})
+              {(() => {
+                const unread = comments.filter(c => {
+                  if (c.product_id !== boqItem.id && !(c.item_id && c.item_id.startsWith(boqItem.id))) return false;
+                  const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username) || c.user_id === currentUser?.id);
+                  return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
+                }).length;
+                return unread > 0 ? (
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center px-1 font-bold shadow">{unread}</span>
+                ) : null;
+              })()}
             </Button>
             <Button variant="destructive" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted}
               onClick={async () => {
@@ -689,6 +703,7 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                       isCompactView={isCompactView}
                       comments={comments}
                       users={users}
+                      currentUser={currentUser}
                       onAddComment={onAddComment}
                       selectedVersionId={selectedVersionId}
                     />
@@ -738,90 +753,11 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
         </>
       )}
 
-      {/* Comments Section */}
-      {(() => {
-        const productComments = comments.filter(c => c.item_id === boqItem.id);
-        const itemComments = comments.filter(c => c.item_id && c.item_id !== boqItem.id);
-
-        if (productComments.length === 0 && itemComments.length === 0) return null;
-
-        return (
-          <div className="border-t border-gray-200 bg-gray-50/30 px-4 py-3">
-            <div className="flex items-center gap-2 mb-3">
-              <MessageSquare className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-semibold text-gray-700">Comments</span>
-            </div>
-
-            {/* Product Comments */}
-            {productComments.length > 0 && (
-              <div className="mb-4">
-                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Product Comments</div>
-                <div className="space-y-2">
-                  {productComments.map(comment => (
-                    <div key={comment.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-gray-900">{comment.user_full_name}</span>
-                          <span className="text-xs text-gray-500">v{comment.version_number}</span>
-                        </div>
-                        <span className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString()}</span>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{comment.comment_text}</p>
-                      {comment.visible_to.length > 0 && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500">
-                          <Users className="h-3 w-3" />
-                          <span>Visible to: {comment.visible_to.map(id => {
-                            const user = users.find(u => u.id === id);
-                            return user ? user.displayName : id;
-                          }).join(', ')}</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Item Comments */}
-            {itemComments.length > 0 && (
-              <div>
-                <div className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Item Comments</div>
-                <div className="space-y-2">
-                  {itemComments.map(comment => (
-                    <div key={comment.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-gray-900">{comment.user_full_name}</span>
-                          <span className="text-xs text-gray-500">v{comment.version_number}</span>
-                          <span className="text-xs text-blue-600 font-medium">
-                            Item: {renderLines.find(item => (item.itemKey || `${boqItem.id}-${renderLines.indexOf(item)}`) === comment.item_id)?.title || 'Unknown'}
-                          </span>
-                        </div>
-                        <span className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString()}</span>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{comment.comment_text}</p>
-                      {comment.visible_to.length > 0 && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500">
-                          <Users className="h-3 w-3" />
-                          <span>Visible to: {comment.visible_to.map(id => {
-                            const user = users.find(u => u.id === id);
-                            return user ? user.displayName : id;
-                          }).join(', ')}</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
     </div>
   );
 }
 
-function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersionSubmitted, getEditedValue, updateEditedField, handleDeleteRow, checkBudgetEarly, handleSaveProject, isDraggable, isDragOver, onDragStart, onDragOver, onDrop, mismatch, isCompactView, comments, users, onAddComment, selectedVersionId }: {
+function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersionSubmitted, getEditedValue, updateEditedField, handleDeleteRow, checkBudgetEarly, handleSaveProject, isDraggable, isDragOver, onDragStart, onDragOver, onDrop, mismatch, isCompactView, comments, users, currentUser, onAddComment, selectedVersionId }: {
   item: any; itemIdx: number; boqItem: BOMItem; tableData: any; isEngineBased: boolean; isVersionSubmitted: boolean;
   getEditedValue: (k: string, f: string, v: any) => any;
   updateEditedField: (k: string, f: string, v: any) => void;
@@ -837,6 +773,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
   isCompactView?: boolean;
   comments: BOMComment[];
   users: User[];
+  currentUser: any;
   onAddComment: (versionId: string, itemId?: string) => void;
   selectedVersionId: string | null;
 }) {
@@ -930,8 +867,20 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
         </td>
         <td className="border px-2 py-2 text-center w-28 font-bold text-green-700 bg-green-50">₹{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td className="border px-2 py-2 text-center w-16">
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50" onClick={() => onAddComment(selectedVersionId!, itemKey)} title={`Comments (${comments.filter(c => c.item_id === itemKey).length})`}><MessageSquare className="h-3 w-3" /></Button>
+          <div className="flex items-center justify-center gap-1">
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50 relative" onClick={() => onAddComment(selectedVersionId!, itemKey)} title={`Comments (${comments.filter(c => c.item_id === itemKey).length})`}>
+              <MessageSquare className="h-3 w-3" />
+              {(() => {
+                const unread = comments.filter(c => {
+                  if (c.item_id !== itemKey) return false;
+                  const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username) || c.user_id === currentUser?.id);
+                  return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
+                }).length;
+                return unread > 0 ? (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full h-3 min-w-3 flex items-center justify-center font-bold px-0.5">{unread}</span>
+                ) : null;
+              })()}
+            </Button>
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-600 hover:text-red-800 hover:bg-red-50" onClick={() => handleDeleteRow(boqItem.id, tableData, itemIdx, item)} disabled={isVersionSubmitted} title="Delete Item"><Trash2 className="h-3 w-3" /></Button>
           </div>
         </td>
@@ -1074,11 +1023,21 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
       <td className="border px-2 py-2 text-center w-16">
         <div className="flex items-center gap-1">
           <Button
-            variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+            variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50 relative"
             onClick={() => onAddComment(selectedVersionId!, itemKey)}
             title={`Comments (${comments.filter(c => c.item_id === itemKey).length})`}
           >
             <MessageSquare className="h-3 w-3" />
+            {(() => {
+              const unread = comments.filter(c => {
+                if (c.item_id !== itemKey) return false;
+                const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username) || c.user_id === currentUser?.id);
+                return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
+              }).length;
+              return unread > 0 ? (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full h-3 min-w-3 flex items-center justify-center font-bold px-0.5">{unread}</span>
+              ) : null;
+            })()}
           </Button>
           <Button
             variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-600 hover:text-red-800 hover:bg-red-50"
@@ -1519,7 +1478,7 @@ export default function CreateBom() {
   const [comments, setComments] = useState<BOMComment[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [showCommentDialog, setShowCommentDialog] = useState(false);
-  const [commentTarget, setCommentTarget] = useState<{ type: 'product' | 'item'; id: string; name: string } | null>(null);
+  const [commentTarget, setCommentTarget] = useState<{ type: 'product' | 'item' | 'overall'; id: string; name: string } | null>(null);
   const [newComment, setNewComment] = useState("");
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [showProposalImportDialog, setShowProposalImportDialog] = useState(false);
@@ -1527,6 +1486,10 @@ export default function CreateBom() {
   const [expandedProposalId, setExpandedProposalId] = useState<string | null>(null);
   const [proposalItemsPreview, setProposalItemsPreview] = useState<Record<string, any[]>>({});
   const [loadingPreviewId, setLoadingPreviewId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<BOMComment | null>(null);
+  const [commentInboxView, setCommentInboxView] = useState(false);
+  const [isSelectingThread, setIsSelectingThread] = useState(false);
+  const [threadSearchQuery, setThreadSearchQuery] = useState("");
 
   const [approvedProposals, setApprovedProposals] = useState<any[]>([]);
   const [bomTemplates, setBomTemplates] = useState<any[]>([]);
@@ -1983,6 +1946,41 @@ export default function CreateBom() {
       setBoqItems(items);
     } catch { toast({ title: "Error", description: "Failed to load BOQ items", variant: "destructive" }); }
   }, [selectedVersionId]);
+
+  const handleSendComment = async () => {
+    if (!newComment.trim() || !commentTarget || !selectedVersionId) return;
+    setIsSaving(true);
+    try {
+      const res = await apiFetch("/api/boq-comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version_id: selectedVersionId,
+          product_id: commentTarget.type === 'product' ? commentTarget.id : null,
+          item_id: commentTarget.type === 'item' ? commentTarget.id : null,
+          comment_text: newComment.trim(),
+          visible_to: selectedMembers,
+          parent_id: replyingTo?.id || null,
+          reply_to_text: replyingTo?.comment_text || null,
+          reply_to_user: replyingTo?.user_full_name || null
+        })
+      });
+
+      if (res.ok) {
+        await loadComments();
+        setNewComment("");
+        setSelectedMembers([]);
+        setReplyingTo(null);
+      } else {
+        toast({ title: "Error", description: "Failed to send comment", variant: "destructive" });
+      }
+    } catch (err) {
+      console.error("Failed to add comment", err);
+      toast({ title: "Error", description: "Failed to add comment", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedVersionId) { setBoqItems([]); setEditedFields({}); editedFieldsRef.current = {}; return; }
@@ -2684,7 +2682,7 @@ export default function CreateBom() {
           return prev.map(i => {
             const up = updatedMap.get(i.id);
             if (!up) return i;
-            return { ...i, table_data: parseTableData(up.table_data) };
+            return { ...i, table_data: (up as any).table_data };
           });
         });
 
@@ -3554,57 +3552,7 @@ export default function CreateBom() {
                       </div>
                     </div>
 
-                    {/* Version Comments Section */}
-                    {selectedVersionId && comments.length > 0 && (
-                      <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-                        <div className="flex items-center gap-2 mb-3">
-                          <MessageSquare className="h-4 w-4 text-blue-600" />
-                          <span className="text-sm font-semibold text-gray-700">Version Comments</span>
-                          <Badge variant="secondary" className="text-xs">{comments.length}</Badge>
-                        </div>
 
-                        <div className="space-y-3 max-h-64 overflow-y-auto">
-                          {comments
-                            .filter(comment => {
-                              // Show comments visible to current user or created by current user
-                              return comment.user_id === user?.id ||
-                                comment.visible_to.length === 0 ||
-                                comment.visible_to.includes(user?.id || '');
-                            })
-                            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                            .map(comment => {
-                              const isProductComment = !!comment.product_id;
-                              const isItemComment = !!comment.item_id;
-                              const isOverallComment = !comment.item_id && !comment.product_id;
-
-                              return (
-                                <div key={comment.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                                  <div className="flex items-start justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-semibold text-gray-900">{comment.user_full_name}</span>
-                                      <span className="text-xs text-gray-500">v{comment.version_number}</span>
-                                      {isOverallComment && <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">Overall</Badge>}
-                                      {isProductComment && <Badge variant="outline" className="text-xs">Product</Badge>}
-                                      {isItemComment && <Badge variant="outline" className="text-xs">Item</Badge>}
-                                    </div>
-                                    <span className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString()}</span>
-                                  </div>
-                                  <p className="text-sm text-gray-700 mb-2">{comment.comment_text}</p>
-                                  {comment.visible_to.length > 0 && (
-                                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                                      <Users className="h-3 w-3" />
-                                      <span>Visible to: {comment.visible_to.map(id => {
-                                        const visibleUser = users.find(u => u.id === id);
-                                        return visibleUser ? visibleUser.displayName : id;
-                                      }).join(', ')}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Row 4: Project Info Summary & Comment */}
                     {selectedVersion && (
@@ -3641,21 +3589,27 @@ export default function CreateBom() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-8 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-blue-600 gap-2 font-semibold"
-                            title="Add Overall Comment"
+                            className="h-8 px-3 bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-blue-600 gap-2 font-semibold relative"
+                            title="View All Comments"
                             onClick={() => {
                               if (!selectedVersionId) return;
-                              setCommentTarget({
-                                type: 'product', // Reusing product type for modal title context
-                                id: selectedVersionId,
-                                name: `Version V${versions.find(v => v.id === selectedVersionId)?.version_number || ''} (Overall)`
-                              });
+                              setCommentInboxView(true);
+                              setCommentTarget(null);
                               setShowCommentDialog(true);
                             }}
                             disabled={!selectedVersionId}
                           >
                             <MessageSquare className="h-3.5 w-3.5" />
                             <span className="text-xs">Comment</span>
+                            {(() => {
+                              const unreadCount = comments.filter(c => {
+                                const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(user?.username || "") || c.user_id === user?.id);
+                                return isVisible && (!c.read_by || !c.read_by.includes(user?.id || ""));
+                              }).length;
+                              return unreadCount > 0 ? (
+                                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center font-bold px-1">{unreadCount}</span>
+                              ) : null;
+                            })()}
                           </Button>
 
                           {selectedVersion.status === "approved" ? (
@@ -3945,6 +3899,7 @@ export default function CreateBom() {
                                 editedFields={editedFields}
                                 comments={comments}
                                 users={users}
+                                currentUser={user}
                                 onAddComment={(versionId: string, itemId?: string) => {
                                   const productName = parseTableData(boqItem.table_data).product_name || boqItem.estimator;
                                   setCommentTarget({ type: itemId ? 'item' : 'product', id: itemId || boqItem.id, name: itemId ? `${productName} - Item ${itemId}` : productName });
@@ -4322,141 +4277,380 @@ export default function CreateBom() {
         />
       )}
 
-      {/* Comment Dialog */}
-      <Dialog open={showCommentDialog} onOpenChange={setShowCommentDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-blue-600" />
-              Add Comment
-            </DialogTitle>
-            <DialogDescription>
-              Add a comment for {commentTarget?.name}. Select members who should see this comment.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="comment" className="text-sm font-medium">Comment</Label>
-              <Textarea
-                id="comment"
-                placeholder="Enter your comment..."
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                className="mt-1"
-                rows={3}
-              />
-            </div>
-            <div>
-              <Label className="text-sm font-medium">Visible to Members</Label>
-              <Popover>
-                <PopoverTrigger asChild>
+      {/* Chat Comment Dialog */}
+      <Dialog open={showCommentDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowCommentDialog(false);
+          setCommentTarget(null);
+          setReplyingTo(null);
+          setCommentInboxView(false);
+          setIsSelectingThread(false);
+        }
+        setShowCommentDialog(open);
+      }}>
+        <DialogContent className="sm:max-w-[420px] md:max-w-[480px] max-h-[520px] h-[520px] flex flex-col p-0 overflow-hidden bg-[#f0f2f5] gap-0">
+          {(commentInboxView && !commentTarget) ? (
+            <>
+              <DialogHeader className="p-4 border-b bg-white shrink-0 flex flex-row items-center gap-3">
+                <div className="bg-blue-600 p-2 rounded-full">
+                  <MessageSquare className="h-5 w-5 text-white" />
+                </div>
+                <div className="flex-1">
+                  <DialogTitle className="text-lg font-bold text-gray-900 leading-tight">
+                    {isSelectingThread ? "New Chat" : "Discussions"}
+                  </DialogTitle>
+                  <div className="text-xs text-gray-500">
+                    {isSelectingThread ? "Choose a product to start a discussion" : "Stay updated on all BOQ threads"}
+                  </div>
+                </div>
+                {!isSelectingThread ? (
                   <Button
-                    variant="outline"
-                    role="combobox"
-                    className="w-full justify-between mt-1"
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-full h-8 w-8 text-blue-600 hover:bg-blue-50"
+                    onClick={() => {
+                      setIsSelectingThread(true);
+                      setThreadSearchQuery("");
+                    }}
+                    title="Start New Discussion"
                   >
-                    {selectedMembers.length === 0
-                      ? "Select members..."
-                      : `${selectedMembers.length} member${selectedMembers.length === 1 ? '' : 's'} selected`
-                    }
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    <Plus className="h-5 w-5" />
                   </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-full p-0">
-                  <Command>
-                    <CommandInput placeholder="Search members..." />
-                    <CommandList>
-                      <CommandEmpty>No members found.</CommandEmpty>
-                      <CommandGroup>
-                        {users.map((user) => (
-                          <CommandItem
-                            key={user.id}
-                            onSelect={() => {
-                              setSelectedMembers(prev =>
-                                prev.includes(user.username)
-                                  ? prev.filter(m => m !== user.username)
-                                  : [...prev, user.username]
-                              );
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                selectedMembers.includes(user.username) ? "opacity-100" : "opacity-0"
-                              )}
-                            />
-                            {user.displayName} ({user.role})
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              {selectedMembers.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {selectedMembers.map((member) => {
-                    const user = users.find(u => u.username === member);
-                    return (
-                      <Badge key={member} variant="secondary" className="text-xs">
-                        {user?.displayName || member}
-                        <X
-                          className="ml-1 h-3 w-3 cursor-pointer"
-                          onClick={() => setSelectedMembers(prev => prev.filter(m => m !== member))}
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-gray-500 text-xs font-semibold"
+                    onClick={() => setIsSelectingThread(false)}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </DialogHeader>
+              <div className="flex-1 overflow-y-auto bg-white flex flex-col">
+                {isSelectingThread ? (
+                  <div className="flex flex-col">
+                    {/* Search Bar */}
+                    <div className="p-3 bg-gray-50 border-b sticky top-0 z-10">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                        <Input
+                          placeholder="Search products or topics..."
+                          className="pl-9 h-9 bg-white border-gray-200 text-xs rounded-lg"
+                          value={threadSearchQuery}
+                          onChange={e => setThreadSearchQuery(e.target.value)}
+                          autoFocus
                         />
-                      </Badge>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto">
+                      {/* Overall Version Option - only show if matches search or search is empty */}
+                      {("Overall Version Discussion".toLowerCase().includes(threadSearchQuery.toLowerCase())) && (
+                        <div
+                          className="flex items-center gap-4 p-4 hover:bg-gray-50 cursor-pointer border-b"
+                          onClick={() => {
+                            setCommentTarget({ type: 'overall', id: selectedVersionId!, name: 'Overall Version Discussion' });
+                            setCommentInboxView(false);
+                            setIsSelectingThread(false);
+                            setThreadSearchQuery("");
+                          }}
+                        >
+                          <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+                            <Users className="h-5 w-5" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-bold text-sm text-gray-900">Overall Version</div>
+                            <div className="text-[10px] text-gray-500 uppercase tracking-tighter">Budget • Timeline • General Info</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Filtered Products */}
+                      {Array.isArray(boqItems) && boqItems
+                        .filter(bi => {
+                          const td = parseTableData(bi.table_data);
+                          const name = td.product_name || bi.estimator;
+                          return name.toLowerCase().includes(threadSearchQuery.toLowerCase());
+                        })
+                        .map(bi => {
+                          const td = parseTableData(bi.table_data);
+                          const pName = td.product_name || bi.estimator;
+                          return (
+                            <div
+                              key={bi.id}
+                              className="flex items-center gap-4 p-4 hover:bg-gray-50 cursor-pointer border-b"
+                              onClick={() => {
+                                setCommentTarget({ type: 'product', id: bi.id, name: pName });
+                                setCommentInboxView(false);
+                                setIsSelectingThread(false);
+                                setThreadSearchQuery("");
+                              }}
+                            >
+                              <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                                <Briefcase className="h-5 w-5" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-sm text-gray-900 truncate">{pName}</div>
+                                <div className="text-[10px] text-gray-500 uppercase tracking-tighter truncate">Product ID: {bi.id.slice(0, 8)}...</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                      {boqItems.length > 0 && boqItems.filter(bi => (parseTableData(bi.table_data).product_name || bi.estimator).toLowerCase().includes(threadSearchQuery.toLowerCase())).length === 0 && (
+                        <div className="p-10 text-center text-gray-400 text-xs">
+                          No products match your search.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (() => {
+                  const threads: Record<string, { lastComment: BOMComment, count: number, name: string, type: 'product' | 'item' | 'overall', id: string }> = {};
+
+                  comments
+                    .filter(c => !c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(user?.username || "") || c.user_id === user?.id)
+                    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                    .forEach(c => {
+                      const id = c.item_id || c.product_id || 'overall';
+                      const type = c.item_id ? 'item' : (c.product_id ? 'product' : 'overall');
+
+                      let name = "Overall Version";
+                      if (type === 'product') {
+                        const boqItem = (boqItems as BOMItem[]).find(bi => bi.id === c.product_id);
+                        name = boqItem ? (parseTableData(boqItem.table_data).product_name || boqItem.estimator) : "Product Discussion";
+                      } else if (type === 'item') {
+                        const productId = c.item_id!.split('_')[0];
+                        const boqItem = (boqItems as BOMItem[]).find(bi => bi.id === productId);
+                        const productName = boqItem ? (parseTableData(boqItem.table_data).product_name || boqItem.estimator) : "BOM Item";
+                        name = `${productName} (Material)`;
+                      }
+
+                      threads[id] = {
+                        lastComment: c,
+                        count: (threads[id]?.count || 0) + 1,
+                        name,
+                        type,
+                        id: c.item_id || c.product_id || 'overall'
+                      };
+                    });
+
+                  const sortedThreads = Object.values(threads).sort((a, b) =>
+                    new Date(b.lastComment.created_at).getTime() - new Date(a.lastComment.created_at).getTime()
+                  );
+
+                  if (sortedThreads.length === 0) return (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-400 p-10 text-center">
+                      <MessageSquare className="h-12 w-12 mb-4 opacity-20" />
+                      <div className="font-semibold">No discussions yet</div>
+                      <div className="text-xs">Individual item chats will appear here.</div>
+                    </div>
+                  );
+
+                  return sortedThreads.map(thread => {
+                    const unread = comments.filter(c => {
+                      const contextId = c.item_id || c.product_id || 'overall';
+                      if (contextId !== thread.id) return false;
+                      const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(user?.username || "") || c.user_id === user?.id);
+                      return isVisible && (!c.read_by || !c.read_by.includes(user?.id || ""));
+                    }).length;
+
+                    return (
+                      <div
+                        key={thread.id}
+                        className="flex items-center gap-3 p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors"
+                        onClick={() => {
+                          if (thread.type === 'overall' && !selectedVersionId) return;
+                          setCommentTarget({ type: thread.type, id: thread.id === 'overall' ? (selectedVersionId || "") : thread.id, name: thread.name });
+                        }}
+                      >
+                        <div className={`h-12 w-12 rounded-full flex items-center justify-center shrink-0 ${thread.type === 'overall' ? 'bg-indigo-100 text-indigo-600' : thread.type === 'product' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
+                          {thread.type === 'overall' ? <Users className="h-6 w-6" /> : thread.type === 'product' ? <Briefcase className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start mb-0.5">
+                            <h4 className="font-bold text-gray-900 truncate text-sm">{thread.name}</h4>
+                            <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
+                              {new Date(thread.lastComment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <p className="text-xs text-gray-500 truncate italic pr-4">
+                              {thread.lastComment.user_full_name}: {thread.lastComment.comment_text}
+                            </p>
+                            {unread > 0 && (
+                              <Badge className="bg-[#25d366] text-white text-[10px] rounded-full h-5 min-w-5 flex items-center justify-center px-1 font-bold">
+                                {unread}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </>
+          ) : (
+            <>
+              <DialogHeader className="p-3 border-b bg-gray-50 shrink-0 flex flex-row items-center gap-3">
+                {commentInboxView && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-gray-500 hover:bg-gray-200" onClick={() => setCommentTarget(null)}>
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                )}
+                <div className={`${commentTarget?.type === 'overall' ? 'bg-indigo-100 text-indigo-600' : commentTarget?.type === 'product' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'} p-2 rounded-full`}>
+                  {commentTarget?.type === 'overall' ? <Users className="h-5 w-5" /> : commentTarget?.type === 'product' ? <Briefcase className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <DialogTitle className="text-base font-bold text-gray-900 leading-tight truncate">
+                    {commentTarget?.name}
+                  </DialogTitle>
+                  <div className="text-xs text-gray-500">Chat Discussion</div>
+                </div>
+              </DialogHeader>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")' }}>
+                {comments
+                  .filter(c => commentTarget && (
+                    commentTarget.type === 'product' ? c.product_id === commentTarget.id : (commentTarget.type === 'overall' ? (!c.product_id && !c.item_id) : c.item_id === commentTarget.id)
+                  ))
+                  .filter(c => {
+                    if (!c.visible_to || c.visible_to.length === 0) return true;
+                    return c.visible_to.includes(user?.username || "") || c.user_id === user?.id;
+                  })
+                  .map(c => {
+                    const isMine = c.user_id === user?.id;
+                    return (
+                      <div key={c.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}>
+                        <div className={`max-w-[85%] rounded-lg px-3 py-1.5 shadow-sm relative ${isMine ? 'bg-[#dcf8c6] text-gray-900 rounded-tr-none' : 'bg-white text-gray-900 rounded-tl-none'}`}>
+                          <div className="flex justify-between items-start gap-4">
+                            {!isMine && <div className="text-[11px] font-bold text-blue-600 mb-0.5">{c.user_full_name}</div>}
+                            <button
+                              onClick={() => {
+                                setReplyingTo(c);
+                                const ta = document.querySelector('textarea');
+                                if (ta) ta.focus();
+                              }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-blue-500 p-0"
+                              title="Reply"
+                            >
+                              <Reply className="h-3 w-3" />
+                            </button>
+                          </div>
+
+                          {c.parent_id && (
+                            <div className="bg-black/5 border-l-4 border-blue-500 rounded p-1.5 mb-1 text-[11px] flex flex-col">
+                              <span className="font-bold text-blue-600">{c.reply_to_user}</span>
+                              <span className="text-gray-600 truncate">{c.reply_to_text}</span>
+                            </div>
+                          )}
+
+                          {c.visible_to && c.visible_to.length > 0 && (
+                            <div className="text-[9px] font-semibold text-blue-500/80 mb-0.5 uppercase tracking-tighter">
+                              Tagged: {c.visible_to.join(', ')}
+                            </div>
+                          )}
+                          <div className="text-[13px] leading-snug break-words pr-10">{c.comment_text}</div>
+                          <div className="text-[9px] text-gray-500 text-right mt-1 absolute bottom-1 right-2 flex items-center justify-end">
+                            {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {isMine && <Check className="h-3 w-3 ml-1 text-blue-500" />}
+                          </div>
+                        </div>
+                      </div>
                     );
                   })}
+              </div>
+              {/* message input area */}
+              <div className="p-3 bg-gray-50 border-t shrink-0 flex flex-col gap-2 bottom-0">
+                {selectedMembers.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-1 px-1">
+                    {selectedMembers.map(mUsername => {
+                      const u = users.find(user => user.username === mUsername);
+                      return (
+                        <Badge key={mUsername} variant="secondary" className="text-[10px] py-0 h-5 bg-blue-100 text-blue-700">
+                          @{u?.fullName || u?.username || mUsername}
+                          <X className="h-2.5 w-2.5 ml-1 cursor-pointer" onClick={() => setSelectedMembers(prev => prev.filter(x => x !== mUsername))} />
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+                {replyingTo && (
+                  <div className="bg-white/80 border-l-4 border-blue-500 p-2 rounded relative mb-1 mx-1 animate-in slide-in-from-bottom-2">
+                    <div className="text-[11px] font-bold text-blue-600">{replyingTo.user_full_name}</div>
+                    <div className="text-[12px] text-gray-600 truncate pr-6">{replyingTo.comment_text}</div>
+                    <button onClick={() => setReplyingTo(null)} className="absolute top-1 right-1 text-gray-400 hover:text-gray-600">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2 items-center">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-10 w-10 p-0 rounded-full text-gray-400 hover:text-blue-500 hover:bg-blue-50">
+                        <Users className="h-5 w-5" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-64 p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Tag members..." />
+                        <CommandList>
+                          <CommandEmpty>No members found.</CommandEmpty>
+                          <CommandGroup heading="Group Participants">
+                            {users
+                              .filter(u => u.id !== user?.id)
+                              .map((u) => (
+                                <CommandItem
+                                  key={u.id}
+                                  onSelect={() => {
+                                    setSelectedMembers(prev =>
+                                      prev.includes(u.username)
+                                        ? prev.filter(m => m !== u.username)
+                                        : [...prev, u.username]
+                                    );
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      selectedMembers.includes(u.username) ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-sm">{u.fullName || u.username}</span>
+                                    <span className="text-[10px] text-gray-500 uppercase font-medium">{u.role} {u.department ? `• ${u.department}` : ''}</span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+
+                  <Textarea
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    placeholder="Type a message..."
+                    className="flex-1 rounded-2xl bg-white border-none py-2.5 px-4 resize-none shadow-sm h-10 min-h-[40px] max-h-32 text-sm focus-visible:ring-0"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendComment();
+                      }
+                    }}
+                  />
+                  <Button
+                    onClick={handleSendComment}
+                    disabled={!newComment.trim() || isSaving}
+                    className="rounded-full h-10 w-10 p-0 bg-[#00a884] hover:bg-[#008f6f] text-white flex shrink-0 items-center justify-center shadow-sm"
+                  >
+                    <ArrowUp className="h-5 w-5 ml-0.5" />
+                  </Button>
                 </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowCommentDialog(false);
-              setNewComment("");
-              setSelectedMembers([]);
-              setCommentTarget(null);
-            }}>
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                if (!newComment.trim() || !commentTarget || !selectedVersionId) return;
-
-                try {
-                  const res = await apiFetch("/api/boq-comments", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      version_id: selectedVersionId,
-                      product_id: commentTarget.name.includes('(Overall)') ? null : (commentTarget.type === 'product' ? commentTarget.id : null),
-                      item_id: commentTarget.type === 'item' ? commentTarget.id : null,
-                      comment_text: newComment.trim(),
-                      visible_to: selectedMembers
-                    })
-                  });
-
-                  if (res.ok) {
-                    await loadComments();
-                    toast({ title: "Comment Added", description: "Your comment has been added successfully." });
-                    setShowCommentDialog(false);
-                    setNewComment("");
-                    setSelectedMembers([]);
-                    setCommentTarget(null);
-                  } else {
-                    toast({ title: "Error", description: "Failed to add comment", variant: "destructive" });
-                  }
-                } catch (err) {
-                  console.error("Failed to add comment", err);
-                  toast({ title: "Error", description: "Failed to add comment", variant: "destructive" });
-                }
-              }}
-              disabled={!newComment.trim()}
-            >
-              Add Comment
-            </Button>
-          </DialogFooter>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
       <BomSketchCompareDialog
