@@ -644,3 +644,76 @@ export async function sendProposalStatusEmail(
     throw error;
   }
 }
+
+/**
+ * Send BOM Comment Mention Notification Email
+ * Triggered when a user is tagged (@mentioned) in a BOM comment
+ */
+export async function sendCommentMentionEmail(
+  toEmails: string[],
+  info: {
+    mentionedNames: string[];
+    senderName: string;
+    commentText: string;
+    threadName: string;
+    projectName?: string;
+    versionNumber?: number | string;
+  }
+) {
+  if (!resend) {
+    console.warn("[EMAIL] Resend not configured — skipping comment mention notification");
+    return;
+  }
+  if (!toEmails || toEmails.length === 0) {
+    console.warn("[EMAIL] No recipient emails for comment mention");
+    return;
+  }
+
+  const { mentionedNames, senderName, commentText, threadName, projectName, versionNumber } = info;
+
+  const emailHtml = `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 0; background-color: #f8fafc;">
+      <div style="background: linear-gradient(135deg, #075e54 0%, #128c7e 100%); padding: 24px 28px; border-radius: 8px 8px 0 0; text-align: center;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700;">💬 You were mentioned in a BOQ comment</h1>
+        <p style="color: #d1fae5; margin: 6px 0 0 0; font-size: 13px;">BOQ Management System — Discussion Notification</p>
+      </div>
+      <div style="background-color: #ffffff; padding: 28px 28px 20px 28px; border: 1px solid #e2e8f0;">
+        <p style="margin: 0 0 16px 0; font-size: 15px; color: #1e293b;">Hi <strong>${mentionedNames.join(", ")}</strong>,</p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #475569; line-height: 1.6;"><strong>${senderName}</strong> mentioned you in a BOQ discussion.</p>
+        <div style="background-color: #f1f5f9; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
+          <table style="width: 100%; font-size: 13px;">
+            ${projectName ? `<tr><td style="padding: 3px 0; color: #64748b; font-weight: 600; width: 40%;">Project</td><td style="color: #0f172a;">${projectName}</td></tr>` : ""}
+            ${versionNumber ? `<tr><td style="padding: 3px 0; color: #64748b; font-weight: 600;">Version</td><td style="color: #0f172a;">v${versionNumber}</td></tr>` : ""}
+            <tr><td style="padding: 3px 0; color: #64748b; font-weight: 600;">Thread</td><td style="color: #0f172a;">${threadName}</td></tr>
+          </table>
+        </div>
+        <div style="margin-bottom: 24px;">
+          <p style="margin: 0 0 8px 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Message</p>
+          <div style="background-color: #dcf8c6; border-radius: 0 12px 12px 12px; padding: 14px 16px; border: 1px solid #b7eb8f;">
+            <p style="margin: 0 0 6px 0; font-size: 12px; color: #128c7e; font-weight: 700;">${senderName}</p>
+            <p style="margin: 0; font-size: 14px; color: #1e293b; line-height: 1.6;">${commentText}</p>
+            <p style="margin: 6px 0 0 0; font-size: 11px; color: #94a3b8; text-align: right;">${new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</p>
+          </div>
+        </div>
+        <p style="margin: 0; font-size: 13px; color: #64748b; line-height: 1.5;">Please log in to the BOQ Management System to view the full conversation and reply.</p>
+      </div>
+      <div style="background-color: #f1f5f9; padding: 16px 28px; border-radius: 0 0 8px 8px; text-align: center; border: 1px solid #e2e8f0; border-top: none;">
+        <p style="margin: 0; font-size: 12px; color: #94a3b8;">Automated notification from <strong>BOQ Management System</strong>. &copy; ${new Date().getFullYear()} Concept Trunk Interiors.</p>
+      </div>
+    </div>
+  `;
+
+  try {
+    const response = await resend.emails.send({
+      from: fromEmail,
+      to: toEmails,
+      subject: `💬 ${senderName} mentioned you in a BOQ comment — ${threadName}`,
+      html: emailHtml,
+    });
+    console.log("[EMAIL] Comment mention notification sent to:", toEmails);
+    return response;
+  } catch (error) {
+    console.error("[EMAIL ERROR] sendCommentMentionEmail:", error);
+    // Don't throw — email failure should not block the comment
+  }
+}
