@@ -20,7 +20,7 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 
-  // user, admin, supplier, software_team, purchase_team, pre_sales, contractor, product_manager, site_engineer
+  // user, admin, supplier, software_team, purchase_team, pre_sales, contractor, product_manager, site_engineer, finance_team
   role: text("role").notNull().default("user"),
 
   // approved, pending, rejected
@@ -36,6 +36,7 @@ export const users = pgTable("users", {
   companyName: text("company_name"),
   gstNumber: text("gst_number"),
   businessAddress: text("business_address"),
+  vendorCategories: text("vendor_categories"),
 
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -102,6 +103,7 @@ export const userRoleEnum = z.enum([
   "pre_sales",
   "product_manager",
   "site_engineer",
+  "finance_team",
 ]);
 
 export const approvalStatusEnum = z.enum([
@@ -123,6 +125,7 @@ export const insertUserSchema = createInsertSchema(users, {
   companyName: z.string().nullable().optional(),
   gstNumber: z.string().nullable().optional(),
   businessAddress: z.string().nullable().optional(),
+  vendorCategories: z.string().nullable().optional(),
 }).pick({
   username: true,
   password: true,
@@ -136,6 +139,7 @@ export const insertUserSchema = createInsertSchema(users, {
   companyName: true,
   gstNumber: true,
   businessAddress: true,
+  vendorCategories: true,
 });
 
 export const insertEstimatorStep9CartSchema = createInsertSchema(estimatorStep9Cart, {
@@ -339,6 +343,37 @@ export const emailGroupMembers = pgTable("email_group_members", {
   createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
 });
 
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 36 }),
+  username: text("username"),
+  role: text("role"),
+  action: text("action").notNull(), // LOGIN, LOGOUT, CREATE, UPDATE, DELETE, NAVIGATE
+  module: text("module"), // Projects, Materials, BOM, etc.
+  page: text("page"), // Current URL/Page
+  details: text("details"), // Description
+  beforeData: text("before_data"), // JSON stringified
+  afterData: text("after_data"), // JSON stringified
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+});
+
+export const bomComments = pgTable("bom_comments", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  versionId: uuid("version_id").notNull(),
+  productId: text("product_id"),
+  itemId: text("item_id"),
+  userId: text("user_id").notNull(),
+  userFullName: text("user_full_name").notNull(),
+  commentText: text("comment_text").notNull(),
+  versionNumber: integer("version_number").notNull(),
+  visibleTo: text("visible_to").array(),
+  readBy: text("read_by").array().default(sql`'{}'::text[]`),
+  createdAt: timestamp("created_at", { withTimezone: true }).default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).default(sql`now()`),
+});
+
 // Zod schemas and types
 export const insertSiteReportSchema = createInsertSchema(siteReports);
 export const insertSiteReportTaskSchema = createInsertSchema(siteReportTasks);
@@ -347,6 +382,8 @@ export const insertSiteReportMediaSchema = createInsertSchema(siteReportMedia);
 export const insertSiteReportIssueSchema = createInsertSchema(siteReportIssues);
 export const insertEmailGroupSchema = createInsertSchema(emailGroups);
 export const insertEmailGroupMemberSchema = createInsertSchema(emailGroupMembers);
+export const insertAuditLogSchema = createInsertSchema(auditLogs);
+export const insertBomCommentSchema = createInsertSchema(bomComments);
 
 export type SiteReport = typeof siteReports.$inferSelect;
 export type InsertSiteReport = z.infer<typeof insertSiteReportSchema>;
@@ -362,3 +399,7 @@ export type EmailGroup = typeof emailGroups.$inferSelect;
 export type InsertEmailGroup = z.infer<typeof insertEmailGroupSchema>;
 export type EmailGroupMember = typeof emailGroupMembers.$inferSelect;
 export type InsertEmailGroupMember = z.infer<typeof insertEmailGroupMemberSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type BomComment = typeof bomComments.$inferSelect;
+export type InsertBomComment = z.infer<typeof insertBomCommentSchema>;
