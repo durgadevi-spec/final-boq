@@ -58,6 +58,43 @@ export default function MaterialPicker({
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
+  const sortMaterialsByName = (a: Material, b: Material) => {
+    const normalize = (text: string) => text.trim().toLowerCase();
+    const aName = normalize(a.name || "");
+    const bName = normalize(b.name || "");
+
+    const splitChunks = (value: string) => value.match(/(\d+|\D+)/g) || [value];
+    const aChunks = splitChunks(aName);
+    const bChunks = splitChunks(bName);
+
+    for (let i = 0; i < Math.min(aChunks.length, bChunks.length); i++) {
+      const aChunk = aChunks[i];
+      const bChunk = bChunks[i];
+      const aNum = Number(aChunk);
+      const bNum = Number(bChunk);
+
+      const aIsNum = !Number.isNaN(aNum);
+      const bIsNum = !Number.isNaN(bNum);
+
+      if (aIsNum && bIsNum) {
+        if (aNum !== bNum) return aNum - bNum;
+        continue;
+      }
+      if (aIsNum && !bIsNum) {
+        return -1;
+      }
+      if (!aIsNum && bIsNum) {
+        return 1;
+      }
+
+      const cmp = aChunk.localeCompare(bChunk, undefined, { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+    }
+
+    if (aChunks.length !== bChunks.length) return aChunks.length - bChunks.length;
+    return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
+  };
+
   // Load all materials on mount
   useEffect(() => {
     const loadMaterials = async () => {
@@ -67,7 +104,13 @@ export default function MaterialPicker({
         });
         if (response.ok) {
           const data = await response.json();
-          const materialList = data.materials || [];
+          const materialList = (data.materials || []).map((m: any) => ({
+            ...m,
+            category: m.category || m.category_name || "",
+            subcategory: m.subcategory || m.subcategory_name || "",
+            category_name: m.category_name || m.category || "",
+            subcategory_name: m.subcategory_name || m.subcategory || "",
+          })).sort(sortMaterialsByName);
           setMaterials(materialList);
           setFilteredMaterials(materialList);
         } else {
@@ -132,7 +175,10 @@ export default function MaterialPicker({
         return { material, score };
       })
       .filter((item): item is { material: Material; score: number } => item !== null)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return sortMaterialsByName(a.material, b.material);
+      })
       .map((item) => item.material);
 
     setFilteredMaterials(filtered);
