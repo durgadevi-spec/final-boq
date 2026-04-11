@@ -495,6 +495,7 @@ export default function FinalizeBoq() {
   const [termsAndConditions, setTermsAndConditions] = useState<string>("");
 
   const [globalColSettings, setGlobalColSettings] = useState<{ [colName: string]: any }>({});
+  const [roundOff, setRoundOff] = useState<boolean>(false);
   const [isColumnManagerOpen, setIsColumnManagerOpen] = useState(false);
 
   const handleHideSelectedRows = async (hide: boolean) => {
@@ -733,12 +734,13 @@ export default function FinalizeBoq() {
         ? (parseFloat(manualQtyStr) || 0)
         : itemQty;
 
-      const baseTotalValue = itemRate * displayQty;
+      const baseTotalValue = roundOff ? Math.round(itemRate * displayQty) : itemRate * displayQty;
       totalValueSum += baseTotalValue;
-      totalRateSum += itemRate;
+      totalRateSum += roundOff ? Math.round(itemRate) : itemRate;
 
-      const overrideRate = parseFloat(overrideRates[item.id] || "0") || 0;
-      const overrideTotalVal = overrideRate * displayQty;
+      const overrideRateRaw = parseFloat(overrideRates[item.id] || "0") || 0;
+      const overrideRate = roundOff ? Math.round(overrideRateRaw) : overrideRateRaw;
+      const overrideTotalVal = roundOff ? Math.round(overrideRate * displayQty) : overrideRate * displayQty;
       overrideTotalSum += overrideTotalVal;
 
       let currentItemRunningTotal = overrideRate > 0 ? overrideTotalVal : baseTotalValue;
@@ -750,6 +752,7 @@ export default function FinalizeBoq() {
 
         if (col.isTotal) {
           currentItemRunningTotal += accumulator;
+          if (roundOff) currentItemRunningTotal = Math.round(currentItemRunningTotal);
           accumulator = 0;
           rowCalculatedValues[col.name] = currentItemRunningTotal;
           totals[idx] += currentItemRunningTotal;
@@ -763,8 +766,8 @@ export default function FinalizeBoq() {
           if (baseSource && baseSource !== "manual") {
             const _ctx: SrcCtx = {
               totalVal: baseTotalValue, rate: itemRate, qty: displayQty,
-              overrideRate: parseFloat(overrideRates[item.id] || "0") || 0,
-              overrideTotal: (parseFloat(overrideRates[item.id] || "0") || 0) * displayQty,
+              overrideRate: overrideRate,
+              overrideTotal: overrideTotalVal,
               rowCalc: rowCalculatedValues, customVals: customColumnValues[item.id]?.[0] || {},
             };
             const baseVal = resolveSource(baseSource, _ctx);
@@ -775,6 +778,7 @@ export default function FinalizeBoq() {
             val = parseFloat(customColumnValues[item.id]?.[0]?.[col.name] || "0") || 0;
           }
 
+          if (roundOff) val = Math.round(val);
           rowCalculatedValues[col.name] = val;
           accumulator += val;
           totals[idx] += val;
@@ -1756,7 +1760,7 @@ export default function FinalizeBoq() {
         const displayQty = parseFloat(productQuantities[item.id] ?? td.finalize_qty ?? itemQty) || 0;
         const totalVal = itemRate * displayQty;
         const oRate = parseFloat(overrideRates[item.id] ?? td.finalize_override_rate ?? "0") || 0;
-        
+
         let accumulator = 0;
         let runningTotal = oRate > 0 ? oRate * displayQty : totalVal;
         const rowVals: Record<string, string> = { ...(customColumnValues[item.id]?.[0] || {}) };
@@ -1936,17 +1940,17 @@ export default function FinalizeBoq() {
           else if (colName === "Description / Location") rowValues[colName] = manualDesc;
           else if (colName === "HSN") rowValues[colName] = tableData.hsn_code || (tableData.hsn_sac_type === 'hsn' ? tableData.hsn_sac_code : "") || "—";
           else if (colName === "SAC") rowValues[colName] = tableData.sac_code || (tableData.hsn_sac_type === 'sac' ? tableData.hsn_sac_code : "") || "—";
-          else if (colName === "Rate / Unit") rowValues[colName] = Number(rateSqft.toFixed(2));
+          else if (colName === "Rate / Unit") rowValues[colName] = roundOff ? Math.round(rateSqft) : Number(rateSqft.toFixed(2));
           else if (colName === "Unit") {
             const defaultUnit = (tableData.materialLines && tableData.targetRequiredQty !== undefined)
               ? (tableData.configBasis?.requiredUnitType || tableData.unit || "Sqft")
               : (currentStep11Items[0]?.unit || tableData.unit || "nos");
             rowValues[colName] = productUnits[boqItem.id] ?? defaultUnit;
           }
-          else if (colName === "Qty") rowValues[colName] = Number(displayQty.toFixed(2));
-          else if (colName === "Total Value (₹)") rowValues[colName] = Number(totalVal.toFixed(2));
-          else if (colName === "Override Rate") rowValues[colName] = Number((parseFloat(overrideRates[boqItem.id] || "0") || 0).toFixed(2));
-          else if (colName === "Override Total") rowValues[colName] = Number(((parseFloat(overrideRates[boqItem.id] || "0") || 0) * displayQty).toFixed(2));
+          else if (colName === "Qty") rowValues[colName] = roundOff ? Math.round(displayQty) : Number(displayQty.toFixed(2));
+          else if (colName === "Total Value (₹)") rowValues[colName] = roundOff ? Math.round(totalVal) : Number(totalVal.toFixed(2));
+          else if (colName === "Override Rate") rowValues[colName] = roundOff ? Math.round(parseFloat(overrideRates[boqItem.id] || "0") || 0) : Number((parseFloat(overrideRates[boqItem.id] || "0") || 0).toFixed(2));
+          else if (colName === "Override Total") rowValues[colName] = roundOff ? Math.round((parseFloat(overrideRates[boqItem.id] || "0") || 0) * displayQty) : Number(((parseFloat(overrideRates[boqItem.id] || "0") || 0) * displayQty).toFixed(2));
           else {
             const currentCol = allCols.find(c => c.name === colName);
             if (!currentCol) {
@@ -1957,8 +1961,8 @@ export default function FinalizeBoq() {
             if (currentCol.isTotal) {
               currentRunningTotal += accumulator;
               accumulator = 0;
-              rowCalculatedValues[colName] = currentRunningTotal;
-              rowValues[colName] = Number(currentRunningTotal.toFixed(2));
+              rowCalculatedValues[colName] = roundOff ? Math.round(currentRunningTotal) : currentRunningTotal;
+              rowValues[colName] = roundOff ? Math.round(currentRunningTotal) : Number(currentRunningTotal.toFixed(2));
             } else {
               const itemColList = customColumns[boqItem.id] || [];
               const itemCol = itemColList.find((c: any) => c.name === colName) || currentCol;
@@ -1983,9 +1987,9 @@ export default function FinalizeBoq() {
                 valNum = parseFloat(customColumnValues[boqItem.id]?.[0]?.[colName] || "0") || 0;
               }
 
-              rowCalculatedValues[colName] = valNum;
+              rowCalculatedValues[colName] = roundOff ? Math.round(valNum) : valNum;
               accumulator += valNum;
-              rowValues[colName] = Number(valNum.toFixed(2));
+              rowValues[colName] = roundOff ? Math.round(valNum) : Number(valNum.toFixed(2));
             }
           }
         });
@@ -2001,17 +2005,17 @@ export default function FinalizeBoq() {
       selectedExportCols.forEach((colName, idx) => {
         if (colName === "Product / Material") footerRow[idx] = "GRAND TOTAL";
         else if (colName === "Total Value (₹)") {
-          footerRow[idx] = hideSystemTotalFooter ? "" : Number(calculatedColumnTotals.totalValueSum.toFixed(2));
+          footerRow[idx] = hideSystemTotalFooter ? "" : (roundOff ? Math.round(calculatedColumnTotals.totalValueSum) : Number(calculatedColumnTotals.totalValueSum.toFixed(2)));
         } else if (colName === "Rate / Unit") {
-          footerRow[idx] = Number(calculatedColumnTotals.totalRateSum.toFixed(2));
+          footerRow[idx] = roundOff ? Math.round(calculatedColumnTotals.totalRateSum) : Number(calculatedColumnTotals.totalRateSum.toFixed(2));
         } else if (colName === "Override Total") {
-          footerRow[idx] = Number(calculatedColumnTotals.overrideTotalSum.toFixed(2));
+          footerRow[idx] = roundOff ? Math.round(calculatedColumnTotals.overrideTotalSum) : Number(calculatedColumnTotals.overrideTotalSum.toFixed(2));
         } else if (colName === "Qty" || colName === "Description / Location" || colName === "HSN" || colName === "SAC" || colName === "Unit" || colName === "Override Rate") {
           footerRow[idx] = "";
         } else if (allCols.some(c => c.name === colName)) {
           const colIdx = allCols.findIndex(c => c.name === colName);
           const col = allCols[colIdx];
-          footerRow[idx] = col.hideTotal ? "" : Number(calculatedColumnTotals.totals[colIdx].toFixed(2));
+          footerRow[idx] = col.hideTotal ? "" : (roundOff ? Math.round(calculatedColumnTotals.totals[colIdx]) : Number(calculatedColumnTotals.totals[colIdx].toFixed(2)));
         }
       });
       sheetData.push(footerRow);
@@ -2198,8 +2202,8 @@ export default function FinalizeBoq() {
           if (col.isTotal) {
             runningTotal += accumulator;
             accumulator = 0;
-            rowCalculatedValues[col.name] = runningTotal;
-            customVals.push(runningTotal.toFixed(2));
+            rowCalculatedValues[col.name] = roundOff ? Math.round(runningTotal) : runningTotal;
+            customVals.push(roundOff ? Math.round(runningTotal).toString() : runningTotal.toFixed(2));
           } else {
             let val = 0;
             const baseSource = (itemCol as any).baseSource;
@@ -2220,9 +2224,9 @@ export default function FinalizeBoq() {
             } else {
               val = parseFloat(customColumnValues[boqItem.id]?.[0]?.[col.name] || "0") || 0;
             }
-            rowCalculatedValues[col.name] = val;
+            rowCalculatedValues[col.name] = roundOff ? Math.round(val) : val;
             accumulator += val;
-            customVals.push(val.toFixed(2));
+            customVals.push(roundOff ? Math.round(val).toString() : val.toFixed(2));
           }
         });
 
@@ -2238,11 +2242,11 @@ export default function FinalizeBoq() {
             : (currentStep11Items[0]?.unit || tableData.unit || "nos");
           row.push(productUnits[boqItem.id] ?? defaultUnit);
         }
-        if (selectedPdfExportCols.includes("Qty")) row.push(displayQty.toFixed(2));
-        if (selectedPdfExportCols.includes("Rate")) row.push(rateSqft.toFixed(2));
-        if (selectedPdfExportCols.includes("Total")) row.push(totalVal.toFixed(2));
-        if (selectedPdfExportCols.includes("Override Rate")) row.push((parseFloat(overrideRates[boqItem.id] || "0") || 0).toFixed(2));
-        if (selectedPdfExportCols.includes("Override Total")) row.push(((parseFloat(overrideRates[boqItem.id] || "0") || 0) * displayQty).toFixed(2));
+        if (selectedPdfExportCols.includes("Qty")) row.push(roundOff ? Math.round(displayQty).toString() : displayQty.toFixed(2));
+        if (selectedPdfExportCols.includes("Rate")) row.push(roundOff ? Math.round(rateSqft).toString() : rateSqft.toFixed(2));
+        if (selectedPdfExportCols.includes("Total")) row.push(roundOff ? Math.round(totalVal).toString() : totalVal.toFixed(2));
+        if (selectedPdfExportCols.includes("Override Rate")) row.push(roundOff ? Math.round(parseFloat(overrideRates[boqItem.id] || "0") || 0).toString() : (parseFloat(overrideRates[boqItem.id] || "0") || 0).toFixed(2));
+        if (selectedPdfExportCols.includes("Override Total")) row.push(roundOff ? Math.round((parseFloat(overrideRates[boqItem.id] || "0") || 0) * displayQty).toString() : ((parseFloat(overrideRates[boqItem.id] || "0") || 0) * displayQty).toFixed(2));
 
         allCols.forEach((col, idx) => {
           if (selectedPdfExportCols.includes(col.name)) {
@@ -2253,7 +2257,7 @@ export default function FinalizeBoq() {
         body.push(row);
       });
 
-      const fmtNum = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtNum = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
 
       const footerRow: any[] = [];
       if (selectedPdfExportCols.includes("S.No")) footerRow.push("");
@@ -2599,277 +2603,277 @@ export default function FinalizeBoq() {
         <Card className="border-none shadow-sm bg-slate-50/50">
           <CardContent className="p-2 space-y-2">
             {/* Filter by Status Row */}
-                {/* Row 1: Project Filters */}
-                <div className="flex items-center gap-3 p-1.5 bg-slate-50 rounded-lg border border-slate-200 w-full mb-2">
-                  <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2 whitespace-nowrap">Project Filters:</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {PROJECT_STATUSES.map(s => (
-                      <button
-                        key={s.value}
-                        onClick={() => setProjectStatusFilter(s.value)}
-                        className={cn(
-                          "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
-                          projectStatusFilter === s.value ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
-                        )}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setProjectStatusFilter("all")}
-                      className={cn(
-                        "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
-                        projectStatusFilter === "all" ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
-                      )}
-                    >
-                      All
-                    </button>
-                  </div>
-                </div>
-
-                {/* Row 2: Selection & Version History */}
-                <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
-                  {/* Container 1: Project */}
-                  <div className="flex-[2] min-w-[320px] space-y-1">
-                    <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Select Project</Label>
-                    <Select onValueChange={(v) => setSelectedProjectId(v || null)} value={selectedProjectId || ""}>
-                      <SelectTrigger className="w-full bg-slate-50 border-slate-200 h-9 px-3 hover:bg-slate-100/50 transition-colors">
-                        <SelectValue placeholder={projects.length === 0 ? "No projects" : "Choose from filtered list..."} />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[350px] overflow-hidden flex flex-col">
-                        <div className="sticky top-0 z-10 bg-white p-2 border-b border-slate-100">
-                          <div className="relative">
-                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
-                            <Input
-                              placeholder="Search projects..."
-                              value={projectSearchTerm}
-                              onChange={(e) => setProjectSearchTerm(e.target.value)}
-                              onKeyDown={(e) => e.stopPropagation()}
-                              className="pl-7 h-8 text-[11px] border-slate-200 bg-slate-50 focus:bg-white transition-colors w-full"
-                            />
-                          </div>
-                        </div>
-                        <div className="overflow-y-auto max-h-[250px]">
-                          {filteredProjects.map((p) => {
-                            const sm = getProjectStatusMeta(p.project_status);
-                            return (
-                              <SelectItem value={p.id} key={p.id}>
-                                <span className="flex items-center gap-2">
-                                  {p.name}
-                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${sm.color}`}>{sm.label}</span>
-                                </span>
-                              </SelectItem>
-                            );
-                          })}
-                        </div>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedProjectId && (
-                    <>
-                      {/* Container 2: BOM Version */}
-                      <div className="flex-[1] min-w-[180px] space-y-1">
-                        <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">BOM Version</Label>
-                        <div className="flex gap-1.5">
-                          <Select
-                            value={selectedBomVersionId || ""}
-                            onValueChange={(v) => { setSelectedBomVersionId(v); setSelectedBoqVersionId(null); }}
-                          >
-                            <SelectTrigger className="bg-slate-50 border-slate-200 h-9">
-                              <SelectValue placeholder="Select BOM" />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-[300px] overflow-y-auto">
-                              {filteredBomVersions.map((v) => (
-                                <SelectItem value={v.id} key={v.id}>
-                                  V{v.version_number} ({v.status === "approved" ? "Appr" : v.status === "submitted" ? "Lock" : "Draft"})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-9 w-9 text-slate-400 hover:text-red-500 border border-slate-200 hover:bg-red-50 bg-white shadow-sm shrink-0"
-                            onClick={() => {
-                              if (!selectedBomVersionId) return;
-                              openDeleteConfirm("Delete this BOM version?", "BOM Version", async (action) => {
-                                try {
-                                  const resp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedBomVersionId)}?action=${action}`, { method: "DELETE" });
-                                  if (resp.ok) {
-                                    toast({ title: action === 'trash' ? "Moved to Trash" : "Archived", description: "BOM Version removed" });
-                                    const bomResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=bom`);
-                                    if (bomResp.ok) {
-                                      const bomData = await bomResp.json();
-                                      const bomList = bomData.versions || [];
-                                      setBomVersions(bomList);
-                                      if (bomList.length > 0) setSelectedBomVersionId(bomList[0].id);
-                                      else setSelectedBomVersionId(null);
-                                    }
-                                  }
-                                } catch (e) { console.error(e); toast({ title: "Error", description: "Failed to delete", variant: "destructive" }); }
-                              });
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Container 3: BOQ Version */}
-                      <div className="flex-[1] min-w-[200px] space-y-1">
-                        <div className="flex justify-between items-center px-1">
-                          <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">BOQ Version</Label>
-                          <button
-                            onClick={async () => {
-                              if (!confirm("Create a new BOQ version?")) return;
-                              try {
-                                const resp = await apiFetch("/api/boq-versions", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
-                                    project_id: selectedProjectId,
-                                    type: "boq",
-                                    copy_from_version: selectedBoqVersionId || selectedBomVersionId
-                                  })
-                                });
-                                if (resp.ok) {
-                                  const newVer = await resp.json();
-                                  toast({ title: "Success", description: "BOQ Version created" });
-                                  const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=boq`);
-                                  if (boqResp.ok) {
-                                    const boqData = await boqResp.json();
-                                    setBoqVersions(boqData.versions || []);
-                                    setSelectedBomVersionId(null);
-                                    setSelectedBoqVersionId(newVer.id);
-                                  }
-                                }
-                              } catch (e) { console.error(e); toast({ title: "Error", description: "Failed to create BOQ version", variant: "destructive" }); }
-                            }}
-                            className="text-[9px] text-emerald-600 font-bold hover:underline uppercase"
-                          >
-                            + Create
-                          </button>
-                        </div>
-                        <div className="flex gap-1.5">
-                          <Select
-                            value={selectedBoqVersionId || ""}
-                            onValueChange={(v) => { setSelectedBoqVersionId(v); setSelectedBomVersionId(null); }}
-                          >
-                            <SelectTrigger className="bg-slate-50 border-slate-200 h-9">
-                              <SelectValue placeholder="Select BOQ" />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-[300px] overflow-y-auto">
-                              {filteredBoqVersions.map((v) => (
-                                <SelectItem value={v.id} key={v.id}>BOQ V{v.version_number} ({v.status})</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-9 w-9 text-slate-400 hover:text-red-500 border border-slate-200 hover:bg-red-50 bg-white shadow-sm shrink-0"
-                            onClick={() => {
-                              if (!selectedBoqVersionId) return;
-                              openDeleteConfirm("Delete this BOQ version?", "BOQ Version", async (action) => {
-                                try {
-                                  const resp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedBoqVersionId)}?action=${action}`, { method: "DELETE" });
-                                  if (resp.ok) {
-                                    toast({ title: action === 'trash' ? "Moved to Trash" : "Archived", description: "BOQ Version removed" });
-                                    const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=boq`);
-                                    if (boqResp.ok) {
-                                      const boqData = await boqResp.json();
-                                      const boqList = boqData.versions || [];
-                                      setBoqVersions(boqList);
-                                      if (boqList.length > 0) setSelectedBoqVersionId(boqList[0].id);
-                                      else setSelectedBoqVersionId(null);
-                                    }
-                                  }
-                                } catch (e) { console.error(e); toast({ title: "Error", description: "Failed to delete", variant: "destructive" }); }
-                              });
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    </>
+            {/* Row 1: Project Filters */}
+            <div className="flex items-center gap-3 p-1.5 bg-slate-50 rounded-lg border border-slate-200 w-full mb-2">
+              <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-2 whitespace-nowrap">Project Filters:</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {PROJECT_STATUSES.map(s => (
+                  <button
+                    key={s.value}
+                    onClick={() => setProjectStatusFilter(s.value)}
+                    className={cn(
+                      "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
+                      projectStatusFilter === s.value ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setProjectStatusFilter("all")}
+                  className={cn(
+                    "px-2 py-1 text-[9px] font-bold uppercase rounded-md transition-all border border-transparent",
+                    projectStatusFilter === "all" ? "bg-white text-blue-600 shadow-sm border-blue-100 ring-1 ring-blue-50/50" : "text-slate-500 hover:bg-slate-100"
                   )}
-                </div>
+                >
+                  All
+                </button>
+              </div>
+            </div>
 
-                {/* Row 3: Status & Template Management */}
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-                  {selectedProjectId && (() => {
-                    const selProj = projects.find(p => p.id === selectedProjectId);
-                    return (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-500 font-bold uppercase">Project Status:</span>
-                        <select
-                          className="text-xs border border-slate-200 rounded px-2 py-1 bg-white font-semibold focus:ring-1 ring-blue-400 outline-none"
-                          value={selProj?.project_status || 'started'}
-                          onChange={async (e) => {
-                            const newStatus = e.target.value;
-                            try {
-                              await apiFetch(`/api/boq-projects/${selectedProjectId}`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ project_status: newStatus }),
-                              });
-                              setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, project_status: newStatus } : p));
-                            } catch (err) { console.error('Failed to update project status', err); }
-                          }}
-                        >
-                          {PROJECT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
+            {/* Row 2: Selection & Version History */}
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+              {/* Container 1: Project */}
+              <div className="flex-[2] min-w-[320px] space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">Select Project</Label>
+                <Select onValueChange={(v) => setSelectedProjectId(v || null)} value={selectedProjectId || ""}>
+                  <SelectTrigger className="w-full bg-slate-50 border-slate-200 h-9 px-3 hover:bg-slate-100/50 transition-colors">
+                    <SelectValue placeholder={projects.length === 0 ? "No projects" : "Choose from filtered list..."} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[350px] overflow-hidden flex flex-col">
+                    <div className="sticky top-0 z-10 bg-white p-2 border-b border-slate-100">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                        <Input
+                          placeholder="Search projects..."
+                          value={projectSearchTerm}
+                          onChange={(e) => setProjectSearchTerm(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="pl-7 h-8 text-[11px] border-slate-200 bg-slate-50 focus:bg-white transition-colors w-full"
+                        />
                       </div>
-                    );
-                  })()}
+                    </div>
+                    <div className="overflow-y-auto max-h-[250px]">
+                      {filteredProjects.map((p) => {
+                        const sm = getProjectStatusMeta(p.project_status);
+                        return (
+                          <SelectItem value={p.id} key={p.id}>
+                            <span className="flex items-center gap-2">
+                              {p.name}
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${sm.color}`}>{sm.label}</span>
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </div>
+                  </SelectContent>
+                </Select>
+              </div>
 
-                  <div className="flex gap-2 h-9 ml-auto items-center">
-
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="bg-white border-slate-200 font-bold h-full px-4 flex items-center gap-2 text-[11px] shadow-sm">
-                          <LayoutTemplate className="h-4 w-4 text-blue-600" />
-                          <span>{selectedTemplateId ? templates.find(t => t.id === selectedTemplateId)?.name : "Apply Template"}</span>
-                          <ChevronDown className="h-3 w-3 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[200px] p-0" align="end">
-                        <div className="max-h-[250px] overflow-y-auto">
-                          {templates.length === 0 ? (
-                            <div className="p-3 text-center text-xs text-slate-400">No templates</div>
-                          ) : (
-                            <div className="p-1">
-                              {templates.map((t) => (
-                                <div
-                                  key={t.id}
-                                  className="flex items-center justify-between p-2 rounded hover:bg-slate-100 cursor-pointer group"
-                                  onClick={() => handleApplyTemplate(t.id)}
-                                >
-                                  <span className="text-xs font-bold truncate">{t.name}</span>
-                                  <Trash2
-                                    className="h-3.5 w-3.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.id); }}
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="h-full px-4 border-blue-200 text-blue-700 hover:bg-blue-50 text-[11px] font-bold shadow-sm"
-                      onClick={() => setIsSaveTemplateDialogOpen(true)}
-                    >
-                      SAVE AS TEMPLATE
-                    </Button>
+              {selectedProjectId && (
+                <>
+                  {/* Container 2: BOM Version */}
+                  <div className="flex-[1] min-w-[180px] space-y-1">
+                    <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold ml-1">BOM Version</Label>
+                    <div className="flex gap-1.5">
+                      <Select
+                        value={selectedBomVersionId || ""}
+                        onValueChange={(v) => { setSelectedBomVersionId(v); setSelectedBoqVersionId(null); }}
+                      >
+                        <SelectTrigger className="bg-slate-50 border-slate-200 h-9">
+                          <SelectValue placeholder="Select BOM" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px] overflow-y-auto">
+                          {filteredBomVersions.map((v) => (
+                            <SelectItem value={v.id} key={v.id}>
+                              V{v.version_number} ({v.status === "approved" ? "Appr" : v.status === "submitted" ? "Lock" : "Draft"})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-slate-400 hover:text-red-500 border border-slate-200 hover:bg-red-50 bg-white shadow-sm shrink-0"
+                        onClick={() => {
+                          if (!selectedBomVersionId) return;
+                          openDeleteConfirm("Delete this BOM version?", "BOM Version", async (action) => {
+                            try {
+                              const resp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedBomVersionId)}?action=${action}`, { method: "DELETE" });
+                              if (resp.ok) {
+                                toast({ title: action === 'trash' ? "Moved to Trash" : "Archived", description: "BOM Version removed" });
+                                const bomResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=bom`);
+                                if (bomResp.ok) {
+                                  const bomData = await bomResp.json();
+                                  const bomList = bomData.versions || [];
+                                  setBomVersions(bomList);
+                                  if (bomList.length > 0) setSelectedBomVersionId(bomList[0].id);
+                                  else setSelectedBomVersionId(null);
+                                }
+                              }
+                            } catch (e) { console.error(e); toast({ title: "Error", description: "Failed to delete", variant: "destructive" }); }
+                          });
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
+
+                  {/* Container 3: BOQ Version */}
+                  <div className="flex-[1] min-w-[200px] space-y-1">
+                    <div className="flex justify-between items-center px-1">
+                      <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">BOQ Version</Label>
+                      <button
+                        onClick={async () => {
+                          if (!confirm("Create a new BOQ version?")) return;
+                          try {
+                            const resp = await apiFetch("/api/boq-versions", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                project_id: selectedProjectId,
+                                type: "boq",
+                                copy_from_version: selectedBoqVersionId || selectedBomVersionId
+                              })
+                            });
+                            if (resp.ok) {
+                              const newVer = await resp.json();
+                              toast({ title: "Success", description: "BOQ Version created" });
+                              const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId!)}?type=boq`);
+                              if (boqResp.ok) {
+                                const boqData = await boqResp.json();
+                                setBoqVersions(boqData.versions || []);
+                                setSelectedBomVersionId(null);
+                                setSelectedBoqVersionId(newVer.id);
+                              }
+                            }
+                          } catch (e) { console.error(e); toast({ title: "Error", description: "Failed to create BOQ version", variant: "destructive" }); }
+                        }}
+                        className="text-[9px] text-emerald-600 font-bold hover:underline uppercase"
+                      >
+                        + Create
+                      </button>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <Select
+                        value={selectedBoqVersionId || ""}
+                        onValueChange={(v) => { setSelectedBoqVersionId(v); setSelectedBomVersionId(null); }}
+                      >
+                        <SelectTrigger className="bg-slate-50 border-slate-200 h-9">
+                          <SelectValue placeholder="Select BOQ" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px] overflow-y-auto">
+                          {filteredBoqVersions.map((v) => (
+                            <SelectItem value={v.id} key={v.id}>BOQ V{v.version_number} ({v.status})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-slate-400 hover:text-red-500 border border-slate-200 hover:bg-red-50 bg-white shadow-sm shrink-0"
+                        onClick={() => {
+                          if (!selectedBoqVersionId) return;
+                          openDeleteConfirm("Delete this BOQ version?", "BOQ Version", async (action) => {
+                            try {
+                              const resp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedBoqVersionId)}?action=${action}`, { method: "DELETE" });
+                              if (resp.ok) {
+                                toast({ title: action === 'trash' ? "Moved to Trash" : "Archived", description: "BOQ Version removed" });
+                                const boqResp = await apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=boq`);
+                                if (boqResp.ok) {
+                                  const boqData = await boqResp.json();
+                                  const boqList = boqData.versions || [];
+                                  setBoqVersions(boqList);
+                                  if (boqList.length > 0) setSelectedBoqVersionId(boqList[0].id);
+                                  else setSelectedBoqVersionId(null);
+                                }
+                              }
+                            } catch (e) { console.error(e); toast({ title: "Error", description: "Failed to delete", variant: "destructive" }); }
+                          });
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Row 3: Status & Template Management */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
+              {selectedProjectId && (() => {
+                const selProj = projects.find(p => p.id === selectedProjectId);
+                return (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Project Status:</span>
+                    <select
+                      className="text-xs border border-slate-200 rounded px-2 py-1 bg-white font-semibold focus:ring-1 ring-blue-400 outline-none"
+                      value={selProj?.project_status || 'started'}
+                      onChange={async (e) => {
+                        const newStatus = e.target.value;
+                        try {
+                          await apiFetch(`/api/boq-projects/${selectedProjectId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ project_status: newStatus }),
+                          });
+                          setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, project_status: newStatus } : p));
+                        } catch (err) { console.error('Failed to update project status', err); }
+                      }}
+                    >
+                      {PROJECT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
+
+              <div className="flex gap-2 h-9 ml-auto items-center">
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="bg-white border-slate-200 font-bold h-full px-4 flex items-center gap-2 text-[11px] shadow-sm">
+                      <LayoutTemplate className="h-4 w-4 text-blue-600" />
+                      <span>{selectedTemplateId ? templates.find(t => t.id === selectedTemplateId)?.name : "Apply Template"}</span>
+                      <ChevronDown className="h-3 w-3 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[200px] p-0" align="end">
+                    <div className="max-h-[250px] overflow-y-auto">
+                      {templates.length === 0 ? (
+                        <div className="p-3 text-center text-xs text-slate-400">No templates</div>
+                      ) : (
+                        <div className="p-1">
+                          {templates.map((t) => (
+                            <div
+                              key={t.id}
+                              className="flex items-center justify-between p-2 rounded hover:bg-slate-100 cursor-pointer group"
+                              onClick={() => handleApplyTemplate(t.id)}
+                            >
+                              <span className="text-xs font-bold truncate">{t.name}</span>
+                              <Trash2
+                                className="h-3.5 w-3.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.id); }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-full px-4 border-blue-200 text-blue-700 hover:bg-blue-50 text-[11px] font-bold shadow-sm"
+                  onClick={() => setIsSaveTemplateDialogOpen(true)}
+                >
+                  SAVE AS TEMPLATE
+                </Button>
+              </div>
+            </div>
 
             {/* Compact Summary Bar */}
             {activeVersion && (
@@ -2898,7 +2902,7 @@ export default function FinalizeBoq() {
                   <div className="p-1.5 bg-emerald-50 rounded text-emerald-600"><IndianRupee className="h-3.5 w-3.5" /></div>
                   <div className="flex flex-col">
                     <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Budget</span>
-                    <span className="text-xs font-semibold text-slate-700">₹{generatedBudget.toLocaleString()}</span>
+                    <span className="text-xs font-semibold text-slate-700">₹{(roundOff ? Math.round(generatedBudget) : generatedBudget).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}</span>
                   </div>
                 </div>
 
@@ -2908,7 +2912,7 @@ export default function FinalizeBoq() {
                   <div className="p-1.5 bg-blue-50 rounded text-blue-600"><IndianRupee className="h-3.5 w-3.5" /></div>
                   <div className="flex flex-col">
                     <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Project Value</span>
-                    <span className="text-xs font-semibold text-slate-700">₹{currentProjectValue.toLocaleString()}</span>
+                    <span className="text-xs font-semibold text-slate-700">₹{(roundOff ? Math.round(currentProjectValue) : currentProjectValue).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}</span>
                   </div>
                 </div>
 
@@ -2918,7 +2922,7 @@ export default function FinalizeBoq() {
                   <div className={`p-1.5 rounded ${revenue < 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}><IndianRupee className="h-3.5 w-3.5" /></div>
                   <div className="flex flex-col">
                     <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight">Revenue</span>
-                    <span className={`text-xs font-semibold ${revenue < 0 ? 'text-red-600' : 'text-green-600'}`}>₹{revenue.toLocaleString()}</span>
+                    <span className={`text-xs font-semibold ${revenue < 0 ? 'text-red-600' : 'text-green-600'}`}>₹{(roundOff ? Math.round(revenue) : revenue).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}</span>
                   </div>
                 </div>
 
@@ -3272,6 +3276,14 @@ export default function FinalizeBoq() {
                     >
                       {showColumnTotals ? "Hide Totals Row" : "Show Totals Row"}
                     </Button>
+                    <div className="flex items-center gap-2 border border-blue-200 rounded px-3 h-9 bg-blue-50/30">
+                      <Checkbox 
+                        id="round-off-toggle" 
+                        checked={roundOff} 
+                        onCheckedChange={(checked) => setRoundOff(!!checked)}
+                      />
+                      <Label htmlFor="round-off-toggle" className="text-[11px] font-bold text-blue-800 uppercase cursor-pointer">Round Off</Label>
+                    </div>
                     <Button
                       variant="outline"
                       size="sm"
@@ -3280,21 +3292,21 @@ export default function FinalizeBoq() {
                         if (!confirm("Restoring all hidden totals, columns, and rows for all lines?")) return;
                         setHideSystemTotalFooter(false);
                         setHiddenPredefinedCols({});
-                        
+
                         // Update local state immediately
                         const updatedCustomCols: Record<string, any[]> = {};
                         boqItems.forEach(item => {
                           updatedCustomCols[item.id] = (customColumns[item.id] || []).map(c => ({ ...c, hideTotal: false, hideColumn: false }));
                         });
                         setCustomColumns(prev => ({ ...prev, ...updatedCustomCols }));
-                        
+
                         // Update database - clear ALL visibility flags
                         const updates = boqItems.map(item => {
                           let td = item.table_data || {};
                           if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
                           const nextCols = (customColumns[item.id] || []).map(c => ({ ...c, hideTotal: false, hideColumn: false }));
-                          const updatedTd = { 
-                            ...td, 
+                          const updatedTd = {
+                            ...td,
                             finalize_hide_row: false,
                             finalize_columns: nextCols,
                             finalize_hidden_predefined_cols: {},
@@ -3307,24 +3319,24 @@ export default function FinalizeBoq() {
                           });
                         });
                         await Promise.all(updates);
-                        
+
                         // Update local boqItems state to reflect reset
                         setBoqItems(prev => prev.map(item => {
                           let td = item.table_data || {};
                           if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
                           const nextCols = (customColumns[item.id] || []).map(c => ({ ...c, hideTotal: false, hideColumn: false }));
-                          return { 
-                            ...item, 
-                            table_data: { 
-                              ...td, 
+                          return {
+                            ...item,
+                            table_data: {
+                              ...td,
                               finalize_hide_row: false,
                               finalize_columns: nextCols,
                               finalize_hidden_predefined_cols: {},
                               finalize_hide_system_total: false
-                            } 
+                            }
                           };
                         }));
-                        
+
                         loadBoqItemsAndEdits(activeVersionId);
                         toast({ title: "Visibility Restored", description: "All hidden rows, columns and totals are now visible." });
                       }}
@@ -3806,14 +3818,17 @@ export default function FinalizeBoq() {
                                 />
                               </td>
                             )}
-                            {!hiddenPredefinedCols.rate && (
+                             {!hiddenPredefinedCols.rate && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-500 text-[10px] align-middle">
-                                ₹{rateSqft.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                ₹{(roundOff ? Math.round(rateSqft) : rateSqft).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                               </td>
                             )}
-                            {!hiddenPredefinedCols.system_total && (
+                             {!hiddenPredefinedCols.system_total && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 align-middle text-[10px] w-32">
-                                ₹{(rateSqft * (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.materialLines && tableData.targetRequiredQty !== undefined ? Number(tableData.targetRequiredQty) : Number(currentStep11Items[0]?.qty || 0)))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                ₹{(() => {
+                                  const rawVal = rateSqft * (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.materialLines && tableData.targetRequiredQty !== undefined ? Number(tableData.targetRequiredQty) : Number(currentStep11Items[0]?.qty || 0)));
+                                  return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
+                                })()}
                               </td>
                             )}
                             {!hiddenPredefinedCols.override_rate && (
@@ -3829,9 +3844,14 @@ export default function FinalizeBoq() {
                                 />
                               </td>
                             )}
-                            {!hiddenPredefinedCols.override_total && (
+                             {!hiddenPredefinedCols.override_total && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 align-middle text-[10px] w-32">
-                                ₹{((parseFloat(overrideRates[boqItem.id] || "0") || 0) * (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.targetRequiredQty || currentStep11Items[0]?.qty || 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                ₹{(() => {
+                                  const overrideRateVal = parseFloat(overrideRates[boqItem.id] || "0") || 0;
+                                  const displayQty = productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.targetRequiredQty || currentStep11Items[0]?.qty || 0);
+                                  const rawVal = overrideRateVal * displayQty;
+                                  return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
+                                })()}
                               </td>
                             )}
                             {/* Custom columns */}
@@ -3889,8 +3909,8 @@ export default function FinalizeBoq() {
                                 // Render the cell only if not hidden
                                 if (isTotalColumn) {
                                   return (
-                                    <td key={`${col.name}-${idx}`} className={`border-r px-2 py-1.5 text-right font-semibold text-green-900 bg-green-100/40 text-[10px] ${getIsModified(boqItem.id, "columns", col.name) ? "text-blue-600 border-2 border-blue-100" : ""}`}>
-                                      ₹{valNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                     <td key={`${col.name}-${idx}`} className={`border-r px-2 py-1.5 text-right font-semibold text-green-900 bg-green-100/40 text-[10px] ${getIsModified(boqItem.id, "columns", col.name) ? "text-blue-600 border-2 border-blue-100" : ""}`}>
+                                      ₹{(roundOff ? Math.round(valNum) : valNum).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                                     </td>
                                   );
                                 } else {
@@ -3900,8 +3920,8 @@ export default function FinalizeBoq() {
                                   const currentBaseSource = (itemCol as any).baseSource || "Total Value (₹)";
                                   const isCalculated = currentBaseSource && currentBaseSource !== "manual";
 
-                                  const displayVal = isCalculated
-                                    ? valNum.toFixed(2)
+                                   const displayVal = isCalculated
+                                    ? (roundOff ? Math.round(valNum).toString() : valNum.toFixed(2))
                                     : ((savedVal !== undefined && savedVal !== null && savedVal !== "") ? String(savedVal) : "");
                                   const itemMultiplier = (itemCol as any).percentageValue || 0;
                                   const itemOp = (itemCol as any).operator || "%";
@@ -4058,7 +4078,7 @@ export default function FinalizeBoq() {
                           )}
                           {!hiddenPredefinedCols.rate && (
                             <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-600 bg-gray-50/50 text-[11px] w-32">
-                              ₹{calculatedColumnTotals.totalRateSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                               ₹{calculatedColumnTotals.totalRateSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                             </td>
                           )}
                           {!hiddenPredefinedCols.unit && (
@@ -4075,7 +4095,7 @@ export default function FinalizeBoq() {
                             <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 group/total relative text-[11px] w-32">
                               {!hideSystemTotalFooter ? (
                                 <>
-                                  ₹{calculatedColumnTotals.totalValueSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                   ₹{calculatedColumnTotals.totalValueSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                                   <button
                                     onClick={() => handleSetSystemTotalVisibility(false)}
                                     className="absolute left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/total:opacity-100 transition-opacity text-red-400 hover:text-red-600"
@@ -4101,7 +4121,7 @@ export default function FinalizeBoq() {
                           )}
                           {!hiddenPredefinedCols.override_total && (
                             <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 text-[11px] w-32">
-                              ₹{calculatedColumnTotals.overrideTotalSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                               ₹{calculatedColumnTotals.overrideTotalSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                             </td>
                           )}
                           {allCols.map((col, realIdx) => {
@@ -4113,7 +4133,7 @@ export default function FinalizeBoq() {
                               >
                                 {!col.hideTotal ? (
                                   <>
-                                    ₹{calculatedColumnTotals.totals[realIdx].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    ₹{calculatedColumnTotals.totals[realIdx].toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                                     <button
                                       onClick={() => handleToggleColumnTotalVisibility(col.name, true)}
                                       className="absolute left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/total:opacity-100 transition-opacity text-red-400 hover:text-red-600"
@@ -4199,7 +4219,7 @@ export default function FinalizeBoq() {
                             `${grandTotalColumn} Total`}
                       </span>
                       <span className="text-2xl font-black text-green-400 font-mono tracking-tighter">
-                        ₹{currentProjectValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                         ₹{currentProjectValue.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                       </span>
                     </div>
                   </div>
