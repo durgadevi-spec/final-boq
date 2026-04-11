@@ -1487,8 +1487,9 @@ export default function ManageProduct() {
                                             <Reorder.Group as="tbody" axis="y" values={configMaterials} onReorder={setConfigMaterials}>
                                                 {boqResults.computed.map((m, idx) => {
                                                     const baseAmt = m.baseQty * (m.supplyRate + m.installRate);
+                                                    const isFreezed = !!m.freezeAndEdit;
                                                     return (
-                                                        <Reorder.Item key={m.id} value={configMaterials.find(cm => cm.id === m.id) || m} as="tr" className="hover:bg-muted/5 transition-colors cursor-default bg-white border-b">
+                                                        <Reorder.Item key={m.id} value={configMaterials.find(cm => cm.id === m.id) || m} as="tr" className={`hover:bg-muted/5 transition-colors cursor-default border-b ${isFreezed ? 'bg-cyan-100 border-cyan-200' : 'bg-white'}`}>
                                                             <TableCell className="text-center cursor-grab active:cursor-grabbing">
                                                                 <GripVertical className="h-4 w-4 text-muted-foreground/40" />
                                                             </TableCell>
