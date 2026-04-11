@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { differenceInDays, format } from "date-fns";
 import { fuzzySearch } from "@/lib/utils";
 import { Layout } from "@/components/layout/Layout";
@@ -64,6 +64,8 @@ import {
   Check,
   Image as ImageIcon,
   PackageOpen,
+  Send,
+  CheckCheck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { postJSON, apiFetch } from "@/lib/api";
@@ -165,6 +167,7 @@ export default function AdminDashboard() {
     deleteShop,
     deleteMaterial,
     addSupportMessage,
+    updateSupportMessage,
     deleteMessage,
     materialApprovalRequests: materialRequests = [],
     setMaterialApprovalRequests: setMaterialRequests,
@@ -177,6 +180,63 @@ export default function AdminDashboard() {
   const [rejectReason, setRejectReason] = useState("");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [selectedPreviewImage, setSelectedPreviewImage] = useState<string | null>(null);
+  const [selectedConversationEmail, setSelectedConversationEmail] = useState<string | null>(null);
+  const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
+  const [isReplying, setIsReplying] = useState<string | null>(null);
+  const adminChatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Local managed copies so admin can edit/delete/disable items in UI
+  const [localMaterials, setLocalMaterials] = useState(() => [] as Array<any>);
+  const [localShops, setLocalShops] = useState(() => [] as Array<any>);
+  const [alerts, setAlerts] = useState<Array<any>>([]);
+  const [masterMaterials, setMasterMaterials] = useState<any[]>([]);
+  const [supportMsgs, setSupportMsgs] = useState<any[]>([]);
+  
+  const [newMasterMaterial, setNewMasterMaterial] = useState<{
+    name: string;
+    code: string;
+    category: string;
+    subcategory: string;
+    vendorCategory: string;
+    taxCodeType: 'hsn' | 'sac' | null;
+    taxCodeValue: string;
+    hsnCode: string;
+    sacCode: string;
+    technicalSpecification: string;
+    image?: string;
+  }>({
+    name: "",
+    code: "",
+    category: "",
+    subcategory: "",
+    vendorCategory: "",
+    taxCodeType: null,
+    taxCodeValue: "",
+    hsnCode: "",
+    sacCode: "",
+    technicalSpecification: "",
+    image: undefined,
+  });
+
+  useEffect(() => {
+    if (adminChatScrollRef.current) {
+      adminChatScrollRef.current.scrollTop = adminChatScrollRef.current.scrollHeight;
+    }
+  }, [selectedConversationEmail, supportMessages]);
+
+  const handleSendReply = async (id: string) => {
+    const text = replyTexts[id];
+    if (!text?.trim()) return;
+    try {
+      // Use the updateSupportMessage helper which now points to the correct API
+      await updateSupportMessage?.(id, { admin_reply: text, is_read: true });
+      setReplyTexts(prev => ({ ...prev, [id]: "" }));
+      setIsReplying(null);
+      toast({ title: "Reply Sent", description: "The supplier will see your message in their history" });
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to send reply", variant: "destructive" });
+    }
+  };
 
   // Helper to convert an uploaded image to a Base64 string
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (base64: string) => void) => {
@@ -704,8 +764,6 @@ export default function AdminDashboard() {
     });
   };
 
-  // ==== MASTER MATERIALS STATE (created by Admin/Software Team with just name + code) ====
-  const [masterMaterials, setMasterMaterials] = useState<any[]>([]);
   const [usedTemplateIds, setUsedTemplateIds] = useState<Set<string>>(new Set());
   const [showOnlyUnlinked, setShowOnlyUnlinked] = useState(false);
 
@@ -740,10 +798,6 @@ export default function AdminDashboard() {
     })();
   }, []);
 
-  // Local managed copies so admin can edit/delete/disable items in UI
-  const [localMaterials, setLocalMaterials] = useState(() => [] as Array<any>);
-  const [localShops, setLocalShops] = useState(() => [] as Array<any>);
-  const [alerts, setAlerts] = useState<Array<any>>([]);
   const [expandedShops, setExpandedShops] = useState<string[]>([]);
   const [masterSearch, setMasterSearch] = useState("");
   const [masterView, setMasterView] = useState<'grid' | 'list'>('grid');
@@ -808,7 +862,7 @@ export default function AdminDashboard() {
     return true;
   });
 
-  const [supportMsgs, setSupportMsgs] = useState<any[]>([]);
+  // SUPPORT MESSAGES STATE moved to top
 
   useEffect(() => {
     // initialize local copies from store
@@ -869,32 +923,7 @@ export default function AdminDashboard() {
     fetchVendorCategories();
   }, []);
 
-  // ===== ADMIN/SOFTWARE TEAM: Master Material (Name + Code only) =====
-  const [newMasterMaterial, setNewMasterMaterial] = useState<{
-    name: string;
-    code: string;
-    category: string;
-    subcategory: string;
-    vendorCategory: string;
-    taxCodeType: 'hsn' | 'sac' | null;
-    taxCodeValue: string;
-    hsnCode: string;
-    sacCode: string;
-    technicalSpecification: string;
-    image?: string;
-  }>({
-    name: "",
-    code: "",
-    category: "",
-    subcategory: "",
-    vendorCategory: "",
-    taxCodeType: null,
-    taxCodeValue: "",
-    hsnCode: "",
-    sacCode: "",
-    technicalSpecification: "",
-    image: undefined,
-  });
+  // Auto-generate code when admin enters material name
 
   // Auto-generate code when admin enters material name
   useEffect(() => {
@@ -908,7 +937,7 @@ export default function AdminDashboard() {
   }, [newMasterMaterial.name]);
 
   const handleAddMasterMaterial = async () => {
-    if (!newMasterMaterial.name.trim()) {
+    if (!(newMasterMaterial.name || "").trim()) {
       toast({
         title: "Error",
         description: "Material Name is required",
@@ -920,16 +949,16 @@ export default function AdminDashboard() {
     try {
       // Persist the master material as a template so suppliers can pick it
       const payload: any = {
-        name: newMasterMaterial.name.trim(),
+        name: (newMasterMaterial.name || "").trim(),
         code: newMasterMaterial.code,
-        category: newMasterMaterial.category,
-        subcategory: newMasterMaterial.subcategory,
-        vendorCategory: newMasterMaterial.vendorCategory.trim(),
+        category: newMasterMaterial.category || "",
+        subcategory: newMasterMaterial.subcategory || "",
+        vendorCategory: (newMasterMaterial.vendorCategory || "").trim(),
         taxCodeType: newMasterMaterial.taxCodeType,
-        taxCodeValue: newMasterMaterial.taxCodeValue.trim(),
-        hsnCode: newMasterMaterial.hsnCode.trim(),
-        sacCode: newMasterMaterial.sacCode.trim(),
-        technicalSpecification: newMasterMaterial.technicalSpecification.trim(),
+        taxCodeValue: (newMasterMaterial.taxCodeValue || "").trim(),
+        hsnCode: (newMasterMaterial.hsnCode || "").trim(),
+        sacCode: (newMasterMaterial.sacCode || "").trim(),
+        technicalSpecification: (newMasterMaterial.technicalSpecification || "").trim(),
         image: newMasterMaterial.image
       };
 
@@ -970,6 +999,8 @@ export default function AdminDashboard() {
     setNewMasterMaterial({
       name: `${template.name} (Copy)`,
       code: "", // Will be auto-generated by Effect on name change
+      category: template.category || "",
+      subcategory: template.subcategory || "",
       vendorCategory: template.vendor_category || "",
       taxCodeType: template.tax_code_type || null,
       taxCodeValue: template.tax_code_value || "",
@@ -1300,6 +1331,20 @@ export default function AdminDashboard() {
       return;
     }
 
+    // ✅ DUPLICATE SHOP CHECK: Prevent creating a shop that already exists
+    const trimmedName = (newShop.name || "").trim().toLowerCase();
+    const duplicateShop = localShops.find(
+      (s: any) => (s.name || "").trim().toLowerCase() === trimmedName
+    );
+    if (duplicateShop) {
+      toast({
+        title: "Shop Already Exists",
+        description: `A shop named "${newShop.name}" already exists in the system. If you are the owner of this shop, please login with your existing credentials instead of creating a new entry.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     (async () => {
       try {
         // Try to submit to server (requires auth). If it succeeds, use server id.
@@ -1503,7 +1548,7 @@ export default function AdminDashboard() {
     })();
   };
 
-  const handleSupportSubmit = () => {
+  const handleSupportSubmit = async () => {
     if (!supportMsg || !supportSenderName) {
       toast({
         title: "Error",
@@ -1512,24 +1557,25 @@ export default function AdminDashboard() {
       });
       return;
     }
-    (async () => {
-      try {
-        await addSupportMessage?.(supportSenderName, supportMsg, supportSenderInfo);
-        toast({
-          title: "Request Sent",
-          description: "Message sent to Admin & Software Team.",
-        });
-        setSupportMsg("");
-        setSupportSenderName("");
-        setSupportSenderInfo("");
-      } catch (err) {
-        toast({
-          title: "Error",
-          description: "Failed to send message",
-          variant: "destructive",
-        });
+    try {
+      const msg = await addSupportMessage?.(supportSenderName, supportMsg, supportSenderInfo);
+      if (msg) {
+        setSupportMsgs(prev => [msg, ...prev]);
       }
-    })();
+      toast({
+        title: "Request Sent",
+        description: "Message sent to Admin & Software Team.",
+      });
+      setSupportMsg("");
+      setSupportSenderInfo("");
+      return msg;
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to send message",
+        variant: "destructive",
+      });
+    }
   };
 
   const canViewSupportMessages =
@@ -1642,7 +1688,7 @@ export default function AdminDashboard() {
 
   const canCreateProduct = hasPerm(
     user?.role === "pre_sales",
-    "create_product_product"
+    "create_product"
   );
   const canManageProducts = canCreateProduct;
 
@@ -1738,7 +1784,7 @@ export default function AdminDashboard() {
 
             </div>
 
-            {(isAdminOrSoftwareTeam || user?.role === "purchase_team") && (
+            {(isAdminOrSoftwareTeam || user?.role === "purchase_team" || user?.role === "pre_sales") && (
               <div className="space-y-4">
                 <Card>
                   <CardHeader className="cursor-pointer select-none" onClick={() => setShowShopsList(!showShopsList)}>
@@ -2111,21 +2157,23 @@ export default function AdminDashboard() {
                                     )}
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <Button size="sm" variant="ghost" onClick={() => setLocalMaterials((prev: any[]) => prev.map((m: any) => m.id === mat.id ? { ...m, disabled: !m.disabled } : m))}>
-                                      {mat.disabled ? 'Enable' : 'Disable'}
-                                    </Button>
-                                    <Button size="sm" variant="outline" onClick={() => handleEditMaterial(mat)}>Edit</Button>
                                     {canEditDelete && (
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="text-destructive"
-                                        onClick={() => {
-                                          setGenericDelete({ isOpen: true, id: mat.id, name: mat.name, type: 'material' });
-                                        }}
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
+                                      <>
+                                        <Button size="sm" variant="ghost" onClick={() => setLocalMaterials((prev: any[]) => prev.map((m: any) => m.id === mat.id ? { ...m, disabled: !m.disabled } : m))}>
+                                          {mat.disabled ? 'Enable' : 'Disable'}
+                                        </Button>
+                                        <Button size="sm" variant="outline" onClick={() => handleEditMaterial(mat)}>Edit</Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="text-destructive"
+                                          onClick={() => {
+                                            setGenericDelete({ isOpen: true, id: mat.id, name: mat.name, type: 'material' });
+                                          }}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </>
                                     )}
                                   </div>
                                 </div>
@@ -3135,72 +3183,7 @@ export default function AdminDashboard() {
                           </p>
                         )}
                     </div>
-                    <div className="space-y-2">
-                      <Label>
-                        Category <span className="text-red-500">*</span>
-                      </Label>
-                      <Select
-                        value={newMasterMaterial.category}
-                        onValueChange={(value) =>
-                          setNewMasterMaterial({
-                            ...newMasterMaterial,
-                            category: value,
-                            subcategory: "", // Reset subcategory when category changes
-                          })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[200px] overflow-y-auto">
-                          {categories.length === 0 ? (
-                            <SelectItem value="none" disabled>
-                              No categories available
-                            </SelectItem>
-                          ) : (
-                            categories.map((cat) => (
-                              <SelectItem key={cat} value={cat}>
-                                {cat}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
 
-                    <div className="space-y-2">
-                      <Label>
-                        Subcategory <span className="text-red-500">*</span>
-                      </Label>
-                      <Select
-                        value={newMasterMaterial.subcategory}
-                        onValueChange={(value) =>
-                          setNewMasterMaterial({
-                            ...newMasterMaterial,
-                            subcategory: value,
-                          })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select subcategory" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[200px] overflow-y-auto">
-                          {subCategories.filter(s => s.category === newMasterMaterial.category).length === 0 ? (
-                            <SelectItem value="none" disabled>
-                              No subcategories available
-                            </SelectItem>
-                          ) : (
-                            subCategories
-                              .filter(s => s.category === newMasterMaterial.category)
-                              .map((sub: any) => (
-                                <SelectItem key={sub.id} value={sub.name}>
-                                  {sub.name}
-                                </SelectItem>
-                              ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
 
                     <div className="space-y-2">
                       <Label>
@@ -3300,10 +3283,8 @@ export default function AdminDashboard() {
                     <Button
                       onClick={handleAddMasterMaterial}
                       disabled={
-                        !newMasterMaterial.name.trim() ||
-                        !newMasterMaterial.category ||
-                        !newMasterMaterial.subcategory ||
-                        masterMaterials.some((m: any) => m.name.toLowerCase().trim() === newMasterMaterial.name.toLowerCase().trim()) ||
+                        (!(newMasterMaterial.name || "").trim()) ||
+                        masterMaterials.some((m: any) => (m.name || "").toLowerCase().trim() === (newMasterMaterial.name || "").toLowerCase().trim()) ||
                         masterMaterials.some((m: any) => m.code === newMasterMaterial.code)
                       }
                       className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -3316,6 +3297,8 @@ export default function AdminDashboard() {
                         setNewMasterMaterial({
                           name: "",
                           code: "",
+                          category: "",
+                          subcategory: "",
                           vendorCategory: "",
                           taxCodeType: null,
                           taxCodeValue: "",
@@ -3425,6 +3408,51 @@ export default function AdminDashboard() {
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      <div>
+                                        <Label>Category <span className="text-red-500">*</span></Label>
+                                        <Select
+                                          value={newMaterial.category || ""}
+                                          onValueChange={(value) => setNewMaterial({ ...newMaterial, category: value, subCategory: "" })}
+                                        >
+                                          <SelectTrigger>
+                                            <SelectValue placeholder="Select category" />
+                                          </SelectTrigger>
+                                          <SelectContent className="max-h-[200px] overflow-y-auto">
+                                            {categories.length === 0 ? (
+                                              <SelectItem value="none" disabled>No categories available</SelectItem>
+                                            ) : (
+                                              categories.map((cat: string) => (
+                                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                              ))
+                                            )}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div>
+                                        <Label>Subcategory <span className="text-red-500">*</span></Label>
+                                        <Select
+                                          value={newMaterial.subCategory || ""}
+                                          onValueChange={(value) => setNewMaterial({ ...newMaterial, subCategory: value })}
+                                        >
+                                          <SelectTrigger>
+                                            <SelectValue placeholder="Select subcategory" />
+                                          </SelectTrigger>
+                                          <SelectContent className="max-h-[200px] overflow-y-auto">
+                                            {subCategories.filter(s => s.category === newMaterial.category).length === 0 ? (
+                                              <SelectItem value="none" disabled>No subcategories available</SelectItem>
+                                            ) : (
+                                              subCategories
+                                                .filter(s => s.category === newMaterial.category)
+                                                .map((sub: any) => (
+                                                  <SelectItem key={sub.id} value={sub.name}>{sub.name}</SelectItem>
+                                                ))
+                                            )}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    </div>
+
+                                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
                                       <div>
                                         <Label>HSN Code</Label>
                                         <Input
@@ -3568,48 +3596,57 @@ export default function AdminDashboard() {
                             </div>
                             {editingMaterialId !== template.id && (
                               <div className="flex items-center gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleCloneMasterMaterial(template)}
-                                  title="Clone Template"
-                                >
-                                  <Copy className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" onClick={() => {
-                                  setEditingMaterialId(template.id);
-                                  setNewMaterial({
-                                    ...newMaterial,
-                                    name: template.name,
-                                    category: template.category || '',
-                                    subCategory: template.subcategory || template.sub_category || template.subCategory || '',
-                                    vendorCategory: template.vendor_category || '',
-                                    hsnCode: template.hsn_code || template.hsnCode || '',
-                                    sacCode: template.sac_code || template.sacCode || '',
-                                    technicalSpecification: template.technicalspecification || template.technicalSpecification || '',
-                                    dimensions: template.dimensions || '',
-                                    finish: template.finishtype || template.finish || '',
-                                    metalType: template.metaltype || template.metalType || '',
-                                    image: template.image || null
-                                  });
-                                }}>Edit</Button>
-                                <Button size="sm" variant="destructive" onClick={async () => {
-                                  if (!window.confirm(`Delete "${template.name}"? This cannot be undone.`)) return;
-                                  try {
-                                    console.log('[DELETE template]', template.id, template.name);
-                                    const res = await apiFetch(`/material-templates/${template.id}`, { method: 'DELETE' });
-                                    console.log('[DELETE response]', res.status, res.ok);
-                                    if (!res.ok) {
-                                      const errorData = await res.json();
-                                      throw new Error(errorData.message || 'Failed to delete');
-                                    }
-                                    setMasterMaterials(prev => prev.filter(m => m.id !== template.id));
-                                    toast({ title: 'Success', description: 'Material deleted' });
-                                  } catch (err) {
-                                    console.error('delete error', err);
-                                    toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to delete material', variant: 'destructive' });
-                                  }
-                                }}>Delete</Button>
+                                
+                                {canEditDelete ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleCloneMasterMaterial(template)}
+                                      title="Clone Template"
+                                    >
+                                      <Copy className="h-4 w-4" />
+                                    </Button>
+                                    <Button size="sm" onClick={() => {
+                                      setEditingMaterialId(template.id);
+                                      setNewMaterial({
+                                        ...newMaterial,
+                                        name: template.name,
+                                        category: template.category || '',
+                                        subCategory: template.subcategory || template.sub_category || template.subCategory || '',
+                                        vendorCategory: template.vendor_category || '',
+                                        hsnCode: template.hsn_code || template.hsnCode || '',
+                                        sacCode: template.sac_code || template.sacCode || '',
+                                        technicalSpecification: template.technicalspecification || template.technicalSpecification || '',
+                                        dimensions: template.dimensions || '',
+                                        finish: template.finishtype || template.finish || '',
+                                        metalType: template.metaltype || template.metalType || '',
+                                        image: template.image || null
+                                      });
+                                    }}>Edit</Button>
+                                    <Button size="sm" variant="destructive" onClick={async () => {
+                                      if (!window.confirm(`Delete "${template.name}"? This cannot be undone.`)) return;
+                                      try {
+                                        console.log('[DELETE template]', template.id, template.name);
+                                        const res = await apiFetch(`/material-templates/${template.id}`, { method: 'DELETE' });
+                                        console.log('[DELETE response]', res.status, res.ok);
+                                        if (!res.ok) {
+                                          const errorData = await res.json();
+                                          throw new Error(errorData.message || 'Failed to delete');
+                                        }
+                                        setMasterMaterials(prev => prev.filter(m => m.id !== template.id));
+                                        toast({ title: 'Success', description: 'Material deleted' });
+                                      } catch (err) {
+                                        console.error('delete error', err);
+                                        toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to delete material', variant: 'destructive' });
+                                      }
+                                    }}>Delete</Button>
+                                  </>
+                                ) : (
+                                  <Link href={`/admin/dashboard?tab=materials`}>
+                                    <span className="text-sm text-sidebar-primary pr-2">View</span>
+                                  </Link>
+                                )}
                               </div>
                             )}
                           </div>
@@ -4172,73 +4209,196 @@ export default function AdminDashboard() {
 
           {/* === MESSAGES TAB === */}
           {canViewSupportMessages && (
-            <TabsContent value="messages" className="space-y-4 mt-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Support Messages</CardTitle>
-                  <CardDescription>
-                    Messages from suppliers and users sent to Admin & Software
-                    Team
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {(supportMessages || []).length === 0 ? (
-                    <p className="text-muted-foreground">No messages yet</p>
-                  ) : (
-                    (supportMessages || []).map((msg) => (
-                      <Card key={msg.id} className="border-border/50">
-                        <CardContent className="pt-6 space-y-3">
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <p className="font-semibold">{msg.sender_name || msg.sentBy}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {new Date(msg.sent_at || msg.sentAt).toLocaleString()}
-                              </p>
-                              {msg.info && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  <span className="font-semibold">Info: </span>{msg.info}
-                                </p>
-                              )}
+            <TabsContent value="messages" className="mt-4 h-[700px]">
+              <Card className="h-full overflow-hidden flex flex-col border-none shadow-xl">
+                <div className="flex h-full">
+                  {/* Left Sidebar: Conversations List */}
+                  <div className="w-1/3 border-r border-slate-100 bg-slate-50/50 flex flex-col">
+                    <div className="p-4 border-b bg-white">
+                      <h3 className="font-bold text-lg text-slate-800">Conversations</h3>
+                      <p className="text-xs text-slate-500">Active support threads</p>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                      {(() => {
+                        const conversations = (supportMessages || []).reduce((acc: any, msg: any) => {
+                          const email = msg.sender_email || msg.sender_name || 'unknown';
+                          if (!acc[email]) {
+                            acc[email] = {
+                              email,
+                              name: msg.sender_name || 'Unknown User',
+                              lastMessage: msg.message,
+                              lastTime: msg.submitted_at || msg.sent_at || msg.sentAt,
+                              unreadCount: msg.is_read ? 0 : 1,
+                              messages: []
+                            };
+                          } else {
+                            if (!msg.is_read) acc[email].unreadCount++;
+                            // Keep track of latest time/message
+                            const msgTime = new Date(msg.submitted_at || msg.sent_at || msg.sentAt).getTime();
+                            const accTime = new Date(acc[email].lastTime).getTime();
+                            if (msgTime > accTime) {
+                              acc[email].lastMessage = msg.message;
+                              acc[email].lastTime = msg.submitted_at || msg.sent_at || msg.sentAt;
+                            }
+                          }
+                          acc[email].messages.push(msg);
+                          return acc;
+                        }, {});
+
+                        const sortedConvos = Object.values(conversations).sort((a: any, b: any) => 
+                          new Date(b.lastTime).getTime() - new Date(a.lastTime).getTime()
+                        );
+
+                        if (sortedConvos.length === 0) {
+                          return <div className="p-8 text-center text-slate-400 text-sm">No conversations found</div>;
+                        }
+
+                        return sortedConvos.map((convo: any) => (
+                          <div 
+                            key={convo.email}
+                            onClick={() => setSelectedConversationEmail(convo.email)}
+                            className={`
+                              p-4 border-b cursor-pointer transition-all hover:bg-white
+                              ${selectedConversationEmail === convo.email ? 'bg-white border-l-4 border-l-blue-600 shadow-sm' : 'border-l-4 border-l-transparent'}
+                            `}
+                          >
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-bold text-sm text-slate-900 truncate pr-2">{convo.name}</span>
+                              <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+                                {new Date(convo.lastTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                              </span>
                             </div>
-                            <div className="flex gap-2 items-start">
-                              {!msg.is_read && (
-                                <Badge variant="default">New</Badge>
-                              )}
-                              {canEditDelete && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    (async () => {
-                                      try {
-                                        await deleteMessage?.(msg.id);
-                                        toast({
-                                          title: "Success",
-                                          description: "Message deleted",
-                                        });
-                                      } catch (err) {
-                                        toast({
-                                          title: "Error",
-                                          description: "Failed to delete message",
-                                          variant: "destructive",
-                                        });
-                                      }
-                                    })();
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4 text-red-500" />
-                                </Button>
+                            <div className="flex justify-between items-center">
+                              <p className="text-xs text-slate-500 truncate italic">"{convo.lastMessage}"</p>
+                              {convo.unreadCount > 0 && (
+                                <Badge className="bg-blue-600 h-4 min-w-[16px] px-1 text-[9px]">{convo.unreadCount}</Badge>
                               )}
                             </div>
                           </div>
-                          <p className="text-sm leading-relaxed bg-muted/50 p-3 rounded">
-                            {msg.message}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    ))
-                  )}
-                </CardContent>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Right Pane: Chat Window */}
+                  <div className="flex-1 flex flex-col bg-white">
+                    {selectedConversationEmail ? (() => {
+                      const convoMessages = (supportMessages || [])
+                        .filter((m: any) => (m.sender_email || m.sender_name) === selectedConversationEmail)
+                        .sort((a: any, b: any) => new Date(a.submitted_at || a.sent_at || a.sentAt).getTime() - new Date(b.submitted_at || b.sent_at || b.sentAt).getTime());
+                      
+                      const latestMessage = convoMessages[convoMessages.length - 1];
+
+                      return (
+                        <>
+                          {/* Chat Header */}
+                          <div className="p-4 border-b flex justify-between items-center bg-slate-50/30">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">
+                                {selectedConversationEmail?.[0].toUpperCase()}
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-slate-900">{convoMessages[0]?.sender_name || 'Supplier'}</h3>
+                                <p className="text-[10px] text-slate-500 font-medium">{selectedConversationEmail}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                               <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-slate-400 hover:text-red-600"
+                                onClick={() => {
+                                  if(confirm("Delete this entire conversation?")) {
+                                    // Normally we'd have a bulk delete, but let's just delete the messages if needed
+                                    toast({ title: "Note", description: "Bulk delete not enabled. Please delete messages individually if required." });
+                                  }
+                                }}
+                               >
+                                 <Trash2 size={16} />
+                               </Button>
+                            </div>
+                          </div>
+
+                          {/* Message List */}
+                          <div 
+                            ref={adminChatScrollRef}
+                            className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#efe7dd] relative scroll-smooth"
+                          >
+                            <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')" }} />
+                            
+                            {convoMessages.map((msg: any) => (
+                              <div key={msg.id} className="space-y-4">
+                                {/* Supplier Bubble */}
+                                <div className="flex justify-start group relative">
+                                  <div className="max-w-[75%] bg-white p-3 rounded-2xl rounded-tl-none shadow-sm border border-slate-100">
+                                    <p className="text-sm text-slate-800 leading-relaxed font-medium">{msg.message}</p>
+                                    <p className="text-[9px] text-slate-400 mt-1 text-right font-bold">
+                                      {new Date(msg.submitted_at || msg.sent_at || msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                  </div>
+                                  {canEditDelete && (
+                                    <button 
+                                      onClick={() => deleteMessage?.(msg.id)}
+                                      className="ml-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 self-center"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Admin Reply Bubble */}
+                                {msg.admin_reply && (
+                                  <div className="flex justify-end">
+                                    <div className="max-w-[75%] bg-[#dcf8c6] p-3 rounded-2xl rounded-tr-none shadow-md border border-green-100">
+                                      <p className="text-[9px] font-black text-green-700 uppercase mb-1 tracking-wider">Your Official Response</p>
+                                      <p className="text-sm text-slate-800 leading-relaxed">{msg.admin_reply}</p>
+                                      <div className="flex items-center justify-end gap-1 mt-1">
+                                        <p className="text-[9px] text-slate-500 font-bold">
+                                          {new Date(msg.submitted_at || msg.sent_at || msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </p>
+                                        <CheckCheck size={12} className="text-blue-500" />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Reply Area */}
+                          <div className="p-4 bg-slate-50 border-t">
+                            <div className="flex flex-col gap-3">
+                              <Label className="text-[10px] font-black uppercase text-blue-800">Reply to this conversation</Label>
+                              <div className="flex gap-2">
+                                <Textarea
+                                  placeholder="Type your official response..."
+                                  value={replyTexts[latestMessage.id] || ""}
+                                  onChange={(e) => setReplyTexts(prev => ({ ...prev, [latestMessage.id]: e.target.value }))}
+                                  className="min-h-[80px] bg-white border-slate-200 focus:ring-blue-500 rounded-xl"
+                                />
+                                <Button 
+                                  className="self-end bg-blue-600 hover:bg-blue-700 rounded-xl px-6 h-12"
+                                  onClick={() => handleSendReply(latestMessage.id)}
+                                >
+                                  <Send size={18} className="mr-2" /> Send
+                                </Button>
+                              </div>
+                              <p className="text-[10px] text-slate-400 text-center font-medium">Your reply will be attached to the latest message in this thread.</p>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })() : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-12 text-center">
+                        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+                          <MessageSquare size={40} className="opacity-20" />
+                        </div>
+                        <h4 className="font-bold text-slate-600 mb-1">Select a Conversation</h4>
+                        <p className="text-sm max-w-xs">Click on a user from the list to view the message history and send a reply.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </Card>
             </TabsContent>
           )}
@@ -4306,9 +4466,12 @@ export default function AdminDashboard() {
                       <CardContent className="pt-6 space-y-3">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
-                            <p className="font-semibold">You ({supportSenderName})</p>
+                            <p className="font-semibold">You ({supportSenderName || msg.sender_name})</p>
                             <p className="text-sm text-muted-foreground">
-                              {new Date(msg.sent_at || msg.sentAt).toLocaleString()}
+                              {new Date(msg.submitted_at || msg.sent_at || msg.sentAt).toLocaleString(undefined, { 
+                                dateStyle: 'medium', 
+                                timeStyle: 'short' 
+                              })}
                             </p>
                             {msg.info && (
                               <p className="text-xs text-muted-foreground mt-1">
