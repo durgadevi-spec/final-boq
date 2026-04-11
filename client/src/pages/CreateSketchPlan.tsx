@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -210,6 +211,7 @@ const SketchPlanRow = ({
   setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen,
   isSelected, toggleSelect, userRole, onImageDragStart, onImageDrop
 }: any) => {
+  const [itemSearchTab, setItemSearchTab] = useState<"all" | "material" | "product">("all");
   const dragControls = useDragControls();
   const isSupplier = userRole === "supplier";
 
@@ -324,29 +326,65 @@ const SketchPlanRow = ({
                 onValueChange={setMaterialSearch}
                 className="h-10"
               />
+              <div className="flex border-b">
+                <button
+                  onClick={() => setItemSearchTab("all")}
+                  className={cn(
+                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                    itemSearchTab === "all" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                  )}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setItemSearchTab("material")}
+                  className={cn(
+                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                    itemSearchTab === "material" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                  )}
+                >
+                  Materials
+                </button>
+                <button
+                  onClick={() => setItemSearchTab("product")}
+                  className={cn(
+                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                    itemSearchTab === "product" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                  )}
+                >
+                  Products
+                </button>
+              </div>
               <CommandList className="max-h-[280px]">
                 {searching && <CommandEmpty>Loading...</CommandEmpty>}
                 {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
                 {!searching && searchResults.length > 0 && (
-                  <CommandGroup heading={`All Items (${searchResults.length})`}>
-                    {searchResults.map((m: any) => (
-                      <CommandItem
-                        key={`${m.type}-${m.id}`}
-                        onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
-                        className="cursor-pointer"
-                      >
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm">{m.name}</span>
-                            <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
+                  <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => itemSearchTab === 'all' || (itemSearchTab === 'material' && (m.type === 'Material' || m.type === 'Template')) || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
+                    {searchResults
+                      .filter((m: any) => {
+                        if (itemSearchTab === "all") return true;
+                        if (itemSearchTab === "material") return m.type === "Material" || m.type === "Template";
+                        if (itemSearchTab === "product") return m.type === "Product";
+                        return true;
+                      })
+                      .map((m: any) => (
+                        <CommandItem
+                          key={`${m.type}-${m.id}`}
+                          onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
+                          className="cursor-pointer"
+                        >
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">{m.name}</span>
+                              <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
+                            </div>
+                            <div className="flex gap-2 text-[10px] text-slate-500">
+                              {m.code && <span>Code: {m.code}</span>}
+                              {m.category && <span>Category: {m.category}</span>}
+                            </div>
                           </div>
-                          <div className="flex gap-2 text-[10px] text-slate-500">
-                            {m.code && <span>Code: {m.code}</span>}
-                            {m.category && <span>Category: {m.category}</span>}
-                          </div>
-                        </div>
-                      </CommandItem>
-                    ))}
+                        </CommandItem>
+                      ))}
                   </CommandGroup>
                 )}
               </CommandList>
@@ -470,6 +508,7 @@ export default function CreateSketchPlan() {
 
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState<string>("none");
+  const [projectName, setProjectName] = useState<string>("");
   const [locationStr, setLocationStr] = useState("");
   const [planDate, setPlanDate] = useState(new Date().toISOString().split("T")[0]);
   const [items, setItems] = useState<PlanItem[]>([
@@ -485,6 +524,7 @@ export default function CreateSketchPlan() {
 
   // PDF / Export State
   const [isPdfDialogOpen, setIsPdfDialogOpen] = useState(false);
+  const [includePlanPhotosInExport, setIncludePlanPhotosInExport] = useState(true);
   const [selectedPdfCols, setSelectedPdfCols] = useState<string[]>(["#", "Item", "Notes", "L", "W", "H", "Qty", "Unit", "Pre Photos", "Post Photos"]
   );
   const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
@@ -676,9 +716,14 @@ export default function CreateSketchPlan() {
       if (res.ok) {
         const data = await res.json();
         toast({ title: "Success", description: "Items loaded to proposal successfully" });
-        setLocation(`/proposal/${data.projectId}?versionId=${data.versionId}`);
+
+        // Proper internal redirect
+        const targetUrl = `/proposal/${data.projectId}?versionId=${data.versionId}`;
+        setTimeout(() => {
+          setLocation(targetUrl);
+        }, 500);
       } else {
-        const error = await res.json();
+        const error = await res.json().catch(() => ({ message: "Failed to load to proposal" }));
         toast({ title: "Error", description: error.message || "Failed to load to proposal", variant: "destructive" });
       }
     } catch (err) {
@@ -707,8 +752,10 @@ export default function CreateSketchPlan() {
             const p = data.plan;
             setName(p.name || "");
             setProjectId(p.project_id || "none");
+            setProjectName(p.project_name || "");
             setLocationStr(p.location || "");
             if (p.plan_date) setPlanDate(new Date(p.plan_date).toISOString().split("T")[0]);
+
 
             // Lock Info
             setIsLocked(!!p.is_locked);
@@ -1281,7 +1328,7 @@ export default function CreateSketchPlan() {
       });
 
       // Add plan-level images if space remains
-      if (processedPlanImages.length > 0) {
+      if (includePlanPhotosInExport && processedPlanImages.length > 0) {
         let finalY = (doc as any).lastAutoTable.finalY + 15;
         if (finalY + 60 > doc.internal.pageSize.getHeight()) {
           doc.addPage();
@@ -1334,6 +1381,70 @@ export default function CreateSketchPlan() {
     } catch (err) {
       console.error("PDF Error", err);
       toast({ title: "Error", description: "Failed to generate PDF", variant: "destructive" });
+    }
+  };
+
+  const handleDownloadExcel = () => {
+    try {
+      toast({ title: "Preparing Excel", description: "Generating spreadsheet..." });
+
+      // 1. Prepare Header Info (Metadata)
+      const info = [
+        ["Project", projects.find(p => p.id === projectId)?.name || "N/A"],
+        ["Plan Name", name],
+        ["Location", locationStr],
+        ["Date", planDate],
+        ["Generated", new Date().toLocaleString()],
+        [], // Spacing row
+      ];
+
+      // 2. Prepare Table Data
+      const tableData = items.map((item, idx) => {
+        const row: any = {};
+        if (selectedPdfCols.includes("#")) row["S.No"] = idx + 1;
+        if (selectedPdfCols.includes("Item")) row["Item Name"] = item.item_name;
+        if (selectedPdfCols.includes("Notes")) row["Notes"] = item.description;
+        if (selectedPdfCols.includes("L")) row["L"] = item.length;
+        if (selectedPdfCols.includes("W")) row["W"] = item.width;
+        if (selectedPdfCols.includes("H")) row["H"] = item.height;
+        if (selectedPdfCols.includes("Qty")) row["Quantity"] = item.qty;
+        if (selectedPdfCols.includes("Unit")) row["Unit"] = item.unit;
+        return row;
+      });
+
+      // 3. Create Worksheet
+      // Start with an empty sheet
+      const ws = XLSX.utils.aoa_to_sheet(info);
+
+      // 4. Add Table Data below the info
+      const dataStartRow = info.length;
+      XLSX.utils.sheet_add_json(ws, tableData, {
+        origin: `A${dataStartRow + 1}`,
+        skipHeader: false
+      });
+
+      // 5. Basic cell width adjustments (approximation)
+      const colWidths = [
+        { wch: 8 },  // S.No
+        { wch: 25 }, // Item Name
+        { wch: 35 }, // Notes
+        { wch: 8 },  // L
+        { wch: 8 },  // W
+        { wch: 8 },  // H
+        { wch: 10 }, // Qty
+        { wch: 10 }, // Unit
+      ];
+      ws['!cols'] = colWidths;
+
+      // 6. Finalize and Save
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Site Report");
+      XLSX.writeFile(wb, `${name.replace(/\s+/g, '_')}_Report.xlsx`);
+
+      toast({ title: "Success", description: "Excel downloaded successfully" });
+    } catch (err) {
+      console.error("Excel Error", err);
+      toast({ title: "Error", description: "Failed to generate Excel", variant: "destructive" });
     }
   };
 
@@ -1565,7 +1676,7 @@ export default function CreateSketchPlan() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setIsPdfDialogOpen(true)} className="gap-1.5 h-8 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-50">
-              <FileText className="w-3 h-3" /> Export PDF
+              <FileText className="w-3 h-3" /> Export
             </Button>
             <Button variant="outline" size="sm" onClick={() => setIsEmailDialogOpen(true)} className="gap-1.5 h-8 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-50">
               <MessageSquare className="w-3 h-3" /> Email Plan
@@ -1725,9 +1836,9 @@ export default function CreateSketchPlan() {
           </div>
         </div>
 
-        <div className={cn("space-y-4 transition-all duration-300 relative", (isLocked || isSupplier) && "opacity-[0.8] grayscale-[20%] pointer-events-none select-none")}>
-          {(isLocked || isSupplier) && (
-            <div className="absolute inset-0 z-40 rounded-xl" title="Plan is locked" aria-hidden="true" />
+        <div className={cn("space-y-4 transition-all duration-300 relative", isLocked && "opacity-[0.9] grayscale-[10%]")}>
+          {isLocked && (
+            <div className="absolute inset-0 z-40 rounded-xl pointer-events-none" title="Plan is locked" aria-hidden="true" />
           )}
 
           {/* Basic Details - Compact */}
@@ -1755,7 +1866,9 @@ export default function CreateSketchPlan() {
                       disabled={isLocked || isSupplier}
                     >
                       <span className="truncate">
-                        {projectId !== "none" ? projects.find((project) => project.id === projectId)?.name || "Select project..." : "No Project"}
+                        {projectId !== "none"
+                          ? (projects.find((proj) => proj.id === projectId)?.name || projectName || "Select project...")
+                          : "No Project"}
                       </span>
                       <Search className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
                     </Button>
@@ -1999,7 +2112,7 @@ export default function CreateSketchPlan() {
                           </button>
                         </div>
                       )}
-                      {!(isLocked || userRole === "supplier") && (
+                      {!(isLocked || isSupplier) && (
                         <>
                           <button onClick={() => renamePlanImage(idx)} className="absolute bottom-1 right-1 bg-indigo-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Rename photo">
                             <Pencil className="w-3 h-3" />
@@ -2011,10 +2124,10 @@ export default function CreateSketchPlan() {
                       )}
                     </div>
                   ))}
-                  {!(isLocked || userRole === "supplier") && (
+                  {!(isLocked || isSupplier) && (
                     <>
-                      <input type="file" multiple accept="image/*" className="hidden" id="plan-photo-upload" onChange={handlePlanImageUpload} disabled={isLocked || userRole === "supplier"} />
-                      <Button variant="ghost" size="sm" className="col-span-4 border-2 border-dashed border-slate-200 h-10 hover:bg-slate-100 p-0" asChild disabled={isLocked || userRole === "supplier"}>
+                      <input type="file" multiple accept="image/*" className="hidden" id="plan-photo-upload" onChange={handlePlanImageUpload} disabled={isLocked || isSupplier} />
+                      <Button variant="ghost" size="sm" className="col-span-4 border-2 border-dashed border-slate-200 h-10 hover:bg-slate-100 p-0" asChild disabled={isLocked || isSupplier}>
                         <label htmlFor="plan-photo-upload" className="cursor-pointer flex flex-col items-center justify-center w-full h-full">
                           <Plus className="w-5 h-5 text-slate-400" />
                         </label>
@@ -2168,30 +2281,59 @@ export default function CreateSketchPlan() {
 
         {/* PDF Export Dialog */}
         <Dialog open={isPdfDialogOpen} onOpenChange={setIsPdfDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[450px]">
             <DialogHeader>
-              <DialogTitle>Select Columns for PDF Report</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-indigo-600" />
+                Export Report Options
+              </DialogTitle>
             </DialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
-              {["#", "Item", "Notes", "L", "W", "H", "Qty", "Unit", "Pre Photos", "Post Photos"].map((col) => (
-                <div key={col} className="flex items-center space-x-2">
+            <div className="space-y-6 py-4">
+              <div>
+                <Label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Column Selection</Label>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  {["#", "Item", "Notes", "L", "W", "H", "Qty", "Unit", "Pre Photos", "Post Photos"].map((col) => (
+                    <div key={col} className="flex items-center space-x-2 bg-slate-50 p-2 rounded border border-slate-100">
+                      <Checkbox
+                        id={`col-${col}`}
+                        checked={selectedPdfCols.includes(col)}
+                        onCheckedChange={(checked) => {
+                          if (checked) setSelectedPdfCols([...selectedPdfCols, col]);
+                          else setSelectedPdfCols(selectedPdfCols.filter(c => c !== col));
+                        }}
+                      />
+                      <label htmlFor={`col-${col}`} className="text-xs font-semibold leading-none cursor-pointer text-slate-700">
+                        {col}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100">
+                <Label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Additional Content</Label>
+                <div className="flex items-center space-x-2 bg-amber-50 p-3 rounded border border-amber-100">
                   <Checkbox
-                    id={`col-${col}`}
-                    checked={selectedPdfCols.includes(col)}
-                    onCheckedChange={(checked) => {
-                      if (checked) setSelectedPdfCols([...selectedPdfCols, col]);
-                      else setSelectedPdfCols(selectedPdfCols.filter(c => c !== col));
-                    }}
+                    id="include-plan-photos"
+                    checked={includePlanPhotosInExport}
+                    onCheckedChange={(checked) => setIncludePlanPhotosInExport(!!checked)}
                   />
-                  <label htmlFor={`col-${col}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                    {col}
+                  <label htmlFor="include-plan-photos" className="text-xs font-bold leading-none cursor-pointer text-amber-900 flex items-center gap-2">
+                    <ImageIcon className="w-3.5 h-3.5" /> Include Plan-Level Site Photos
                   </label>
                 </div>
-              ))}
+              </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsPdfDialogOpen(false)}>Cancel</Button>
-              <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={() => { setIsPdfDialogOpen(false); handleDownloadPdf(); }}>Download PDF</Button>
+            <DialogFooter className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+              <Button variant="outline" onClick={() => setIsPdfDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <Button variant="outline" className="flex-1 sm:flex-initial gap-1 border-green-600 text-green-700 hover:bg-green-50" onClick={() => { setIsPdfDialogOpen(false); handleDownloadExcel(); }}>
+                  <FileSpreadsheet className="w-4 h-4" /> Excel
+                </Button>
+                <Button className="flex-1 sm:flex-initial bg-indigo-600 hover:bg-indigo-700 gap-1" onClick={() => { setIsPdfDialogOpen(false); handleDownloadPdf(); }}>
+                  <Download className="w-4 h-4" /> PDF
+                </Button>
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -2220,7 +2362,7 @@ export default function CreateSketchPlan() {
 
         {/* Image Preview Dialog */}
         <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
-          <DialogContent className="max-w-4xl p-1 bg-transparent border-none shadow-none [&>button]:text-white [&>button]:bg-black/50 [&>button]:hover:bg-black/80 [&>button]:rounded-full [&>button]:p-2 [&>button]:z-50 [&>button]:top-4 [&>button]:right-4">
+          <DialogContent className="max-w-4xl p-1 bg-transparent border-none shadow-none [&>button]:text-white [&>button]:bg-black/50 [&>button]:hover:bg-black/80 [&>button]:rounded-full [&>button]:p-2 [&>button]:z-[210] [&>button]:top-4 [&>button]:right-4 z-[200]">
             <DialogHeader className="sr-only">
               <DialogTitle>Image Preview</DialogTitle>
             </DialogHeader>
