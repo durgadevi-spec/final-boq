@@ -289,7 +289,7 @@ function VersionStatusBanner({ version }: { version: BOMVersion }) {
 
 // ─── BOQ Item Card ─────────────────────────────────────────────────────────────
 
-function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, setExpandedProductIds, getEditedValue, updateEditedField, handleDeleteRow, handleFinalizeProduct, handleAddItem, loadBoqItemsAndEdits, setBoqItems, checkBudgetEarly, handleSaveProject, onCardDragStart, onCardDragOver, onCardDrop, isCardDragOver, mismatches, isCompactView, onSaveAsTemplate, editedFields, comments, users, currentUser, onAddComment, selectedVersionId }: {
+function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, setExpandedProductIds, getEditedValue, updateEditedField, handleDeleteRow, handleFinalizeProduct, handleAddItem, loadBoqItemsAndEdits, setBoqItems, checkBudgetEarly, handleSaveProject, onCardDragStart, onCardDragOver, onCardDrop, isCardDragOver, mismatches, isCompactView, onSaveAsTemplate, editedFields, comments, users, currentUser, onAddComment, selectedVersionId, totalProducts, onProductOrdinalChange, itemCategoryFilter }: {
   boqItem: BOMItem; boqIdx: number; isVersionSubmitted: boolean;
   expandedProductIds: Set<string>; setExpandedProductIds: (fn: (p: Set<string>) => Set<string>) => void;
   getEditedValue: (k: string, f: string, v: any) => any;
@@ -314,6 +314,9 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
   currentUser: any;
   onAddComment: (versionId: string, itemId?: string) => void;
   selectedVersionId: string | null;
+  totalProducts?: number;
+  onProductOrdinalChange?: (toIdx: number) => void;
+  itemCategoryFilter: string;
 }) {
   const { toast } = useToast();
   const tableData = parseTableData(boqItem.table_data);
@@ -325,7 +328,9 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
 
   const step11Items = Array.isArray(tableData.step11_items) ? tableData.step11_items : [];
   const productName = tableData.product_name || boqItem.estimator;
+  const isBifProd = (productName || "").toLowerCase().includes('bif');
   const isExpanded = expandedProductIds.has(boqItem.id);
+  const isProductIndicate = getEditedValue(boqItem.id, "indicate", tableData.indicate || false);
   const toggle = () => setExpandedProductIds((prev: Set<string>) => { const n = new Set(prev); n.has(boqItem.id) ? n.delete(boqItem.id) : n.add(boqItem.id); return n; });
 
   // Drag state for row reorder
@@ -360,7 +365,8 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
         rateSqft: rate, amount: Number((roundOff * rate).toFixed(2)), s_no: idx + 1, manual: false,
         _materialIdx: idx, itemKey,
         freezeAndEdit: line.freezeAndEdit,
-        freeze_and_edit: line.freeze_and_edit
+        freeze_and_edit: line.freeze_and_edit,
+        category: line.category
       };
     });
     const manualStep11 = step11Items.map((it: any, s11Idx: number) => {
@@ -462,22 +468,50 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
 
   return (
     <div
-      className={`border rounded-lg overflow-hidden transition-all ${isCardDragOver ? 'ring-2 ring-blue-400 bg-blue-50/30' : ''}`}
+      className={`border rounded-lg overflow-hidden transition-all ${isCardDragOver ? 'ring-2 ring-blue-400 bg-blue-50/30' : ''} ${isProductIndicate ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
       draggable={!isVersionSubmitted}
       onDragStart={onCardDragStart}
       onDragOver={onCardDragOver}
       onDrop={onCardDrop}
     >
       {/* Header */}
-      <div className={`bg-gray-100 px-4 flex justify-between items-center border-b border-gray-200 ${isCompactView ? 'py-1.5' : 'py-3'}`}>
-        <div className={`flex ${isCompactView ? 'items-center justify-between w-full' : 'flex-col gap-0.5 flex-1'}`}>
-          <div className={`flex items-center gap-2 font-semibold text-gray-800 ${isCompactView ? 'text-xs' : 'text-sm'}`}>
+      <div className={`${isProductIndicate ? 'bg-rose-100/50 border-rose-200' : 'bg-gray-100 border-gray-200'} px-4 flex flex-wrap justify-between items-center border-b gap-y-2 ${isCompactView ? 'py-1.5' : 'py-3'}`}>
+        <div className={`flex ${isCompactView ? 'items-center justify-between w-full' : 'flex-col gap-0.5 flex-1 min-w-0'}`}>
+          <div className={`flex items-center gap-2 font-semibold text-gray-800 flex-wrap ${isCompactView ? 'text-xs' : 'text-sm'}`}>
             <GripVertical className={`h-4 w-4 flex-shrink-0 ${isVersionSubmitted ? 'text-gray-200' : 'text-gray-400 hover:text-blue-500 cursor-grab'}`} />
+            {!isVersionSubmitted ? (
+              <select
+                value={boqIdx}
+                onChange={(e) => onProductOrdinalChange?.(parseInt(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                className={`text-xs p-0.5 border border-slate-200 rounded outline-none cursor-pointer text-slate-700 ${isProductIndicate ? 'bg-rose-50 border-rose-200' : 'bg-white'}`}
+              >
+                {Array.from({ length: totalProducts || 1 }).map((_, i) => (
+                  <option key={i} value={i}>{i + 1}</option>
+                ))}
+              </select>
+            ) : null}
             {displayImage && <img src={displayImage} alt={productName} className="h-8 w-8 object-cover rounded shadow-sm border border-slate-200" />}
-            <span className="truncate max-w-[200px] sm:max-w-sm" title={productName}>{boqIdx + 1}. {productName}</span>
+            <span className="truncate max-w-[200px] sm:max-w-sm" title={productName}>
+              {isVersionSubmitted ? `${boqIdx + 1}. ` : ""}{productName}
+            </span>
+            {!isVersionSubmitted && (
+              <label
+                className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm whitespace-nowrap cursor-pointer ml-1"
+                onClick={e => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={isProductIndicate}
+                  onChange={(e) => updateEditedField(boqItem.id, "indicate", e.target.checked)}
+                  className="cursor-pointer"
+                />
+                Indicate
+              </label>
+            )}
             {tableData.category && !isCompactView && <span className="text-xs text-gray-500 font-normal">({tableData.category})</span>}
             {tableData.is_finalized && <span className={`inline-block bg-green-100 text-green-700 px-2 py-0.5 rounded font-semibold ml-2 ${isCompactView ? 'text-[10px]' : 'text-xs'}`}>Finalized</span>}
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-1" title={isExpanded ? "Collapse" : "Expand"} onClick={toggle}>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-1 shrink-0" title={isExpanded ? "Collapse" : "Expand"} onClick={toggle}>
               {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
             {isCompactView && (
@@ -490,32 +524,34 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
           </div>
 
           {isCompactView && (
-            <div className="flex gap-2 ml-4">
+            <div className="flex flex-wrap gap-2 ml-4 mt-2 sm:mt-0 items-center justify-end">
               {!tableData.is_finalized && (
                 <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted} onClick={() => handleAddItem(boqItem.id)}>+ Add Item</Button>
               )}
               <Button variant="default" size="sm" className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700 text-white" disabled={isVersionSubmitted || tableData.is_finalized} onClick={() => handleFinalizeProduct(boqItem.id)}>Finalize</Button>
               <Button variant="outline" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted} onClick={() => onSaveAsTemplate?.(boqItem)}>Save as Template</Button>
-              <Button variant="destructive" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted}
-                onClick={async () => {
-                  if (!confirm("Delete this product and all its items?")) return;
-                  try {
-                    const res = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" });
+              {!isBifProd && (
+                <Button variant="destructive" size="sm" className="h-6 text-[10px] px-2" disabled={isVersionSubmitted}
+                  onClick={async () => {
+                    if (!confirm("Delete this product and all its items?")) return;
+                    try {
+                      const res = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" });
 
-                    if (res.ok) {
-                      setBoqItems(prev => prev.filter(i => i.id !== boqItem.id));
-                      toast({ title: "Product Deleted", description: "The product has been deleted permanently." });
+                      if (res.ok) {
+                        setBoqItems(prev => prev.filter(i => i.id !== boqItem.id));
+                        toast({ title: "Product Deleted", description: "The product has been deleted permanently." });
 
-                      // Finalize state update to ensure and recalculate
-                      loadBoqItemsAndEdits();
-                    } else {
-                      throw new Error("Failed to delete product");
+                        // Finalize state update to ensure and recalculate
+                        loadBoqItemsAndEdits();
+                      } else {
+                        throw new Error("Failed to delete product");
+                      }
+                    } catch (err) {
+                      console.error("Failed to delete product", err);
+                      toast({ title: "Error", description: "Failed to delete product.", variant: "destructive" });
                     }
-                  } catch (err) {
-                    console.error("Failed to delete product", err);
-                    toast({ title: "Error", description: "Failed to delete product.", variant: "destructive" });
-                  }
-                }}>Delete Product</Button>
+                  }}>Delete Product</Button>
+              )}
             </div>
           )}
 
@@ -623,7 +659,7 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
         </div>
 
         {!isCompactView && (
-          <div className="flex gap-2 ml-4">
+          <div className="flex flex-wrap items-center gap-2 px-1 shrink-0 mt-2 sm:mt-0 justify-end w-full sm:w-auto">
             {!tableData.is_finalized && (
               <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted} onClick={() => handleAddItem(boqItem.id)}>+ Add Item</Button>
             )}
@@ -635,19 +671,22 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
               {(() => {
                 const unread = comments.filter(c => {
                   if (c.product_id !== boqItem.id && !(c.item_id && c.item_id.startsWith(boqItem.id))) return false;
-                  const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username) || c.user_id === currentUser?.id);
+                  if (c.user_id === currentUser?.id) return false;
+                  const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username));
                   return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
                 }).length;
                 return unread > 0 ? (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center px-1 font-bold shadow">{unread}</span>
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center px-1 font-bold shadow border border-white">{unread}</span>
                 ) : null;
               })()}
             </Button>
-            <Button variant="destructive" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted}
-              onClick={async () => {
-                if (!confirm("Delete this product and all its items?")) return;
-                try { await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" }); loadBoqItemsAndEdits(); } catch { /* handled */ }
-              }}>Delete Product</Button>
+            {!isBifProd && (
+              <Button variant="destructive" size="sm" className="h-7 text-xs" disabled={isVersionSubmitted}
+                onClick={async () => {
+                  if (!confirm("Delete this product and all its items?")) return;
+                  try { await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "DELETE" }); loadBoqItemsAndEdits(); } catch { /* handled */ }
+                }}>Delete Product</Button>
+            )}
           </div>
         )}
       </div>
@@ -677,37 +716,49 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
               <tbody>
                 {renderLines.length === 0
                   ? <tr><td colSpan={12} className="text-center py-4 text-gray-500 italic">No items. Click "+ Add Item" to add one.</td></tr>
-                  : renderLines.map((item: any, itemIdx: number) => (
-                    <BoqItemRow
-                      key={item.itemKey || `${boqItem.id}-${itemIdx}`}
-                      item={item} itemIdx={itemIdx} boqItem={boqItem}
-                      tableData={tableData} isEngineBased={isEngineBased} isVersionSubmitted={isVersionSubmitted}
-                      getEditedValue={getEditedValue} updateEditedField={updateEditedField}
-                      handleDeleteRow={handleDeleteRow} checkBudgetEarly={checkBudgetEarly}
-                      handleSaveProject={handleSaveProject}
-                      isDraggable={!isVersionSubmitted && !tableData.is_finalized}
-                      isDragOver={dragOverIdx === itemIdx}
-                      onDragStart={() => { dragIdxRef.current = itemIdx; }}
-                      onDragOver={() => setDragOverIdx(itemIdx)}
-                      onDrop={() => {
-                        setDragOverIdx(null);
-                        const from = dragIdxRef.current;
-                        if (from === null || from === itemIdx) return;
-                        dragIdxRef.current = null;
-                        const newOrder = [...renderLines];
-                        const [moved] = newOrder.splice(from, 1);
-                        newOrder.splice(itemIdx, 0, moved);
-                        handleRowReorder(newOrder);
-                      }}
-                      mismatch={mismatches?.find(m => m.index === (isEngineBased ? item._materialIdx : item._s11Idx) && m.type === (isEngineBased ? 'materialLine' : 'step11'))}
-                      isCompactView={isCompactView}
-                      comments={comments}
-                      users={users}
-                      currentUser={currentUser}
-                      onAddComment={onAddComment}
-                      selectedVersionId={selectedVersionId}
-                    />
-                  ))
+                  : renderLines
+                    .map((item, originalIdx) => ({ ...item, originalIdx }))
+                    .filter(item => itemCategoryFilter === "all" || item.category === itemCategoryFilter)
+                    .map((item: any) => (
+                      <BoqItemRow
+                        key={item.itemKey || `${boqItem.id}-${item.originalIdx}`}
+                        item={item} itemIdx={item.originalIdx} boqItem={boqItem}
+                        tableData={tableData} isEngineBased={isEngineBased} isVersionSubmitted={isVersionSubmitted}
+                        getEditedValue={getEditedValue} updateEditedField={updateEditedField}
+                        handleDeleteRow={handleDeleteRow} checkBudgetEarly={checkBudgetEarly}
+                        handleSaveProject={handleSaveProject}
+                        isDraggable={!isVersionSubmitted && !tableData.is_finalized}
+                        isDragOver={dragOverIdx === item.originalIdx}
+                        onDragStart={() => { dragIdxRef.current = item.originalIdx; }}
+                        onDragOver={() => setDragOverIdx(item.originalIdx)}
+                        onDrop={() => {
+                          setDragOverIdx(null);
+                          const from = dragIdxRef.current;
+                          if (from === null || from === item.originalIdx) return;
+                          dragIdxRef.current = null;
+                          const newOrder = [...renderLines];
+                          const [moved] = newOrder.splice(from, 1);
+                          newOrder.splice(item.originalIdx, 0, moved);
+                          handleRowReorder(newOrder);
+                        }}
+                        mismatch={mismatches?.find(m => m.index === (isEngineBased ? item._materialIdx : item._s11Idx) && m.type === (isEngineBased ? 'materialLine' : 'step11'))}
+                        isCompactView={isCompactView}
+                        comments={comments}
+                        users={users}
+                        currentUser={currentUser}
+                        onAddComment={onAddComment}
+                        selectedVersionId={selectedVersionId}
+                        isBifProd={isBifProd}
+                        totalItems={renderLines.length}
+                        onOrdinalChange={(toIdx: number) => {
+                          if (toIdx === item.originalIdx) return;
+                          const newOrder = [...renderLines];
+                          const [moved] = newOrder.splice(item.originalIdx, 1);
+                          newOrder.splice(toIdx, 0, moved);
+                          handleRowReorder(newOrder);
+                        }}
+                      />
+                    ))
                 }
               </tbody>
               <tfoot className="bg-gray-50/50 border-t-2 border-gray-200">
@@ -757,7 +808,7 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
   );
 }
 
-function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersionSubmitted, getEditedValue, updateEditedField, handleDeleteRow, checkBudgetEarly, handleSaveProject, isDraggable, isDragOver, onDragStart, onDragOver, onDrop, mismatch, isCompactView, comments, users, currentUser, onAddComment, selectedVersionId }: {
+function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersionSubmitted, getEditedValue, updateEditedField, handleDeleteRow, checkBudgetEarly, handleSaveProject, isDraggable, isDragOver, onDragStart, onDragOver, onDrop, mismatch, isCompactView, comments, users, currentUser, onAddComment, selectedVersionId, isBifProd, totalItems, onOrdinalChange }: {
   item: any; itemIdx: number; boqItem: BOMItem; tableData: any; isEngineBased: boolean; isVersionSubmitted: boolean;
   getEditedValue: (k: string, f: string, v: any) => any;
   updateEditedField: (k: string, f: string, v: any) => void;
@@ -776,6 +827,9 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
   currentUser: any;
   onAddComment: (versionId: string, itemId?: string) => void;
   selectedVersionId: string | null;
+  isBifProd?: boolean;
+  totalItems?: number;
+  onOrdinalChange?: (toIdx: number) => void;
 }) {
   const { toast } = useToast();
   const itemKey = item.itemKey || `${boqItem.id}-manual-${itemIdx}`;
@@ -798,31 +852,63 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
   const [localQty, setLocalQty] = useState(baseQty.toString());
   const [localRate, setLocalRate] = useState(rate.toString());
   const [isFocused, setIsFocused] = useState(false);
+  const isIndicate = getEditedValue(itemKey, "indicate", item.indicate || false);
+
+  const hasUnreadComments = comments.some(c => {
+    if (c.item_id !== itemKey) return false;
+    if (c.user_id === currentUser?.id) return false;
+    const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username));
+    return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
+  });
 
   useEffect(() => { if (!isFocused) setLocalDesc(desc); }, [desc, isFocused]);
   useEffect(() => { if (!isFocused) setLocalUnit(unit); }, [unit, isFocused]);
   useEffect(() => { if (!isFocused) setLocalQty(baseQty.toString()); }, [baseQty, isFocused]);
   useEffect(() => { if (!isFocused) setLocalRate(rate.toString()); }, [rate, isFocused]);
 
+  const isFreezed = item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1 || item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1;
+
   if (perItemIsEngine) {
     // Read-only display for engine-computed items (with optional rate editing)
     return (
       <tr
-        className={`border-b border-gray-200 hover:bg-gray-50 transition-colors text-xs ${isDragOver ? 'bg-blue-50 border-blue-300' : ''}`}
+        className={`border-b border-gray-200 transition-colors text-xs ${isDragOver ? 'bg-blue-50 border-blue-300' : ''} ${hasUnreadComments ? 'bg-amber-50/70 hover:bg-amber-100 ring-1 ring-amber-200/50 relative z-10' : isIndicate ? 'bg-rose-50 hover:bg-rose-100' : isFreezed ? 'bg-cyan-100' : 'hover:bg-gray-50'}`}
         draggable={isDraggable}
         onDragStart={onDragStart}
         onDragOver={(e) => { e.preventDefault(); onDragOver?.(); }}
         onDrop={onDrop}
       >
         <td className="border px-1 py-2 text-center w-8 text-gray-400">{isDraggable && <GripVertical className="h-3 w-3 mx-auto cursor-grab hover:text-blue-500" />}</td>
-        <td className="border px-2 py-2 text-center font-medium w-10">{item.s_no || itemIdx + 1}</td>
+        <td className="border px-2 py-2 text-center font-medium w-12">
+          {!isVersionSubmitted ? (
+            <select
+              value={itemIdx}
+              onChange={(e) => onOrdinalChange?.(parseInt(e.target.value))}
+              className="text-xs p-0.5 border border-slate-200 rounded w-full bg-white outline-none cursor-pointer"
+            >
+              {Array.from({ length: totalItems || 1 }).map((_, i) => (
+                <option key={i} value={i}>{i + 1}</option>
+              ))}
+            </select>
+          ) : (
+            item.s_no || itemIdx + 1
+          )}
+        </td>
         <td className="border px-0.5 py-0.5 text-center w-12 bg-gray-50/30">
           <div className="w-10 h-10 rounded border border-gray-200 bg-white overflow-hidden flex items-center justify-center mx-auto shadow-sm">
             {item.image ? (<img src={item.image.startsWith('data:') ? item.image : parseImages(item.image)[0]} alt="material" className="max-w-full max-h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/100x100?text=No+Image'; }} />) : (<span className="text-[8px] text-gray-400">N/A</span>)}
           </div>
         </td>
         <td className="border px-2 py-2 text-left w-64">
-          <div className="font-medium text-gray-900">{item.title || item.name || "-"}</div>
+          <div className="font-medium text-gray-900 flex items-center justify-between gap-1">
+            <span>{item.title || item.name || "-"}</span>
+            {!isVersionSubmitted && (
+              <label className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm whitespace-nowrap cursor-pointer">
+                <input type="checkbox" checked={isIndicate} onChange={(e) => updateEditedField(itemKey, "indicate", e.target.checked)} className="cursor-pointer" />
+                Indicate
+              </label>
+            )}
+          </div>
           {mismatch && (<div className="mt-1 flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200"><ArrowUp className="h-3 w-3" />Rate updated ₹{mismatch.new.toLocaleString()}</div>)}
         </td>
         {!isCompactView && <td className="border px-2 py-2 text-left w-32 text-gray-600">{item.shop_name || "-"}</td>}
@@ -873,15 +959,18 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
               {(() => {
                 const unread = comments.filter(c => {
                   if (c.item_id !== itemKey) return false;
-                  const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username) || c.user_id === currentUser?.id);
+                  if (c.user_id === currentUser?.id) return false;
+                  const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username));
                   return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
                 }).length;
                 return unread > 0 ? (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full h-3 min-w-3 flex items-center justify-center font-bold px-0.5">{unread}</span>
+                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-3.5 min-w-3.5 flex items-center justify-center font-bold px-0.5 shadow-sm border border-white">{unread}</span>
                 ) : null;
               })()}
             </Button>
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-600 hover:text-red-800 hover:bg-red-50" onClick={() => handleDeleteRow(boqItem.id, tableData, itemIdx, item)} disabled={isVersionSubmitted} title="Delete Item"><Trash2 className="h-3 w-3" /></Button>
+            {!isBifProd && (
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-600 hover:text-red-800 hover:bg-red-50" onClick={() => handleDeleteRow(boqItem.id, tableData, itemIdx, item)} disabled={isVersionSubmitted} title="Delete Item"><Trash2 className="h-3 w-3" /></Button>
+            )}
           </div>
         </td>
       </tr>
@@ -896,7 +985,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
 
   return (
     <tr
-      className={`border-b border-gray-200 hover:bg-gray-50 transition-colors ${isDragOver ? 'bg-blue-50 border-blue-300' : ''}`}
+      className={`border-b border-gray-200 transition-colors text-xs ${isDragOver ? 'bg-blue-50 border-blue-300' : ''} ${hasUnreadComments ? 'bg-amber-50/70 hover:bg-amber-100 ring-1 ring-amber-200/50 relative z-10' : isIndicate ? 'bg-rose-50 hover:bg-rose-100' : isFreezed ? 'bg-cyan-100' : 'hover:bg-gray-50'}`}
       draggable={isDraggable}
       onDragStart={onDragStart}
       onDragOver={(e) => { e.preventDefault(); onDragOver?.(); }}
@@ -905,7 +994,21 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
       <td className="border px-1 py-2 text-center w-8 text-gray-400">
         {isDraggable && <GripVertical className="h-3 w-3 mx-auto cursor-grab hover:text-blue-500" />}
       </td>
-      <td className="border px-2 py-2 text-center font-medium w-10">{item.s_no || itemIdx + 1}</td>
+      <td className="border px-2 py-2 text-center font-medium w-12">
+        {!isVersionSubmitted ? (
+          <select
+            value={itemIdx}
+            onChange={(e) => onOrdinalChange?.(parseInt(e.target.value))}
+            className="text-xs p-0.5 border border-slate-200 rounded w-full bg-white outline-none cursor-pointer"
+          >
+            {Array.from({ length: totalItems || 1 }).map((_, i) => (
+              <option key={i} value={i}>{i + 1}</option>
+            ))}
+          </select>
+        ) : (
+          item.s_no || itemIdx + 1
+        )}
+      </td>
       <td className="border px-0.5 py-0.5 text-center w-12 bg-gray-50/30">
         <div className="w-10 h-10 rounded border border-gray-200 bg-white overflow-hidden flex items-center justify-center mx-auto shadow-sm">
           {item.image ? (
@@ -923,12 +1026,20 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
         </div>
       </td>
       <td className="border px-2 py-2 text-left w-64">
-        <div className="flex items-center gap-2">
-          <div className="font-medium text-gray-900">{item.title || item.name || "-"}</div>
-          {item.manual && (
-            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] px-1.5 py-0 font-bold uppercase leading-tight">
-              Manual
-            </Badge>
+        <div className="flex items-center justify-between gap-1">
+          <div className="flex items-center gap-2">
+            <div className="font-medium text-gray-900">{item.title || item.name || "-"}</div>
+            {item.manual && (
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] px-1.5 py-0 font-bold uppercase leading-tight">
+                Manual
+              </Badge>
+            )}
+          </div>
+          {!isVersionSubmitted && (
+            <label className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm whitespace-nowrap cursor-pointer">
+              <input type="checkbox" checked={isIndicate} onChange={(e) => updateEditedField(itemKey, "indicate", e.target.checked)} className="cursor-pointer" />
+              Indicate
+            </label>
           )}
         </div>
         {mismatch && (
@@ -1031,21 +1142,24 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
             {(() => {
               const unread = comments.filter(c => {
                 if (c.item_id !== itemKey) return false;
-                const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username) || c.user_id === currentUser?.id);
+                if (c.user_id === currentUser?.id) return false;
+                const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(currentUser?.username));
                 return isVisible && (!c.read_by || !c.read_by.includes(currentUser?.id));
               }).length;
               return unread > 0 ? (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full h-3 min-w-3 flex items-center justify-center font-bold px-0.5">{unread}</span>
+                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-3.5 min-w-3.5 flex items-center justify-center font-bold px-0.5 shadow-sm border border-white">{unread}</span>
               ) : null;
             })()}
           </Button>
-          <Button
-            variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-600 hover:text-red-800 hover:bg-red-50"
-            onClick={() => handleDeleteRow(boqItem.id, tableData, itemIdx, item)}
-            disabled={isVersionSubmitted} title="Delete Item"
-          >
-            <Trash2 className="h-3 w-3" />
-          </Button>
+          {!isBifProd && (
+            <Button
+              variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-600 hover:text-red-800 hover:bg-red-50"
+              onClick={() => handleDeleteRow(boqItem.id, tableData, itemIdx, item)}
+              disabled={isVersionSubmitted} title="Delete Item"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          )}
         </div>
       </td>
     </tr>
@@ -1461,6 +1575,8 @@ export default function CreateBom() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [editedFields, setEditedFields] = useState<Record<string, any>>({});
   const [productSearch, setProductSearch] = useState("");
+  const [productCategoryFilter, setProductCategoryFilter] = useState("all");
+  const [itemCategoryFilter, setItemCategoryFilter] = useState("all");
   const [isCompactView, setIsCompactView] = useState(false);
   const cardDragIdxRef = useRef<number | null>(null);
   const [cardDragOverIdx, setCardDragOverIdx] = useState<number | null>(null);
@@ -1473,6 +1589,35 @@ export default function CreateBom() {
   const [ignoredMismatches, setIgnoredMismatches] = useState<Set<string>>(new Set());
   const [projectStatusFilter, setProjectStatusFilter] = useState<string>("all");
   const [projectSearchTerm, setProjectSearchTerm] = useState("");
+
+  const productCategories = useMemo(() => {
+    const cats = new Set<string>();
+    boqItems.forEach(item => {
+      const td = parseTableData(item.table_data);
+      // Only include categories from real products (those with a product_id).
+      // Items added via "Add Item" have no product_id and must not pollute the product filter.
+      if (!td.product_id) return;
+      const c = td.category_name || td.category || "General";
+      if (c) cats.add(c);
+    });
+    return Array.from(cats).sort();
+  }, [boqItems]);
+
+  const itemCategories = useMemo(() => {
+    const cats = new Set<string>();
+    boqItems.forEach(item => {
+      const td = parseTableData(item.table_data);
+      // For standalone items (no product_id), treat their top-level category as the item category.
+      if (!td.product_id) {
+        const c = td.category_name || td.category || "General";
+        if (c) cats.add(c);
+        return;
+      }
+      if (td.materialLines) td.materialLines.forEach((ml: any) => { cats.add(ml.category || "General"); });
+      if (td.step11_items) td.step11_items.forEach((it: any) => { cats.add(it.category || "General"); });
+    });
+    return Array.from(cats).sort();
+  }, [boqItems]);
 
   // Comments state
   const [comments, setComments] = useState<BOMComment[]>([]);
@@ -1703,6 +1848,7 @@ export default function CreateBom() {
             product_id: null,
             material_id: item.material_id || null,
             category: item.category || "General",
+            category_name: item.category || "General",
             finalize_description: desc,
             finalize_qty: Number(item.qty) || 1,
             finalize_rate: 0,
@@ -1717,7 +1863,8 @@ export default function CreateBom() {
                 qty: Number(item.qty) || 1,
                 supply_rate: 0,
                 install_rate: 0,
-                manual: true
+                manual: true,
+                category: item.category || "General"
               }
             ],
             created_at: new Date().toISOString()
@@ -1950,6 +2097,16 @@ export default function CreateBom() {
   const handleSendComment = async () => {
     if (!newComment.trim() || !commentTarget || !selectedVersionId) return;
     setIsSaving(true);
+
+    // Automatically make replies visible to the person you are replying to (like a direct message)
+    let finalVisibleTo = [...selectedMembers];
+    if (replyingTo?.user_id) {
+      const repliedUser = users.find(u => u.id === replyingTo.user_id)?.username;
+      if (repliedUser && !finalVisibleTo.includes(repliedUser)) {
+        finalVisibleTo.push(repliedUser);
+      }
+    }
+
     try {
       const res = await apiFetch("/api/boq-comments", {
         method: "POST",
@@ -1959,7 +2116,7 @@ export default function CreateBom() {
           product_id: commentTarget.type === 'product' ? commentTarget.id : null,
           item_id: commentTarget.type === 'item' ? commentTarget.id : null,
           comment_text: newComment.trim(),
-          visible_to: selectedMembers,
+          visible_to: finalVisibleTo,
           parent_id: replyingTo?.id || null,
           reply_to_text: replyingTo?.comment_text || null,
           reply_to_user: replyingTo?.user_full_name || null
@@ -2043,7 +2200,8 @@ export default function CreateBom() {
                 qty: Number(item.qty) || 1,
                 supply_rate: Number(item.rate) || 0,
                 install_rate: 0,
-                manual: true
+                manual: true,
+                category: "Vendor Proposal"
               }
             ],
             created_at: new Date().toISOString()
@@ -2340,6 +2498,7 @@ export default function CreateBom() {
     let shopName = template.shop_name || template.shopName || "";
     let hsnSacType = template.tax_code_type || template.taxCodeType || null;
     let hsnSacCode = template.tax_code_value || template.taxCodeValue || "";
+    let category = template.category || "";
 
     if (template.id) {
       try {
@@ -2352,10 +2511,11 @@ export default function CreateBom() {
           shopName = m.shop_name || m.shopName || shopName;
           hsnSacType = m.tax_code_type || m.taxCodeType || hsnSacType;
           hsnSacCode = m.tax_code_value || m.taxCodeValue || hsnSacCode;
+          if (m.category) category = m.category;
         }
       } catch { /* ignore */ }
     }
-    return { unit, rate, shopName, hsnSacType, hsnSacCode };
+    return { unit, rate, shopName, hsnSacType, hsnSacCode, category };
   };
 
   const getMergedTableData = (boqItem: BOMItem) => {
@@ -2428,7 +2588,7 @@ export default function CreateBom() {
       if (!selectedProjectId || !selectedVersionId) { toast({ title: "Error", description: "Select a project and version first", variant: "destructive" }); return; }
       setIsSaving(true);
       try {
-        const { unit, rate, shopName, hsnSacType, hsnSacCode } = await resolveMaterialFields(template);
+        const { unit, rate, shopName, hsnSacType, hsnSacCode, category } = await resolveMaterialFields(template);
         const materialItem = {
           id: template.id,
           title: template.name,
@@ -2439,7 +2599,8 @@ export default function CreateBom() {
           install_rate: 0,
           location: "Main Area",
           s_no: 1,
-          shop_name: shopName
+          shop_name: shopName,
+          category: category || "General"
         };
         const res = await apiFetch("/api/boq-items", {
           method: "POST",
@@ -2450,6 +2611,8 @@ export default function CreateBom() {
             estimator: `material_${template.id}`,
             table_data: {
               product_name: template.name,
+              category: category || "General",
+              category_name: category || "General",
               step11_items: [materialItem],
               hsn_sac_type: hsnSacType,
               hsn_sac_code: hsnSacCode,
@@ -2487,7 +2650,8 @@ export default function CreateBom() {
           install_rate: 0,
           location: template.location || "Main Area",
           s_no: currentStep11.length + 1,
-          shop_name: shopName
+          shop_name: shopName,
+          category: (await resolveMaterialFields(template)).category
         };
         const updatedTableData = tableData.materialLines && tableData.targetRequiredQty !== undefined
           ? { ...tableData, step11_items: [...currentStep11, { ...newItem, manual: true }] }
@@ -2567,15 +2731,16 @@ export default function CreateBom() {
             supplyRate: Number(item.supply_rate ?? item.rate ?? 0),
             installRate: Number(item.install_rate ?? 0),
             shop_name: item.shop_name,
+            category: item.category || "General",
             freeze_and_edit: (item.freeze_and_edit === true || item.freeze_and_edit === "true" || item.freeze_and_edit === 1 || item.freezeAndEdit === true || item.freezeAndEdit === "true" || item.freezeAndEdit === 1)
           }));
         }
       }
       if (!configBasis) {
         configBasis = { requiredUnitType: "Sqft" as UnitType, baseRequiredQty: 1, wastagePctDefault: 0 };
-        materialLines = pendingItems.map(i => ({ materialId: i.id || Math.random().toString(), materialName: i.title || "Item", unit: i.unit || "nos", baseQty: i.qty || 1, supplyRate: i.supply_rate || 0, installRate: i.install_rate || 0 }));
+        materialLines = pendingItems.map(i => ({ materialId: i.id || Math.random().toString(), materialName: i.title || "Item", unit: i.unit || "nos", baseQty: i.qty || 1, supplyRate: i.supply_rate || 0, installRate: i.install_rate || 0, category: i.category || "General" }));
       }
-      const tableData = { product_name: selectedProduct.name, product_id: selectedProduct.id, image: selectedProduct.image, category: selectedProduct.category, subcategory: selectedProduct.subcategory, hsn_sac_type: selectedProduct.tax_code_type || null, hsn_sac_code: selectedProduct.tax_code_value || null, hsn_code: selectedProduct.hsn_code || null, sac_code: selectedProduct.sac_code || null, targetRequiredQty, configBasis, materialLines, step11_items: pendingItems, finalize_description: pendingItems[0]?.description || "", created_at: new Date().toISOString() };
+      const tableData = { product_name: selectedProduct.name, product_id: selectedProduct.id, image: selectedProduct.image, category: selectedProduct.category || "General", category_name: selectedProduct.category || "General", subcategory: selectedProduct.subcategory, hsn_sac_type: selectedProduct.tax_code_type || null, hsn_sac_code: selectedProduct.tax_code_value || null, hsn_code: selectedProduct.hsn_code || null, sac_code: selectedProduct.sac_code || null, targetRequiredQty, configBasis, materialLines, step11_items: pendingItems.map(i => ({ ...i, category: i.category || "General" })), finalize_description: pendingItems[0]?.description || "", created_at: new Date().toISOString() };
 
       // --- NEW: Check for Material Quantity Increases in Approved POs ---
       const materialIds = materialLines.map(ml => ml.id || ml.materialId).filter(Boolean);
@@ -2776,7 +2941,8 @@ export default function CreateBom() {
                   qty: Number(item.qty) || 1,
                   supply_rate: Number(item.rate) || 0,
                   install_rate: 0,
-                  manual: true
+                  manual: true,
+                  category: "Vendor Proposal"
                 }
               ],
               created_at: new Date().toISOString()
@@ -3603,11 +3769,12 @@ export default function CreateBom() {
                             <span className="text-xs">Comment</span>
                             {(() => {
                               const unreadCount = comments.filter(c => {
-                                const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(user?.username || "") || c.user_id === user?.id);
+                                if (c.user_id === user?.id) return false;
+                                const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(user?.username || ""));
                                 return isVisible && (!c.read_by || !c.read_by.includes(user?.id || ""));
                               }).length;
                               return unreadCount > 0 ? (
-                                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center font-bold px-1">{unreadCount}</span>
+                                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] rounded-full h-4 min-w-4 flex items-center justify-center font-bold px-1 shadow-sm border border-white">{unreadCount}</span>
                               ) : null;
                             })()}
                           </Button>
@@ -3833,25 +4000,36 @@ export default function CreateBom() {
                         >
                           Compact View
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleRefreshRates}
-                          disabled={isUpdatingRates || isVersionSubmitted}
-                          className="h-9 px-3 font-semibold text-emerald-600 border-emerald-200 hover:bg-emerald-50 gap-2"
-                          title="Sync all items with latest market rates"
-                        >
-                          <RefreshCw className={`h-4 w-4 ${isUpdatingRates ? 'animate-spin' : ''}`} />
-                          <span>Refresh Rates</span>
-                        </Button>
-                        <div className="relative w-72">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                          <Input
-                            placeholder="Search products..."
-                            value={productSearch}
-                            onChange={(e) => setProductSearch(e.target.value)}
-                            className="pl-9 h-9 text-sm border-slate-200 focus:ring-blue-500 shadow-sm"
-                          />
+                        <div className="flex items-center gap-2">
+                          <Select value={productCategoryFilter} onValueChange={setProductCategoryFilter}>
+                            <SelectTrigger className="h-9 w-[160px] text-xs border-slate-200">
+                              <SelectValue placeholder="Product Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Products</SelectItem>
+                              {productCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+
+                          <Select value={itemCategoryFilter} onValueChange={setItemCategoryFilter}>
+                            <SelectTrigger className="h-9 w-[160px] text-xs border-slate-200">
+                              <SelectValue placeholder="Item Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Item Categories</SelectItem>
+                              {itemCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+
+                          <div className="relative w-64">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                            <Input
+                              placeholder="Search products..."
+                              value={productSearch}
+                              onChange={(e) => setProductSearch(e.target.value)}
+                              className="pl-9 h-9 text-sm border-slate-200 focus:ring-blue-500 shadow-sm"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3863,7 +4041,31 @@ export default function CreateBom() {
                             const td = parseTableData(item.table_data);
                             const name = td.product_name || item.estimator || "";
                             const desc = td.finalize_description || "";
-                            return fuzzySearch(productSearch, [name, desc]);
+                            const matchesSearch = fuzzySearch(productSearch, [name, desc]);
+                            const isStandaloneItem = !td.product_id;
+
+                            // Standalone items (Add Item, no product_id) should never appear when
+                            // a real product category filter is active.
+                            if (productCategoryFilter !== "all" && isStandaloneItem) return false;
+
+                            const cat = td.category_name || td.category || "General";
+                            const matchesProductCat = productCategoryFilter === "all" || cat === productCategoryFilter;
+
+                            // Item category filter logic
+                            let hasMatchingItem = true;
+                            if (itemCategoryFilter !== "all") {
+                              if (isStandaloneItem) {
+                                // For standalone items, match by their own top-level category
+                                hasMatchingItem = cat === itemCategoryFilter;
+                              } else {
+                                const materialLines = td.materialLines || [];
+                                const step11Items = td.step11_items || [];
+                                hasMatchingItem = materialLines.some((ml: any) => (ml.category || "General") === itemCategoryFilter) ||
+                                  step11Items.some((si: any) => (si.category || "General") === itemCategoryFilter);
+                              }
+                            }
+
+                            return matchesSearch && matchesProductCat && hasMatchingItem;
                           })
                           .map((boqItem: BOMItem, boqIdx: number) => (
                             <div key={boqItem.id} id={`boq-item-card-${boqItem.id}`} className="transition-all duration-300">
@@ -3906,6 +4108,17 @@ export default function CreateBom() {
                                   setShowCommentDialog(true);
                                 }}
                                 selectedVersionId={selectedVersionId}
+                                totalProducts={boqItems.length}
+                                itemCategoryFilter={itemCategoryFilter}
+                                onProductOrdinalChange={(toIdx) => {
+                                  if (toIdx === boqIdx) return;
+                                  const reordered = [...boqItems];
+                                  const [moved] = reordered.splice(boqIdx, 1);
+                                  reordered.splice(toIdx, 0, moved);
+                                  setBoqItems(reordered);
+                                  // Persist the new order
+                                  apiFetch('/api/boq-items/reorder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemIds: reordered.map(i => i.id) }) }).catch(console.error);
+                                }}
                               />
                             </div>
                           ))}
@@ -4451,7 +4664,8 @@ export default function CreateBom() {
                     const unread = comments.filter(c => {
                       const contextId = c.item_id || c.product_id || 'overall';
                       if (contextId !== thread.id) return false;
-                      const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(user?.username || "") || c.user_id === user?.id);
+                      if (c.user_id === user?.id) return false; // my own sent messages aren't unread
+                      const isVisible = (!c.visible_to || c.visible_to.length === 0 || c.visible_to.includes(user?.username || ""));
                       return isVisible && (!c.read_by || !c.read_by.includes(user?.id || ""));
                     }).length;
 
@@ -4479,7 +4693,7 @@ export default function CreateBom() {
                               {thread.lastComment.user_full_name}: {thread.lastComment.comment_text}
                             </p>
                             {unread > 0 && (
-                              <Badge className="bg-[#25d366] text-white text-[10px] rounded-full h-5 min-w-5 flex items-center justify-center px-1 font-bold">
+                              <Badge className="bg-[#25D366] text-white text-[10px] rounded-full h-5 min-w-5 flex items-center justify-center px-1 font-bold shadow-sm border-0">
                                 {unread}
                               </Badge>
                             )}
@@ -4531,10 +4745,10 @@ export default function CreateBom() {
                                 const ta = document.querySelector('textarea');
                                 if (ta) ta.focus();
                               }}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-blue-500 p-0"
+                              className={`${isMine ? 'opacity-0 group-hover:opacity-100' : 'opacity-70 hover:opacity-100'} transition-opacity text-gray-400 hover:text-blue-500 p-0`}
                               title="Reply"
                             >
-                              <Reply className="h-3 w-3" />
+                              <Reply className="h-4 w-4" />
                             </button>
                           </div>
 
@@ -4547,7 +4761,7 @@ export default function CreateBom() {
 
                           {c.visible_to && c.visible_to.length > 0 && (
                             <div className="text-[9px] font-semibold text-blue-500/80 mb-0.5 uppercase tracking-tighter">
-                              Tagged: {c.visible_to.join(', ')}
+                              <span className="text-gray-400 mr-1">@</span>{c.visible_to.join(', ')}
                             </div>
                           )}
                           <div className="text-[13px] leading-snug break-words pr-10">{c.comment_text}</div>
@@ -4598,7 +4812,6 @@ export default function CreateBom() {
                           <CommandEmpty>No members found.</CommandEmpty>
                           <CommandGroup heading="Group Participants">
                             {users
-                              .filter(u => u.id !== user?.id)
                               .map((u) => (
                                 <CommandItem
                                   key={u.id}
