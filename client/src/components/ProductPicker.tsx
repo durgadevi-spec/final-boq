@@ -67,10 +67,10 @@ export default function ProductPicker({
             name: p.name,
             code: p.code || "",
             image: p.image,
-            category: p.category,
-            subcategory: p.subcategory,
-            category_name: p.category_name,
-            subcategory_name: p.subcategory_name,
+            category: p.category || p.category_name || "",
+            subcategory: p.subcategory || p.subcategory_name || "",
+            category_name: p.category_name || p.category || "",
+            subcategory_name: p.subcategory_name || p.subcategory || "",
             description: p.description
           }));
           setProducts(productList);
