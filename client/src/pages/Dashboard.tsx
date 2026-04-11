@@ -60,6 +60,7 @@ export default function Dashboard() {
         setLocation("/software/dashboard");
         return;
       case 'purchase_team':
+      case 'pre_sales':
         setLocation("/admin/dashboard");
         return;
       case 'supplier':
