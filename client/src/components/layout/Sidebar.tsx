@@ -194,6 +194,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   // Full access for admin and software_team; others filter if managed by admin.
   const isVisible = (moduleKey: string, defaultCondition: boolean): boolean => {
     if (user?.role === 'admin' || user?.role === 'software_team') return true;
+    if (user?.role === 'pre_sales' && moduleKey === 'dashboard') return true;
     if (isCustomManaged) return customModules.has(moduleKey);
     return defaultCondition;
   };
@@ -243,6 +244,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const [pendingMaterialCount, setPendingMaterialCount] = useState(0);
   const [pendingProductCount, setPendingProductCount] = useState(0);
   const [pendingBomCount, setPendingBomCount] = useState(0);
+  const [pendingBoqCount, setPendingBoqCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
 
   // Fetch subcategories from API
@@ -347,19 +349,29 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     return () => { cancelled = true; clearInterval(iv); };
   }, []);
 
-  // fetch pending BOM approvals count
+  // fetch pending BOM and BOQ approvals counts
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const res = await apiFetch("/api/bom-approvals");
-        if (!res || !res.ok) return setPendingBomCount(0);
+        if (!res || !res.ok) {
+          setPendingBomCount(0);
+          setPendingBoqCount(0);
+          return;
+        }
         const data = await res.json();
         if (cancelled) return;
-        setPendingBomCount((data?.approvals || []).filter((a: any) => a.status === "pending_approval" || a.status === "submitted").length || 0);
+        
+        const allApprovals = data?.approvals || [];
+        const isPending = (a: any) => a.status === "pending_approval" || a.status === "submitted" || a.status === "edit_requested";
+        
+        setPendingBomCount(allApprovals.filter((a: any) => isPending(a) && (a.type === 'bom' || !a.type)).length);
+        setPendingBoqCount(allApprovals.filter((a: any) => isPending(a) && a.type === 'boq').length);
       } catch (e) {
-        console.warn("load BOM approval count failed", e);
+        console.warn("load BOM/BOQ approval counts failed", e);
         setPendingBomCount(0);
+        setPendingBoqCount(0);
       }
     };
 
@@ -421,6 +433,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     user?.role === "supplier" || user?.role === "purchase_team";
   const isPurchaseTeam = user?.role === "purchase_team";
   const isProductManager = user?.role === "product_manager";
+  const isFinance = user?.role === "finance_team";
   const isClient = user?.role === "user";
   const isVoltAmpele = user?.username === "VoltAmpele@gmail.com";
 
@@ -527,7 +540,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           )}
 
           {/* Overview Section */}
-          {!isVoltAmpele && (isVisible('dashboard', !isPreSales && !isContractor && user?.role !== "supplier" && !isProductManager) || isVisible('project_dashboard', isAdminOrSoftware) || isVisible('alerts', isAdminOnly) || isAdminOnly) && (
+          {!isVoltAmpele && (isPreSales || isVisible('dashboard', !isContractor && user?.role !== "supplier" && !isProductManager) || isVisible('project_dashboard', isAdminOrSoftware) || isVisible('alerts', isAdminOnly) || isAdminOnly) && (
             <>
               <div className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Overview
@@ -537,7 +550,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 href="/dashboard"
                 icon={LayoutDashboard}
                 label="Dashboard"
-                condition={!isPreSales && !isContractor && user?.role !== "supplier" && !isProductManager}
+                condition={!isContractor && !isProductManager}
               />
               <SidebarNavItem
                 id="project_dashboard"
@@ -561,6 +574,13 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 icon={ShieldCheck}
                 label="Access Control"
                 condition={isAdminOnly}
+              />
+              <SidebarNavItem
+                id="spy"
+                href="/admin/spy"
+                icon={Eye}
+                label="Spy (Activity Log)"
+                condition={isAdminOrSoftware}
               />
             </>
           )}
@@ -616,11 +636,11 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             )}
 
           {/* Management Section */}
-          {(isVisible('manage_product', true) ||
-            isVisible('manage_materials', isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager) ||
-            isVisible('manage_shops', isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager) ||
-            isVisible('manage_categories', isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager) ||
-            isVisible('bulk_upload', isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager)) && (
+          {(isVisible('manage_product', isAdminOrSoftware) ||
+            isVisible('manage_materials', isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager) ||
+            isVisible('manage_shops', isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager) ||
+            isVisible('manage_categories', isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager) ||
+            isVisible('bulk_upload', isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager)) && (
               <>
                 <div className="px-3 mb-2 mt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Management
@@ -630,13 +650,14 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   href="/admin/manage-product"
                   icon={Package}
                   label="Manage Product"
+                  condition={isAdminOrSoftware}
                 />
                 <SidebarNavItem
                   id="manage_materials"
                   href="/admin/manage-materials"
                   icon={Package}
                   label="Manage Materials"
-                  condition={!isVoltAmpele && isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager}
+                  condition={!isVoltAmpele && isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager}
                 />
                 <SidebarNavItem
                   id="manage_shops"
@@ -644,21 +665,21 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   icon={Building2}
                   label="Manage Shops"
                   adminTab="shops"
-                  condition={!isVoltAmpele && isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager}
+                  condition={!isVoltAmpele && isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager}
                 />
                 <SidebarNavItem
                   id="manage_categories"
                   href="/admin/manage-categories"
                   icon={Tags}
                   label="Manage Categories"
-                  condition={!isVoltAmpele && isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager}
+                  condition={!isVoltAmpele && isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager}
                 />
                 <SidebarNavItem
                   id="bulk_upload"
                   href="/admin/bulk-material-upload"
                   icon={Package}
                   label="Bulk Upload"
-                  condition={!isVoltAmpele && isAdminOrSoftwareOrPurchaseTeam && !isPreSales && !isContractor && !isProductManager}
+                  condition={!isVoltAmpele && isAdminOrSoftware && !isPreSales && !isContractor && !isProductManager}
                 />
               </>
             )}
@@ -666,7 +687,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           {/* BOQ / Projects Section */}
           {(isVisible('generate_bom', isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam) ||
             isVisible('generate_po', (isAdminOrSoftware || isPreSales || isProductManager || isPurchaseTeam) && !isProductManager) ||
-            isVisible('finalize_boq', isAdminOrSoftware)) && (
+            isVisible('finalize_boq', isAdminOrSoftware || isFinance)) && (
               <>
                 <div className="px-3 mb-2 mt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   BOQ / Projects
@@ -690,7 +711,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   href="/finalize-bom"
                   icon={CheckCircle2}
                   label="Finalize BOQ"
-                  condition={isAdminOrSoftware}
+                  condition={isAdminOrSoftware || isFinance}
                 />
               </>
             )}
@@ -712,6 +733,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
           {/* Procurement Section */}
           {(isVisible('purchase_orders', isAdminOrSoftware || isPurchaseTeam) ||
+            isVisible('delivery_tracker', isAdminOrSoftware || isPurchaseTeam || user?.role === 'site_engineer') ||
             isVisible('po_approvals', isAdminOrSoftware)) && (
               <>
                 <div className="px-3 mb-2 mt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -723,6 +745,13 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   icon={FileText}
                   label="Purchase Orders"
                   condition={isAdminOrSoftware || isPurchaseTeam}
+                />
+                <SidebarNavItem
+                  id="delivery_tracker"
+                  href="/delivery-tracker"
+                  icon={Truck}
+                  label="Delivery Tracker"
+                  condition={isAdminOrSoftware || isPurchaseTeam || user?.role === 'site_engineer'}
                 />
                 <SidebarNavItem
                   id="po_approvals"
@@ -767,7 +796,8 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             isVisible('material_approvals', (isAdminOrSoftwareOrPurchaseTeam || isProductManager) && !isPreSales && !isContractor && !isProductManager) ||
             isVisible('supplier_approvals', (isAdminOrSoftwareOrPurchaseTeam || isProductManager) && !isPreSales && !isContractor && isAdminOnly) ||
             isVisible('product_approvals', (isAdminOrSoftwareOrPurchaseTeam || isProductManager) && !isPreSales && !isContractor && (isAdminOrSoftware || isProductManager)) ||
-            isVisible('bom_approvals', (isAdminOrSoftwareOrPurchaseTeam || isProductManager) && !isPreSales && !isContractor && isAdminOrSoftware)) && (
+            isVisible('bom_approvals', (isAdminOrSoftwareOrPurchaseTeam || isProductManager) && !isPreSales && !isContractor && isAdminOrSoftware) ||
+            isVisible('boq_approvals', isAdminOrSoftware)) && (
               <>
                 <div className="px-3 mb-2 mt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Approvals
@@ -811,6 +841,28 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   icon={CheckCircle2}
                   label="BOM Approvals"
                   count={pendingBomCount}
+                  condition={isAdminOrSoftware}
+                />
+                <SidebarNavItem
+                  id="boq_approvals"
+                  href="/admin/boq-approvals"
+                  icon={CheckCircle2}
+                  label="BOQ Approvals"
+                  count={pendingBoqCount}
+                  condition={isAdminOrSoftware}
+                />
+                <SidebarNavItem
+                  id="purchase_team_bom_approvals"
+                  href="/admin/purchase-team-bom-approvals"
+                  icon={CheckCircle2}
+                  label="Purchase Team BOM Approvals"
+                  condition={isAdminOrSoftware || isPurchaseTeam}
+                />
+                <SidebarNavItem
+                  id="proposal_approvals"
+                  href="/admin/proposal-approvals"
+                  icon={ClipboardCheck}
+                  label="Proposal Approvals"
                   condition={isAdminOrSoftware}
                 />
               </>
@@ -859,19 +911,49 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           {!isVoltAmpele && !isPreSales && !isContractor && user?.role === "supplier" && (
             <>
               <div className="px-3 mb-2 mt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Supplier
+                Supplier Portal
               </div>
               <SidebarNavItem
-                id="supplier_add_shop"
-                href="/supplier/shops"
-                icon={Building2}
-                label="Add Shop"
+                id="supplier_dashboard"
+                href="/dashboard"
+                icon={LayoutDashboard}
+                label="Dashboard"
               />
               <SidebarNavItem
                 id="supplier_manage_materials"
                 href="/supplier/materials"
                 icon={Package}
                 label="Manage Materials"
+              />
+              <SidebarNavItem
+                id="supplier_delivery_tracker"
+                href="/delivery-tracker"
+                icon={Truck}
+                label="Delivery Tracker"
+              />
+              <SidebarNavItem
+                id="supplier_sketch_plan"
+                href="/sketch-plans"
+                icon={Hammer}
+                label="Sketch a Plan"
+              />
+              <SidebarNavItem
+                id="supplier_manage_product"
+                href="/admin/manage-product"
+                icon={Package}
+                label="Manage Product"
+              />
+              <SidebarNavItem
+                id="supplier_proposal"
+                href="/proposal"
+                icon={FileText}
+                label="Proposal"
+              />
+              <SidebarNavItem
+                id="supplier_support"
+                href="/supplier/support"
+                icon={MessageSquare}
+                label="Messages"
               />
             </>
           )}
