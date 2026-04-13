@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, Plus, ArrowRight, ArrowLeft, Trash2, Edit, Check, XCircle, Layers, Copy, GripVertical, TrendingUp, AlertTriangle, Package } from "lucide-react";
+import { Search, Loader2, Plus, ArrowRight, ArrowLeft, Trash2, Edit, Check, XCircle, Layers, Copy, GripVertical, TrendingUp, TrendingDown, AlertTriangle, Package } from "lucide-react";
 import { Reorder } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import apiFetch from "@/lib/api";
@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmationDialog } from "@/components/ui/DeleteConfirmationDialog";
 
-type Product = { id: string; name: string; subcategory: string; created_at: string; created_by?: string; image?: string; has_price_updates?: boolean };
+type Product = { id: string; name: string; subcategory: string; created_at: string; created_by?: string; image?: string; has_price_updates?: boolean; is_approved?: boolean };
 type Material = { id: string; name: string; unit: string; rate: number; category: string; subcategory: string; description?: string; shop_name?: string; shop_id?: string; shopId?: string; code?: string; hsn_code?: string; sac_code?: string; technicalspecification?: string; technicalSpecification?: string; created_at?: string; brandName?: string; brand_name?: string; modelNumber?: string; model_number?: string };
 type SelectedMaterial = Material & { qty: number; baseQty: number; wastagePct?: number; amount: number; rate: number; supplyRate: number; installRate: number; location: string; applyWastage: boolean; applyRounding: boolean; freezeAndEdit?: boolean };
 
@@ -216,10 +216,7 @@ export default function ManageProduct() {
         }
     });
 
-    const approvedProductIds = useMemo(() => {
-        if (!allApprovals) return new Set();
-        return new Set((allApprovals as any[]).filter(a => a.status === "approved").map(a => a.product_id));
-    }, [allApprovals]);
+
 
     const pendingProductIds = useMemo(() => {
         if (!allApprovals) return new Set();
@@ -237,8 +234,8 @@ export default function ManageProduct() {
     }, [productsData, productSearch]);
 
     const approvedProducts = useMemo(() => {
-        return filteredProducts.filter(p => approvedProductIds.has(p.id));
-    }, [filteredProducts, approvedProductIds]);
+        return filteredProducts.filter(p => p.is_approved);
+    }, [filteredProducts]);
 
     const allApprovedConfigs = useMemo(() => {
         if (!allApprovals) return [];
@@ -252,8 +249,8 @@ export default function ManageProduct() {
     }, [allApprovedConfigs, cloneSearch]);
 
     const needsWorkProducts = useMemo(() => {
-        return filteredProducts.filter(p => !approvedProductIds.has(p.id));
-    }, [filteredProducts, approvedProductIds]);
+        return filteredProducts.filter(p => !p.is_approved);
+    }, [filteredProducts]);
 
     const { data: categoriesData } = useQuery({
         queryKey: ["/api/material-categories"],
@@ -391,7 +388,7 @@ export default function ManageProduct() {
         id: item.material_id, name: item.material_name, unit: item.unit,
         qty: Number(item.qty || 0), baseQty: Number(item.base_qty ?? item.qty ?? 0),
         wastagePct: item.wastage_pct != null ? Number(item.wastage_pct) : undefined,
-        rate: Number(item.rate), supplyRate: Number(item.supply_rate || item.rate || 0),
+        rate: Number(item.rate), supplyRate: Number(item.supply_rate != null ? item.supply_rate : item.rate || 0),
         install_rate: Number(item.install_rate || 0), installRate: Number(item.install_rate || 0),
         location: item.location || "Main Area", amount: Number(item.amount),
         rejection_reason: item.rejection_reason || null,
@@ -493,8 +490,8 @@ export default function ManageProduct() {
         setIsCloneDialogOpen(true);
     };
 
-    const confirmDeleteConfig = async (action: 'archive' | 'trash') => {
-        if (!genericDelete) return;
+    const confirmDeleteConfig = async (action?: 'archive' | 'trash') => {
+        if (!genericDelete || !action) return;
         const configId = genericDelete.id;
         try {
             const res = await apiFetch(`/api/step11-products/config/${configId}?action=${action}`, { method: "DELETE" });
@@ -605,12 +602,12 @@ export default function ManageProduct() {
         return mismatches;
     };
 
-    // Detect mismatches: library rate is higher than what's saved in config
+    // Detect mismatches: library rate is different from what's saved in config
     const mismatches = useMemo(() => {
         const list: Array<{ index: number; materialId: string; name: string; oldRate: number; newRate: number }> = [];
         configMaterials.forEach((cm, idx) => {
             const latest = materialsById[String(cm.id)];
-            if (latest && latest.rate > (cm.supplyRate || 0)) {
+            if (latest && Math.abs(latest.rate - (cm.supplyRate || 0)) > 0.01) {
                 list.push({ index: idx, materialId: String(cm.id), name: cm.name, oldRate: cm.supplyRate || 0, newRate: latest.rate });
             }
         });
@@ -642,9 +639,10 @@ export default function ManageProduct() {
     useEffect(() => {
         if (selectedProduct && previousConfigs.length > 0 && Object.keys(materialsById).length > 0) {
             const hasUpdates = previousConfigs.some(cd => {
+                const mismatches = getConfigPriceMismatches(cd);
                 const savedCost = Number(cd.product.total_cost || 0);
                 const currentCost = getConfigCurrentTotal(cd);
-                return currentCost !== null && Math.abs(savedCost - currentCost) > 0.01;
+                return mismatches.length > 0 || (currentCost !== null && Math.abs(savedCost - currentCost) > 0.01);
             });
             if (hasUpdates) {
                 toast({
@@ -818,8 +816,8 @@ export default function ManageProduct() {
                                                         {needsWorkProducts.length === 0 ? (
                                                             <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No products currently need work.</TableCell></TableRow>
                                                         ) : needsWorkProducts.map(product => {
-                                                            const isPending = pendingProductIds.has(product.id);
-                                                            const isRejected = rejectedProductIds.has(product.id);
+                                                            const isPending = (allApprovals as any[] || []).some(a => a.product_id === product.id && a.status === "pending");
+                                                            const isRejected = (allApprovals as any[] || []).some(a => a.product_id === product.id && a.status === "rejected");
                                                             return (
                                                                 <TableRow key={product.id} className={`transition-colors cursor-pointer ${selectedProduct?.id === product.id ? "bg-primary/5 hover:bg-primary/10" : product.has_price_updates ? "bg-amber-200/70 hover:bg-amber-200/90" : "hover:bg-muted/20"}`} onClick={() => selectProduct(product)}>
                                                                     <TableCell onClick={e => e.stopPropagation()}>
@@ -1024,18 +1022,18 @@ export default function ManageProduct() {
                                                         previousConfigs.filter(c => c.product.status === "approved").map(cd => {
                                                             const savedPrice = Number(cd.product.total_cost || 0);
                                                             const currentPrice = getConfigCurrentTotal(cd);
-                                                            const hasChanged = currentPrice !== null && Math.abs(savedPrice - currentPrice) > 0.01;
-                                                            const priceMismatches = hasChanged ? getConfigPriceMismatches(cd) : [];
+                                                            const priceMismatches = getConfigPriceMismatches(cd);
+                                                            const hasChanged = priceMismatches.length > 0 || (currentPrice !== null && Math.abs(savedPrice - currentPrice) > 0.01);
                                                             return (
                                                                 <div key={cd.product.id} className="flex flex-col p-4 bg-white rounded-xl border-2 border-green-50 shadow-sm hover:border-green-200 hover:shadow-md transition-all group">
                                                                     <div className="flex items-center justify-between">
                                                                         <div className="space-y-1">
                                                                             <div className="font-bold text-sm text-slate-800">{cd.product.config_name || "Unnamed Config"}</div>
                                                                             <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">Approved: {new Date(cd.product.updated_at).toLocaleDateString()} • {cd.items?.length || 0} Materials</div>
-                                                                            {hasChanged ? (
+                                                                            {hasChanged && currentPrice !== null ? (
                                                                                 <div className="flex items-center mt-1">
-                                                                                    <Badge variant="outline" className="bg-amber-100/50 text-amber-700 border-amber-300 flex items-center gap-1.5 px-2 py-0.5 shadow-sm text-[10px]">
-                                                                                        <TrendingUp className="h-3 w-3" />
+                                                                                    <Badge variant="outline" className={`flex items-center gap-1.5 px-2 py-0.5 shadow-sm text-[10px] ${currentPrice > savedPrice ? "bg-amber-100/50 text-amber-700 border-amber-300" : "bg-green-100/50 text-green-700 border-green-300"}`}>
+                                                                                        {currentPrice > savedPrice ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                                                                                         <span className="line-through opacity-70">₹{savedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                                                         <ArrowRight className="h-3 w-3" />
                                                                                         <span className="font-bold">₹{currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -1059,8 +1057,8 @@ export default function ManageProduct() {
                                                                                         <span className="text-[11px] font-semibold text-slate-700 truncate pr-2">{pm.name}</span>
                                                                                         <div className="flex items-center gap-1.5 shrink-0 text-[11px]">
                                                                                             <span className="text-slate-400 line-through">₹{pm.oldRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                                                                            <ArrowRight className="h-3 w-3 text-amber-400" />
-                                                                                            <span className="font-bold text-amber-700">₹{pm.newRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                            <ArrowRight className={`h-3 w-3 ${pm.newRate > pm.oldRate ? "text-amber-400" : "text-green-400"}`} />
+                                                                                            <span className={`font-bold ${pm.newRate > pm.oldRate ? "text-amber-700" : "text-green-700"}`}>₹{pm.newRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                                                         </div>
                                                                                     </div>
                                                                                 ))}
@@ -1084,18 +1082,44 @@ export default function ManageProduct() {
                                                 <div className="space-y-3 p-5 bg-amber-50/20 rounded-2xl border border-amber-100 shadow-sm animate-in fade-in slide-in-from-right-4 duration-500">
                                                     <h3 className="text-sm font-black uppercase tracking-widest text-amber-600 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin-slow" /> Pending Review</h3>
                                                     <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2">
-                                                        {pendingConfigs.length > 0 ? pendingConfigs.map(config => (
-                                                            <div key={config.id} className="flex items-center justify-between p-4 bg-white rounded-xl border-2 border-amber-50 shadow-sm hover:border-amber-200 transition-all">
-                                                                <div className="space-y-1">
-                                                                    <div className="font-bold text-sm text-slate-800">{config.config_name || "Unnamed Config"}</div>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="text-[10px] text-muted-foreground font-medium uppercase">{new Date(config.created_at).toLocaleDateString()}</span>
-                                                                        <Badge variant="outline" className="h-4 text-[8px] uppercase px-1.5 font-black bg-amber-100 text-amber-700 border-amber-200">Pending</Badge>
+                                                        {pendingConfigs.length > 0 ? pendingConfigs.map(config => {
+                                                            const priceMismatches = getConfigPriceMismatches(config);
+                                                            const hasChanged = priceMismatches.length > 0;
+                                                            return (
+                                                                <div key={config.id} className="flex flex-col p-4 bg-white rounded-xl border-2 border-amber-50 shadow-sm hover:border-amber-200 transition-all">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <div className="space-y-1">
+                                                                            <div className="font-bold text-sm text-slate-800">{config.config_name || "Unnamed Config"}</div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="text-[10px] text-muted-foreground font-medium uppercase">{new Date(config.created_at).toLocaleDateString()}</span>
+                                                                                <Badge variant="outline" className="h-4 text-[8px] uppercase px-1.5 font-black bg-amber-100 text-amber-700 border-amber-200">Pending</Badge>
+                                                                            </div>
+                                                                            {hasChanged && (
+                                                                                <div className="flex items-center gap-1.5 mt-1 text-amber-600">
+                                                                                    <AlertTriangle className="h-3 w-3" />
+                                                                                    <span className="text-[10px] font-bold">Price Update Available</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        <Button variant="outline" size="sm" onClick={() => loadApprovalConfig(config, "Pending")} className="h-8 text-[10px] font-black uppercase tracking-tight border-amber-200 hover:bg-amber-50 text-amber-600 px-3">View / Load</Button>
                                                                     </div>
+                                                                    {hasChanged && (
+                                                                        <div className="mt-3 space-y-2 pt-2 border-t border-amber-50">
+                                                                            {priceMismatches.map((pm, idx) => (
+                                                                                <div key={idx} className="flex items-center justify-between text-[11px] bg-amber-50/50 p-2 rounded">
+                                                                                    <span className="font-semibold text-slate-700 truncate pr-2">{pm.name}</span>
+                                                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                                                        <span className="text-slate-400 line-through">₹{pm.oldRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                        <ArrowRight className={`h-3 w-3 ${pm.newRate > pm.oldRate ? "text-amber-400" : "text-green-400"}`} />
+                                                                                        <span className={`font-bold ${pm.newRate > pm.oldRate ? "text-amber-700" : "text-green-700"}`}>₹{pm.newRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                                <Button variant="outline" size="sm" onClick={() => loadApprovalConfig(config, "Pending")} className="h-8 text-[10px] font-black uppercase tracking-tight border-amber-200 hover:bg-amber-50 text-amber-600 px-3">View / Load</Button>
-                                                            </div>
-                                                        )) : (
+                                                            );
+                                                        }) : (
                                                             <div className="py-4 text-center border border-dashed border-amber-100 rounded-lg bg-amber-50/50 italic text-muted-foreground text-[10px] font-medium">No configurations pending review.</div>
                                                         )}
                                                     </div>
@@ -1106,15 +1130,41 @@ export default function ManageProduct() {
                                                     <div className="space-y-3 p-5 bg-red-50/30 rounded-2xl border border-red-100 shadow-sm animate-in fade-in slide-in-from-right-4 duration-500">
                                                         <h3 className="text-sm font-black uppercase tracking-widest text-red-600 flex items-center gap-2"><XCircle className="h-4 w-4" /> Rejected</h3>
                                                         <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2">
-                                                            {rejectedConfigs.map(config => (
-                                                                <div key={config.id} className="flex items-center justify-between p-4 bg-white rounded-xl border-2 border-red-50 shadow-sm hover:border-red-200 transition-all">
-                                                                    <div className="space-y-1">
-                                                                        <div className="font-bold text-sm text-slate-800">{config.config_name || "Unnamed Config"}</div>
-                                                                        <div className="text-[10px] text-red-600 font-bold italic line-clamp-1">{config.rejection_reason || "Check feedback"}</div>
+                                                            {rejectedConfigs.map(config => {
+                                                                const priceMismatches = getConfigPriceMismatches(config);
+                                                                const hasChanged = priceMismatches.length > 0;
+                                                                return (
+                                                                    <div key={config.id} className="flex flex-col p-4 bg-white rounded-xl border-2 border-red-50 shadow-sm hover:border-red-200 transition-all">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <div className="space-y-1">
+                                                                                <div className="font-bold text-sm text-slate-800">{config.config_name || "Unnamed Config"}</div>
+                                                                                <div className="text-[10px] text-red-600 font-bold italic line-clamp-1">{config.rejection_reason || "Check feedback"}</div>
+                                                                                {hasChanged && (
+                                                                                    <div className="flex items-center gap-1.5 mt-1 text-red-600">
+                                                                                        <AlertTriangle className="h-3 w-3" />
+                                                                                        <span className="text-[10px] font-bold">Rates Changed Since Rejection</span>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <Button variant="outline" size="sm" onClick={() => loadApprovalConfig(config, "Rejected")} className="h-8 text-[10px] font-black uppercase tracking-tight border-red-200 hover:bg-red-50 text-red-600 px-3">Resubmit</Button>
+                                                                        </div>
+                                                                        {hasChanged && (
+                                                                            <div className="mt-3 space-y-2 pt-2 border-t border-red-50">
+                                                                                {priceMismatches.map((pm, idx) => (
+                                                                                    <div key={idx} className="flex items-center justify-between text-[11px] bg-red-50/50 p-2 rounded">
+                                                                                        <span className="font-semibold text-slate-700 truncate pr-2">{pm.name}</span>
+                                                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                                                            <span className="text-slate-400 line-through">₹{pm.oldRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                            <ArrowRight className={`h-3 w-3 ${pm.newRate > pm.oldRate ? "text-amber-400" : "text-green-400"}`} />
+                                                                                            <span className={`font-bold ${pm.newRate > pm.oldRate ? "text-amber-700" : "text-green-700"}`}>₹{pm.newRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
                                                                     </div>
-                                                                    <Button variant="outline" size="sm" onClick={() => loadApprovalConfig(config, "Rejected")} className="h-8 text-[10px] font-black uppercase tracking-tight border-red-200 hover:bg-red-50 text-red-600 px-3">Resubmit</Button>
-                                                                </div>
-                                                            ))}
+                                                                );
+                                                            })}
                                                         </div>
                                                     </div>
                                                 )}
@@ -1127,18 +1177,18 @@ export default function ManageProduct() {
                                                             previousConfigs.filter(c => c.product.status === "draft").map(cd => {
                                                                 const savedPrice = Number(cd.product.total_cost || 0);
                                                                 const currentPrice = getConfigCurrentTotal(cd);
-                                                                const hasChanged = currentPrice !== null && Math.abs(savedPrice - currentPrice) > 0.01;
-                                                                const priceMismatches = hasChanged ? getConfigPriceMismatches(cd) : [];
+                                                                const priceMismatches = getConfigPriceMismatches(cd);
+                                                                const hasChanged = priceMismatches.length > 0 || (currentPrice !== null && Math.abs(savedPrice - currentPrice) > 0.01);
                                                                 return (
                                                                     <div key={cd.product.id} className="flex flex-col p-4 bg-white rounded-xl border-2 border-blue-50 shadow-sm hover:border-blue-200 hover:shadow-md transition-all group">
                                                                         <div className="flex items-center justify-between">
                                                                             <div className="space-y-1">
                                                                                 <div className="font-bold text-sm text-slate-800">{cd.product.config_name || "Unnamed Draft"}</div>
                                                                                 <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">Edited: {new Date(cd.product.updated_at).toLocaleDateString()}</div>
-                                                                                {hasChanged ? (
+                                                                                {hasChanged && currentPrice !== null ? (
                                                                                     <div className="flex items-center mt-1">
-                                                                                        <Badge variant="outline" className="bg-amber-100/50 text-amber-700 border-amber-300 flex items-center gap-1.5 px-2 py-0.5 shadow-sm text-[10px]">
-                                                                                            <TrendingUp className="h-3 w-3" />
+                                                                                        <Badge variant="outline" className={`flex items-center gap-1.5 px-2 py-0.5 shadow-sm text-[10px] ${currentPrice > savedPrice ? "bg-amber-100/50 text-amber-700 border-amber-300" : "bg-green-100/50 text-green-700 border-green-300"}`}>
+                                                                                            {currentPrice > savedPrice ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                                                                                             <span className="line-through opacity-70">₹{savedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                                                             <ArrowRight className="h-3 w-3" />
                                                                                             <span className="font-bold">₹{currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -1162,8 +1212,8 @@ export default function ManageProduct() {
                                                                                             <span className="text-[11px] font-semibold text-slate-700 truncate pr-2">{pm.name}</span>
                                                                                             <div className="flex items-center gap-1.5 shrink-0 text-[11px]">
                                                                                                 <span className="text-slate-400 line-through">₹{pm.oldRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                                                                                <ArrowRight className="h-3 w-3 text-amber-400" />
-                                                                                                <span className="font-bold text-amber-700">₹{pm.newRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                                                <ArrowRight className={`h-3 w-3 ${pm.newRate > pm.oldRate ? "text-amber-400" : "text-green-400"}`} />
+                                                                                                <span className={`font-bold ${pm.newRate > pm.oldRate ? "text-amber-700" : "text-green-700"}`}>₹{pm.newRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                                                             </div>
                                                                                         </div>
                                                                                     ))}
@@ -1551,7 +1601,7 @@ export default function ManageProduct() {
                                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1.5">
                                             <div className="flex items-center justify-between gap-3">
                                                 <div className="flex items-center gap-1.5">
-                                                    <TrendingUp className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                                                     <span className="text-[11px] font-bold text-amber-800">Price Update Available — {activeMismatches.length} material{activeMismatches.length > 1 ? 's' : ''} updated in library</span>
                                                 </div>
                                                 <button onClick={handleUpdateAllRates} disabled={isUpdatingRates} className="flex items-center gap-1 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded transition-colors disabled:opacity-50 shrink-0">
