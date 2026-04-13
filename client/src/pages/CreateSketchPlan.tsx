@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Save, ArrowLeft, Camera, Pencil, Layers, X, GripVertical, FileText, Search, MessageSquare, Image as ImageIcon, Move, Lock, Unlock, ShieldAlert, Cloud, Check, AlertTriangle, FileUp, FileSpreadsheet, Download, Paperclip, ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine, GitBranch, Store } from "lucide-react";
+import { Plus, Trash2, Save, ArrowLeft, Camera, Pencil, Layers, X, GripVertical, FileText, Search, MessageSquare, Image as ImageIcon, Move, Lock, Unlock, ShieldAlert, Cloud, Check, AlertTriangle, FileUp, FileSpreadsheet, Download, Paperclip, ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine, GitBranch, Store, ChevronDown, ArrowUpDown, ArrowDownAz, Users } from "lucide-react";
 import { Reorder, useDragControls } from "framer-motion";
 import { SketchPad } from "@/components/SketchPad";
 import apiFetch from "@/lib/api";
@@ -50,12 +50,16 @@ interface PlanItem {
   unit: string;
   dimension_unit: "feet" | "mm" | "inch" | "cm" | "meter" | "sqft" | "sqmt" | "rft" | "rmt" | "nos" | "pcs" | "kg" | "litre" | "set" | "ls";
   remarks: string;
+  dimensions?: { id: string; length: string; width: string; height: string }[];
   preImages: PlanImage[]; // PRE-work images
   postImages: PlanImage[]; // POST-work images
   images?: PlanImage[]; // Legacy field for compatibility
   category?: string; // NEW
   assigned_vendor_id?: string;
   vendor_name?: string;
+  assigned_user_id?: string;
+  assigned_user_name?: string;
+  user_task_status?: string;
 }
 
 const parseImages = (imageField: any): string[] => {
@@ -209,11 +213,14 @@ const SketchPlanRow = ({
   openPopoverIdx, setOpenPopoverIdx, renameRowImage, removeRowImage,
   handleRowImageUpload, isLocked, isCompact, setPreviewImage,
   setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen,
-  isSelected, toggleSelect, userRole, onImageDragStart, onImageDrop
+  isSelected, toggleSelect, userRole, onImageDragStart, onImageDrop,
+  addDimension, removeDimension, updateDimension
 }: any) => {
   const [itemSearchTab, setItemSearchTab] = useState<"all" | "material" | "product">("all");
   const dragControls = useDragControls();
   const isSupplier = userRole === "supplier";
+
+  const dims = item.dimensions?.length ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height }];
 
   return (
     <Reorder.Item
@@ -322,7 +329,7 @@ const SketchPlanRow = ({
             </DialogHeader>
             <Command shouldFilter={false}>
               <CommandInput
-                placeholder="Search materials, templates, products..."
+                placeholder="Search materials, products..."
                 onValueChange={setMaterialSearch}
                 className="h-10"
               />
@@ -359,14 +366,15 @@ const SketchPlanRow = ({
                 {searching && <CommandEmpty>Loading...</CommandEmpty>}
                 {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
                 {!searching && searchResults.length > 0 && (
-                  <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => itemSearchTab === 'all' || (itemSearchTab === 'material' && (m.type === 'Material' || m.type === 'Template')) || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
+                  <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => (itemSearchTab === 'all' && m.type !== 'Template') || (itemSearchTab === 'material' && m.type === 'Material') || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
                     {searchResults
                       .filter((m: any) => {
-                        if (itemSearchTab === "all") return true;
-                        if (itemSearchTab === "material") return m.type === "Material" || m.type === "Template";
+                        if (itemSearchTab === "all") return m.type !== "Template";
+                        if (itemSearchTab === "material") return m.type === "Material";
                         if (itemSearchTab === "product") return m.type === "Product";
                         return true;
                       })
+                      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
                       .map((m: any) => (
                         <CommandItem
                           key={`${m.type}-${m.id}`}
@@ -429,24 +437,100 @@ const SketchPlanRow = ({
           </SelectContent>
         </Select>
       </td>
-      <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
-        <Input value={item.length} onChange={(e) => updateItem(idx, "length", e.target.value)} className={cn("px-1", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} placeholder="0" disabled={isLocked} />
+      <td className={cn("px-1 align-top border-l", isCompact ? "py-1" : "py-2")}>
+        <div className="flex flex-col gap-1 w-full h-full relative">
+          <div className={cn("relative flex items-center justify-center w-full", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")}>
+            <Input value={dims[0].length} onChange={(e) => updateDimension(idx, 0, "length", e.target.value)} className="w-full h-full px-1 text-center" placeholder="0" disabled={isLocked} />
+          </div>
+        </div>
       </td>
-      <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
-        <Input value={item.width} onChange={(e) => updateItem(idx, "width", e.target.value)} className={cn("px-1", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} placeholder="0" disabled={isLocked} />
+      <td className={cn("px-1 align-top", isCompact ? "py-1" : "py-2")}>
+        <div className="flex flex-col gap-1 w-full h-full relative">
+          <div className={cn("relative flex items-center justify-center w-full", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")}>
+            <Input value={dims[0].width} onChange={(e) => updateDimension(idx, 0, "width", e.target.value)} className="w-full h-full px-1 text-center" placeholder="0" disabled={isLocked} />
+          </div>
+        </div>
       </td>
-      <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
-        <Input value={item.height} onChange={(e) => updateItem(idx, "height", e.target.value)} className={cn("px-1", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} placeholder="0" disabled={isLocked} />
+      <td className={cn("px-1 align-top", isCompact ? "py-1" : "py-2")}>
+        <div className="flex flex-col gap-1 w-full h-full relative">
+          <div className={cn("relative flex items-center gap-1 w-full", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")}>
+            <Input value={dims[0].height} onChange={(e) => updateDimension(idx, 0, "height", e.target.value)} className="w-full h-full px-1 text-center" placeholder="0" disabled={isLocked} />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className={cn("p-0 min-w-4 text-slate-500 hover:text-indigo-600 bg-slate-50 shrink-0 relative", isCompact ? "w-4 h-5" : "w-6 h-8", dims.length > 1 && "bg-indigo-100 text-indigo-700 border-indigo-200")}>
+                  {dims.length > 1 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-bold px-1 rounded-full">{dims.length}</span>}
+                  <ChevronDown className="w-3 h-3" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] p-3 shadow-xl z-[200]">
+                <div className="flex justify-between items-center mb-3 border-b pb-2">
+                  <span className="font-bold text-[10px] uppercase text-slate-500 tracking-wider">Dimension Entries</span>
+                  {!isLocked && (
+                    <Button type="button" size="sm" variant="ghost" onClick={() => addDimension(idx)} className="h-6 px-2 text-xs text-indigo-600 hover:bg-indigo-50 font-bold">
+                      <Plus className="w-3 h-3 mr-1.5" /> Add Option
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1 custom-scrollbar">
+                  {dims.map((dim: any, dIdx: number) => (
+                    <div key={dim.id} className="flex gap-1.5 items-center bg-slate-50 border border-slate-100 p-2 rounded-md">
+                      <div className="flex flex-col flex-1">
+                        <Label className="text-[8px] text-slate-400 font-bold mb-0.5 ml-1 uppercase">L</Label>
+                        <Input value={dim.length} onChange={(e) => updateDimension(idx, dIdx, "length", e.target.value)} placeholder="0" className="h-7 text-xs text-center px-1" disabled={isLocked} />
+                      </div>
+                      <X className="w-3 h-3 text-slate-300 mt-4 shrink-0" />
+                      <div className="flex flex-col flex-1">
+                        <Label className="text-[8px] text-slate-400 font-bold mb-0.5 ml-1 uppercase">W</Label>
+                        <Input value={dim.width} onChange={(e) => updateDimension(idx, dIdx, "width", e.target.value)} placeholder="0" className="h-7 text-xs text-center px-1" disabled={isLocked} />
+                      </div>
+                      <X className="w-3 h-3 text-slate-300 mt-4 shrink-0" />
+                      <div className="flex flex-col flex-1">
+                        <Label className="text-[8px] text-slate-400 font-bold mb-0.5 ml-1 uppercase">H</Label>
+                        <Input value={dim.height} onChange={(e) => updateDimension(idx, dIdx, "height", e.target.value)} placeholder="0" className="h-7 text-xs text-center px-1" disabled={isLocked} />
+                      </div>
+                      {dIdx > 0 && !isLocked && (
+                        <button type="button" onClick={() => removeDimension(idx, dIdx)} title="Remove" className="p-1 hover:bg-red-100 text-red-500 rounded mt-4 shrink-0 border border-transparent hover:border-red-200 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
       </td>
-      <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
-        <Input value={item.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={cn("bg-slate-50 font-bold text-indigo-700 px-1", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} disabled={isLocked} />
+      <td className={cn("px-1 align-top", isCompact ? "py-1" : "py-2")}>
+        <div className="flex flex-col gap-1 w-full relative h-[calc(100%-4px)]">
+          <div className={cn("relative flex items-center justify-center top-1")}>
+            <Input value={item.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={cn("bg-slate-50 font-bold text-indigo-700 px-1 w-full max-w-[80px] text-center", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} disabled={isLocked} />
+          </div>
+        </div>
       </td>
       {!isSupplier && (
         <td className={cn("px-1", isCompact ? "py-0" : "py-2")}>
-          <div className="flex flex-col">
-            <span className={cn("truncate font-medium text-indigo-600", isCompact ? "text-[8px]" : "text-[10px]")}>
-              {item.vendor_name || "-"}
-            </span>
+          <div className="flex flex-col gap-0.5">
+            {item.vendor_name && (
+              <span className={cn("truncate font-medium text-amber-600", isCompact ? "text-[8px]" : "text-[10px]")}>
+                V: {item.vendor_name}
+              </span>
+            )}
+            {item.assigned_user_name && (
+              <span className={cn("flex items-center gap-1 font-medium text-blue-600", isCompact ? "text-[8px]" : "text-[10px]")}>
+                <span className="truncate">U: {item.assigned_user_name}</span>
+                {item.user_task_status === 'completed' && (
+                  <Badge className="bg-green-100 text-green-700 hover:bg-green-200 border-none px-1 h-3.5 text-[7px] font-black tracking-tighter shadow-none">
+                    DONE
+                  </Badge>
+                )}
+              </span>
+            )}
+            {!item.vendor_name && !item.assigned_user_name && (
+              <span className={cn("truncate font-medium text-slate-400", isCompact ? "text-[8px]" : "text-[10px]")}>
+                -
+              </span>
+            )}
           </div>
         </td>
       )}
@@ -533,6 +617,7 @@ export default function CreateSketchPlan() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [isCompact, setIsCompact] = useState(false);
+  const [sortBy, setSortBy] = useState<string>("none");
 
   const [materialSearch, setMaterialSearch] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -543,6 +628,9 @@ export default function CreateSketchPlan() {
   const [assigningLoading, setAssigningLoading] = useState(false);
   const [loadingToProposal, setLoadingToProposal] = useState(false);
   const [vendorSearchTerm, setVendorSearchTerm] = useState("");
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [showAssignUserDialog, setShowAssignUserDialog] = useState(false);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
 
   // New state
   const [projectOpen, setProjectOpen] = useState(false);
@@ -682,6 +770,45 @@ export default function CreateSketchPlan() {
     }
   };
 
+  const loadUsers = async () => {
+    try {
+      setUserSearchTerm("");
+      const res = await apiFetch("/api/users");
+      if (res.ok) {
+        const data = await res.json();
+        setUsersList(data.users || []);
+      }
+    } catch (e) {
+      console.error("Failed to load users", e);
+    }
+  };
+
+  const handleAssignToUser = async (userId: string) => {
+    if (selectedItemIds.size === 0) return;
+
+    setAssigningLoading(true);
+    try {
+      const userObj = usersList.find(u => u.id === userId);
+      const userName = userObj ? (userObj.fullName || userObj.username) : "User";
+      
+      const updatedItems = items.map(item => {
+        if (selectedItemIds.has(item.id)) {
+          return { ...item, assigned_user_id: userId, assigned_user_name: userName, user_task_status: 'pending' };
+        }
+        return item;
+      });
+
+      setItems(updatedItems);
+      toast({ title: "Success", description: `Assigned ${selectedItemIds.size} items to ${userName}` });
+      setSelectedItemIds(new Set());
+      setShowAssignUserDialog(false);
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to assign items to user", variant: "destructive" });
+    } finally {
+      setAssigningLoading(false);
+    }
+  };
+
   const handleAssignToVendor = async (shopId: string) => {
     if (selectedItemIds.size === 0) return;
 
@@ -731,6 +858,39 @@ export default function CreateSketchPlan() {
     } finally {
       setLoadingToProposal(false);
     }
+  };
+
+  const handleSort = (criteria: string) => {
+    setSortBy(criteria);
+    if (criteria === "none") return;
+
+    const sorted = [...items].sort((a, b) => {
+      switch (criteria) {
+        case "name-asc":
+          return (a.item_name || "").localeCompare(b.item_name || "");
+        case "name-desc":
+          return (b.item_name || "").localeCompare(a.item_name || "");
+        case "qty-asc":
+          return (Number(a.qty) || 0) - (Number(b.qty) || 0);
+        case "qty-desc":
+          return (Number(b.qty) || 0) - (Number(a.qty) || 0);
+        case "category-asc":
+          return (a.category || "").localeCompare(b.category || "");
+        case "category-desc":
+          return (b.category || "").localeCompare(a.category || "");
+        case "notes-asc":
+          return (a.description || "").localeCompare(b.description || "");
+        case "notes-desc":
+          return (b.description || "").localeCompare(a.description || "");
+        case "vendor-asc":
+          return (a.vendor_name || "").localeCompare(b.vendor_name || "");
+        case "vendor-desc":
+          return (b.vendor_name || "").localeCompare(a.vendor_name || "");
+        default:
+          return 0;
+      }
+    });
+    setItems(sorted);
   };
 
   // Load initial data
@@ -955,26 +1115,123 @@ export default function CreateSketchPlan() {
     setItems(newItems);
   };
 
+  const addDimension = useCallback((itemIdx: number) => {
+    setItems((prevItems) => {
+      const newItems = [...prevItems];
+      const item = { ...newItems[itemIdx] };
+      const dims = item.dimensions ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
+      dims.push({ id: `dim-${Date.now()}`, length: "", width: "", height: "" });
+      item.dimensions = dims;
+      newItems[itemIdx] = item;
+      return newItems;
+    });
+  }, []);
+
+  const removeDimension = useCallback((itemIdx: number, dimIdx: number) => {
+    setItems((prevItems) => {
+      const newItems = [...prevItems];
+      const item = { ...newItems[itemIdx] };
+      if (!item.dimensions || item.dimensions.length <= 1) return prevItems;
+      const dims = [...item.dimensions];
+      dims.splice(dimIdx, 1);
+      item.dimensions = dims;
+
+      let totalQty = 0;
+      dims.forEach(d => {
+        const l = parseFloat(d.length) || 0;
+        const w = parseFloat(d.width) || 0;
+        const h = parseFloat(d.height) || 0;
+        if (l > 0 || w > 0 || h > 0) {
+          const p = [l, w, h].filter(v => v > 0);
+          totalQty += p.reduce((acc, v) => acc * v, 1);
+        }
+      });
+      item.qty = item.dimension_unit === "mm" ? Math.round(totalQty).toString() : totalQty.toFixed(2);
+
+      item.length = dims[0].length;
+      item.width = dims[0].width;
+      item.height = dims[0].height;
+
+      newItems[itemIdx] = item;
+      return newItems;
+    });
+  }, []);
+
+  const updateDimension = useCallback((itemIdx: number, dimIdx: number, field: "length" | "width" | "height", value: string) => {
+    setItems((prevItems) => {
+      const newItems = [...prevItems];
+      const item = { ...newItems[itemIdx] };
+      const dims = item.dimensions ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
+
+      dims[dimIdx] = { ...dims[dimIdx], [field]: value };
+      item.dimensions = dims;
+
+      let totalQty = 0;
+      dims.forEach(d => {
+        const l = parseFloat(d.length) || 0;
+        const w = parseFloat(d.width) || 0;
+        const h = parseFloat(d.height) || 0;
+        if (l > 0 || w > 0 || h > 0) {
+          const p = [l, w, h].filter(v => v > 0);
+          totalQty += p.reduce((acc, v) => acc * v, 1);
+        }
+      });
+
+      if (totalQty > 0) {
+        item.qty = item.dimension_unit === "mm" ? Math.round(totalQty).toString() : totalQty.toFixed(2);
+      } else {
+        item.qty = "0";
+      }
+
+      if (dimIdx === 0) {
+        item.length = dims[0].length;
+        item.width = dims[0].width;
+        item.height = dims[0].height;
+      }
+
+      newItems[itemIdx] = item;
+      return newItems;
+    });
+  }, []);
+
   const updateItem = (idx: number, field: keyof PlanItem, value: any) => {
     const newItems = [...items];
     newItems[idx] = { ...newItems[idx], [field]: value };
 
     // Auto-calculate quantity if dimensions or unit change
     if (["length", "width", "height", "dimension_unit"].includes(field)) {
-      const l = parseFloat(newItems[idx].length) || 0;
-      const w = parseFloat(newItems[idx].width) || 0;
-      const h = parseFloat(newItems[idx].height) || 0;
-      if (l > 0 || w > 0 || h > 0) {
-        const dims = [l, w, h].filter(v => v > 0);
-        const autoQty = dims.reduce((acc, v) => acc * v, 1);
-        // If dimension_unit is mm, round to nearest integer. Otherwise use 2 decimal places.
-        newItems[idx].qty = newItems[idx].dimension_unit === "mm"
-          ? Math.round(autoQty).toString()
-          : autoQty.toFixed(2);
-      } else if (newItems[idx].dimension_unit === "mm") {
-        // Ensure existing qty is also rounded when unit switches to mm
-        const currentQty = parseFloat(newItems[idx].qty) || 0;
-        newItems[idx].qty = Math.round(currentQty).toString();
+      if (field === "dimension_unit") {
+        const dims = newItems[idx].dimensions ? newItems[idx].dimensions : [{ id: "def", length: newItems[idx].length, width: newItems[idx].width, height: newItems[idx].height }];
+        let totalQty = 0;
+        dims.forEach((d: any) => {
+          const l = parseFloat(d.length) || 0;
+          const w = parseFloat(d.width) || 0;
+          const h = parseFloat(d.height) || 0;
+          if (l > 0 || w > 0 || h > 0) {
+            const p = [l, w, h].filter(v => v > 0);
+            totalQty += p.reduce((acc, v) => acc * v, 1);
+          }
+        });
+        if (totalQty > 0) {
+          newItems[idx].qty = value === "mm" ? Math.round(totalQty).toString() : totalQty.toFixed(2);
+        } else if (value === "mm") {
+          const currentQty = parseFloat(newItems[idx].qty) || 0;
+          newItems[idx].qty = Math.round(currentQty).toString();
+        }
+      } else {
+        const l = parseFloat(newItems[idx].length) || 0;
+        const w = parseFloat(newItems[idx].width) || 0;
+        const h = parseFloat(newItems[idx].height) || 0;
+        if (l > 0 || w > 0 || h > 0) {
+          const dimsArr = [l, w, h].filter(v => v > 0);
+          const autoQty = dimsArr.reduce((acc, v) => acc * v, 1);
+          newItems[idx].qty = newItems[idx].dimension_unit === "mm"
+            ? Math.round(autoQty).toString()
+            : autoQty.toFixed(2);
+        } else if (newItems[idx].dimension_unit === "mm") {
+          const currentQty = parseFloat(newItems[idx].qty) || 0;
+          newItems[idx].qty = Math.round(currentQty).toString();
+        }
       }
     }
 
@@ -1887,7 +2144,7 @@ export default function CreateSketchPlan() {
                           >
                             No Project
                           </CommandItem>
-                          {projects.map((project) => (
+                          {projects.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((project) => (
                             <CommandItem
                               key={project.id}
                               onSelect={() => {
@@ -1932,11 +2189,31 @@ export default function CreateSketchPlan() {
                 <SelectTrigger className="w-[180px] h-10 bg-white">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="all">All Categories</SelectItem>
-                  {Array.from(new Set(items.map(it => it.category).filter(Boolean))).map(cat => (
+                  {Array.from(new Set(items.map(it => it.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map(cat => (
                     <SelectItem key={cat as string} value={cat as string}>{cat as string}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={handleSort}>
+                <SelectTrigger className="w-[160px] h-10 bg-white">
+                  <div className="flex items-center gap-2">
+                    <ArrowDownAz className="w-4 h-4 text-slate-400" />
+                    <SelectValue placeholder="Sort Items" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="z-[110]">
+                  <SelectItem value="none">Manual Order</SelectItem>
+                  <SelectItem value="name-asc">Name (A-Z)</SelectItem>
+                  <SelectItem value="name-desc">Name (Z-A)</SelectItem>
+                  <SelectItem value="qty-desc">Qty (High to Low)</SelectItem>
+                  <SelectItem value="qty-asc">Qty (Low to High)</SelectItem>
+                  <SelectItem value="category-asc">Category (A-Z)</SelectItem>
+                  <SelectItem value="notes-asc">Notes (A-Z)</SelectItem>
+                  <SelectItem value="notes-desc">Notes (Z-A)</SelectItem>
+                  <SelectItem value="vendor-asc">Assignee (A-Z)</SelectItem>
+                  <SelectItem value="vendor-desc">Assignee (Z-A)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1967,14 +2244,24 @@ export default function CreateSketchPlan() {
                   </Button>
                 )}
                 {selectedItemIds.size > 0 && !isSupplier && (
-                  <Button
-                    onClick={() => { loadVendors(); setShowAssignDialog(true); }}
-                    size="sm"
-                    variant="outline"
-                    className="h-8 gap-1 border-amber-500 text-amber-600 hover:bg-amber-50"
-                  >
-                    Assign to Vendor ({selectedItemIds.size})
-                  </Button>
+                  <>
+                    <Button
+                      onClick={() => { loadUsers(); setShowAssignUserDialog(true); }}
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1 border-blue-500 text-blue-600 hover:bg-blue-50"
+                    >
+                      <Users className="w-3.5 h-3.5" /> Assign to User ({selectedItemIds.size})
+                    </Button>
+                    <Button
+                      onClick={() => { loadVendors(); setShowAssignDialog(true); }}
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1 border-amber-500 text-amber-600 hover:bg-amber-50"
+                    >
+                      Assign to Vendor ({selectedItemIds.size})
+                    </Button>
+                  </>
                 )}
                 {userRole !== "supplier" && (
                   <Button onClick={addItem} size="sm" variant="outline" className="h-8 gap-1 border-indigo-200 text-indigo-600 hover:bg-indigo-50" disabled={isLocked}>
@@ -2054,6 +2341,9 @@ export default function CreateSketchPlan() {
                         userRole={userRole}
                         onImageDragStart={handleImageDragStart}
                         onImageDrop={handleImageDrop}
+                        addDimension={addDimension}
+                        removeDimension={removeDimension}
+                        updateDimension={updateDimension}
                       />
                     ))}
                   </Reorder.Group>
@@ -2425,7 +2715,7 @@ export default function CreateSketchPlan() {
                     {vendors.filter(v =>
                       v.name?.toLowerCase().includes(vendorSearchTerm.toLowerCase()) ||
                       v.city?.toLowerCase().includes(vendorSearchTerm.toLowerCase())
-                    ).map(v => (
+                    ).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(v => (
                       <Button
                         key={v.id}
                         variant="outline"
@@ -2469,6 +2759,91 @@ export default function CreateSketchPlan() {
           </DialogContent>
         </Dialog>
 
+        {/* Assign User Dialog */}
+        <Dialog open={showAssignUserDialog} onOpenChange={(open) => {
+          setShowAssignUserDialog(open);
+          if (!open) setUserSearchTerm("");
+        }}>
+          <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white shrink-0">
+              <DialogHeader>
+                <div className="flex items-center justify-between">
+                  <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
+                    <Users className="w-6 h-6 border-2 border-blue-400 rounded-full p-0.5" />
+                    Assign Items to User
+                  </DialogTitle>
+                </div>
+                <p className="text-blue-100 text-sm mt-1">
+                  You have selected <span className="font-bold underline decoration-blue-400 underline-offset-4">{selectedItemIds.size}</span> items to assigned directly to a team member.
+                </p>
+              </DialogHeader>
+            </div>
+
+            <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
+              <div className="relative group shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                <Input
+                  placeholder="Search users by name..."
+                  className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                  value={userSearchTerm}
+                  onChange={(e) => setUserSearchTerm(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
+                {usersList.filter(u =>
+                  u.username?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                  u.fullName?.toLowerCase().includes(userSearchTerm.toLowerCase())
+                ).length === 0 ? (
+                  <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
+                      <Search className="w-6 h-6 text-slate-300" />
+                    </div>
+                    <p className="text-sm text-slate-500 font-medium">No matching users found.</p>
+                    <Button variant="link" size="sm" onClick={() => setUserSearchTerm("")} className="text-blue-600 p-0 h-auto">Clear Search</Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 p-1">
+                    {usersList.filter(u =>
+                      u.username?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                      u.fullName?.toLowerCase().includes(userSearchTerm.toLowerCase())
+                    ).sort((a, b) => ((a.fullName || a.username) || "").localeCompare((b.fullName || b.username) || "")).map(u => (
+                      <Button
+                        key={u.id}
+                        variant="outline"
+                        className="w-full justify-start h-auto py-3 px-4 hover:border-blue-400 hover:bg-blue-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                        onClick={() => handleAssignToUser(u.id)}
+                        disabled={assigningLoading}
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
+                          <Users className="w-5 h-5 text-slate-500 group-hover:text-blue-600" />
+                        </div>
+                        <div className="flex flex-col items-start min-w-0 flex-1 text-left">
+                          <span className="font-bold text-slate-700 group-hover:text-blue-900 truncate w-full text-sm">{u.fullName || u.username}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-slate-400 font-mono tracking-tighter">
+                              Role: {u.role}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
+                          <Check className="w-5 h-5 text-blue-600" />
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t flex justify-end shrink-0">
+              <Button variant="ghost" onClick={() => setShowAssignUserDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-9">
+                Close
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* New Version Dialog */}
         <Dialog open={showNewVersionDialog} onOpenChange={setShowNewVersionDialog}>
           <DialogContent className="sm:max-w-[420px]">
@@ -2477,6 +2852,18 @@ export default function CreateSketchPlan() {
             <DialogFooter className="flex gap-2"><Button variant="outline" onClick={() => setShowNewVersionDialog(false)} className="flex-1">Cancel</Button><Button variant="outline" className="flex-1" onClick={() => handleCreateNewVersion(false)} disabled={creatingVersion}>{creatingVersion ? "Creating..." : "Start Fresh"}</Button><Button className="flex-1 bg-violet-600 hover:bg-violet-700 text-white" onClick={() => handleCreateNewVersion(true)} disabled={creatingVersion}>{creatingVersion ? "Creating..." : "Copy Items"}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Floating Action Button */}
+      <div className="fixed right-6 bottom-24 z-[100] flex flex-col items-end gap-2 md:gap-3">
+        <Button 
+          onClick={() => setIsCompact(!isCompact)} 
+          variant="outline" 
+          className={`h-8 px-3 text-xs font-semibold shadow-sm ${isCompact ? 'bg-indigo-50 text-indigo-600 border-indigo-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`} 
+          title="Toggle Compact View"
+        >
+          Compact View
+        </Button>
       </div>
     </LayoutComponent>
   );
