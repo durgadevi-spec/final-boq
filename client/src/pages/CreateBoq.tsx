@@ -2498,6 +2498,8 @@ export default function CreateBom() {
     let shopName = template.shop_name || template.shopName || "";
     let hsnSacType = template.tax_code_type || template.taxCodeType || null;
     let hsnSacCode = template.tax_code_value || template.taxCodeValue || "";
+    let hsnCode = template.hsn_code || template.hsnCode || null;
+    let sacCode = template.sac_code || template.sacCode || null;
     let category = template.category || "";
 
     if (template.id) {
@@ -2511,11 +2513,13 @@ export default function CreateBom() {
           shopName = m.shop_name || m.shopName || shopName;
           hsnSacType = m.tax_code_type || m.taxCodeType || hsnSacType;
           hsnSacCode = m.tax_code_value || m.taxCodeValue || hsnSacCode;
+          hsnCode = m.hsn_code || m.hsnCode || m.template_hsn_code || hsnCode;
+          sacCode = m.sac_code || m.sacCode || m.template_sac_code || sacCode;
           if (m.category) category = m.category;
         }
       } catch { /* ignore */ }
     }
-    return { unit, rate, shopName, hsnSacType, hsnSacCode, category };
+    return { unit, rate, shopName, hsnSacType, hsnSacCode, hsnCode, sacCode, category };
   };
 
   const getMergedTableData = (boqItem: BOMItem) => {
@@ -2588,7 +2592,7 @@ export default function CreateBom() {
       if (!selectedProjectId || !selectedVersionId) { toast({ title: "Error", description: "Select a project and version first", variant: "destructive" }); return; }
       setIsSaving(true);
       try {
-        const { unit, rate, shopName, hsnSacType, hsnSacCode, category } = await resolveMaterialFields(template);
+        const { unit, rate, shopName, hsnSacType, hsnSacCode, hsnCode, sacCode, category } = await resolveMaterialFields(template);
         const materialItem = {
           id: template.id,
           title: template.name,
@@ -2616,6 +2620,8 @@ export default function CreateBom() {
               step11_items: [materialItem],
               hsn_sac_type: hsnSacType,
               hsn_sac_code: hsnSacCode,
+              hsn_code: hsnCode,
+              sac_code: sacCode,
               finalize_description: materialItem.description
             }
           })
@@ -2639,7 +2645,7 @@ export default function CreateBom() {
         if (!existing) throw new Error("Product group not found");
         const tableData = parseTableData(existing.table_data);
         const currentStep11 = Array.isArray(tableData.step11_items) ? tableData.step11_items : [];
-        const { unit, rate, shopName, hsnSacType, hsnSacCode } = await resolveMaterialFields(template);
+        const { unit, rate, shopName, hsnSacType, hsnSacCode, hsnCode, sacCode, category } = await resolveMaterialFields(template);
         const newItem: Step11Item = {
           id: template.id,
           title: template.name,
@@ -2651,7 +2657,7 @@ export default function CreateBom() {
           location: template.location || "Main Area",
           s_no: currentStep11.length + 1,
           shop_name: shopName,
-          category: (await resolveMaterialFields(template)).category
+          category: category
         };
         const updatedTableData = tableData.materialLines && tableData.targetRequiredQty !== undefined
           ? { ...tableData, step11_items: [...currentStep11, { ...newItem, manual: true }] }
@@ -2660,6 +2666,8 @@ export default function CreateBom() {
           updatedTableData.hsn_sac_type = hsnSacType;
           updatedTableData.hsn_sac_code = hsnSacCode;
         }
+        if (!tableData.hsn_code && hsnCode) updatedTableData.hsn_code = hsnCode;
+        if (!tableData.sac_code && sacCode) updatedTableData.sac_code = sacCode;
         if (!tableData.finalize_description || tableData.finalize_description.trim() === "") {
           updatedTableData.finalize_description = newItem.description;
         }
@@ -4171,6 +4179,14 @@ export default function CreateBom() {
       <div className="fixed right-6 bottom-24 z-50 flex flex-col items-end gap-2 md:gap-3">
         <Button onClick={handleAddProduct} className="bg-primary text-white h-8 px-3 text-xs font-semibold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId} title="Add Product">+ Add Product</Button>
         <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-8 px-3 text-xs font-semibold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId} title="Add Item">+ Add Item</Button>
+        <Button 
+          onClick={() => setIsCompactView(!isCompactView)} 
+          variant="outline" 
+          className={`h-8 px-3 text-xs font-semibold shadow-sm ${isCompactView ? 'bg-blue-50 text-blue-600 border-blue-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`} 
+          title="Toggle Compact View"
+        >
+          Compact View
+        </Button>
       </div>
 
       {/* Target Qty Modal */}
