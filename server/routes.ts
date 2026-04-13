@@ -9747,6 +9747,85 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
     }
   });
 
+  // POST /api/sketch-plans/:id/clone - Clone a plan into a new root plan
+  app.post("/api/sketch-plans/:id/clone", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name, projectId } = req.body;
+      const created_by = (req as any).user?.id || null;
+  
+      // Get the source plan
+      const planRes = await query("SELECT * FROM sketch_plans WHERE id = $1", [id]);
+      if (planRes.rows.length === 0) return res.status(404).json({ message: "Plan not found" });
+      const sourcePlan = planRes.rows[0];
+  
+      const newId = `skp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const newName = name || `${sourcePlan.name} (Clone)`;
+      const newProjId = projectId || sourcePlan.project_id;
+  
+      await query("BEGIN");
+      try {
+        // Create the new root plan
+        await query(
+          `INSERT INTO sketch_plans (id, name, project_id, location, plan_date, created_by, version_number, parent_plan_id, version_status)
+           VALUES ($1, $2, $3, $4, $5, $6, 1, NULL, 'draft')`,
+          [newId, newName, newProjId, sourcePlan.location, sourcePlan.plan_date, created_by]
+        );
+  
+        // Copy items from source plan
+        const srcItems = await query("SELECT * FROM sketch_plan_items WHERE plan_id = $1 ORDER BY created_at ASC", [id]);
+        for (let i = 0; i < srcItems.rows.length; i++) {
+          const srcItem = srcItems.rows[i];
+          const newItemId = `ski-${Date.now()}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
+          await query(
+            `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            [newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, srcItem.material_id, srcItem.dimension_unit || 'feet', srcItem.assigned_vendor_id || null, srcItem.vendor_name || null]
+          );
+  
+          // Copy item-level images
+          const srcItemImages = await query("SELECT * FROM sketch_plan_images WHERE plan_id = $1 AND item_id = $2", [id, srcItem.id]);
+          for (const img of srcItemImages.rows) {
+            const newImgId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            await query(
+              `INSERT INTO sketch_plan_images (id, plan_id, item_id, image_url, image_name) VALUES ($1, $2, $3, $4, $5)`,
+              [newImgId, newId, newItemId, img.image_url, img.image_name]
+            );
+          }
+        }
+  
+        // Copy plan-level images
+        const srcPlanImages = await query("SELECT * FROM sketch_plan_images WHERE plan_id = $1 AND item_id IS NULL", [id]);
+        for (const img of srcPlanImages.rows) {
+          const newImgId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          await query(
+            `INSERT INTO sketch_plan_images (id, plan_id, item_id, image_url, image_name) VALUES ($1, $2, $3, $4, $5)`,
+            [newImgId, newId, null, img.image_url, img.image_name]
+          );
+        }
+  
+        // Copy attachments
+        const srcAttachments = await query("SELECT * FROM sketch_plan_attachments WHERE plan_id = $1", [id]);
+        for (const att of srcAttachments.rows) {
+          const newAttId = `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          await query(
+            `INSERT INTO sketch_plan_attachments (id, plan_id, file_url, file_name, file_type) VALUES ($1, $2, $3, $4, $5)`,
+            [newAttId, newId, att.file_url, att.file_name, att.file_type]
+          );
+        }
+  
+        await query("COMMIT");
+        res.json({ id: newId, message: "Plan cloned successfully" });
+      } catch (err) {
+        await query("ROLLBACK");
+        throw err;
+      }
+    } catch (err) {
+      console.error("POST /api/sketch-plans/:id/clone error", err);
+      res.status(500).json({ message: "Failed to clone plan" });
+    }
+  });
+
 
   // GET /api/sketch-plans/assigned-tasks - Get tasks assigned to the current user
   app.get("/api/sketch-plans/assigned-tasks", authMiddleware, async (req: Request, res: Response) => {
