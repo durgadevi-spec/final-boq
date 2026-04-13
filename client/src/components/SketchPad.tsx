@@ -16,7 +16,8 @@ import {
   Copy,
   ChevronRight,
   Monitor,
-  Hand
+  Hand,
+  X
 } from "lucide-react";
 
 interface Point {
@@ -55,14 +56,14 @@ const PREDEFINED_BLOCKS = [
   { id: "sofa-lshape", type: "sofa", label: "L-Shape Sofa", width: 10, height: 10 },
   { id: "sofa-corner", type: "sofa", label: "Corner Sofa", width: 10, height: 10 },
   { id: "sofa-sectional", type: "sofa", label: "Sectional Sofa", width: 12, height: 8 },
-  
+
   // FURNITURE - BEDS
   { id: "bed-single", type: "bed", label: "Single Bed", width: 3, height: 6.5 },
   { id: "bed-double", type: "bed", label: "Double Bed (Top View)", width: 4.5, height: 6.5 },
   { id: "bed-queen", type: "bed", label: "Queen Bed", width: 5, height: 7 },
   { id: "bed-king", type: "bed", label: "King Bed", width: 6.5, height: 7.5 },
   { id: "bed-twin", type: "bed", label: "Twin Bed", width: 3.5, height: 6 },
-  
+
   // FURNITURE - TABLES & CHAIRS
   { id: "table-coffee", type: "table", label: "Coffee Table", width: 4, height: 2.5 },
   { id: "table-side", type: "table", label: "Side Table", width: 2, height: 2 },
@@ -74,7 +75,7 @@ const PREDEFINED_BLOCKS = [
   { id: "armchair-set", type: "table", label: "Armchairs & Table Set", width: 12, height: 8 },
   { id: "chair-dining", type: "shape", label: "Dining Chair", width: 2.5, height: 2.5 },
   { id: "chair-office", type: "shape", label: "Office Chair", width: 2, height: 2 },
-  
+
   // FURNITURE - STORAGE
   { id: "cabinet", type: "cabinet", label: "Cabinet", width: 4, height: 2.5 },
   { id: "cabinet-tall", type: "cabinet", label: "Tall Cabinet", width: 3, height: 6 },
@@ -84,14 +85,14 @@ const PREDEFINED_BLOCKS = [
   { id: "wardrobe", type: "cabinet", label: "Wardrobe", width: 3.5, height: 6.5 },
   { id: "nightstand", type: "cabinet", label: "Nightstand", width: 2, height: 1.5 },
   { id: "dresser", type: "cabinet", label: "Dresser", width: 4, height: 2 },
-  
+
   // FURNITURE - TEXTILES & SOFT ITEMS
   { id: "curtains", type: "shape", label: "Curtains (Top View)", width: 10, height: 0.5 },
   { id: "curtains-heavy", type: "shape", label: "Heavy Curtains", width: 12, height: 0.7 },
   { id: "rug-small", type: "shape", label: "Small Rug", width: 5, height: 3 },
   { id: "rug-medium", type: "shape", label: "Medium Rug", width: 8, height: 5 },
   { id: "rug-large", type: "shape", label: "Large Rug", width: 12, height: 8 },
-  
+
   // KITCHEN & APPLIANCES
   { id: "fridge", type: "cabinet", label: "Fridge (Top View)", width: 3, height: 2.5 },
   { id: "stove", type: "cabinet", label: "Stove/Cooktop", width: 3, height: 2 },
@@ -99,21 +100,21 @@ const PREDEFINED_BLOCKS = [
   { id: "dishwasher", type: "cabinet", label: "Dishwasher", width: 2.5, height: 2 },
   { id: "sink-kitchen", type: "shape", label: "Kitchen Sink", width: 2.5, height: 2 },
   { id: "counter-kitchen", type: "shape", label: "Kitchen Counter", width: 6, height: 2.5 },
-  
+
   // BATHROOM FIXTURES
   { id: "bathroom-sink", type: "shape", label: "Bathroom Sink", width: 3, height: 2 },
   { id: "bathtub", type: "shape", label: "Bathtub", width: 5, height: 3 },
   { id: "toilet", type: "shape", label: "Toilet (Top View)", width: 2.5, height: 4.5 },
   { id: "shower", type: "shape", label: "Shower Stall", width: 3.5, height: 3.5 },
   { id: "mirror", type: "shape", label: "Mirror", width: 4, height: 0.5 },
-  
+
   // LANDSCAPE & OUTDOOR
   { id: "tree-topview", type: "shape", label: "Tree (Top View)", width: 4, height: 4 },
   { id: "tree-small", type: "shape", label: "Small Tree", width: 2.5, height: 2.5 },
   { id: "tree-large", type: "shape", label: "Large Tree", width: 5, height: 5 },
   { id: "bush", type: "shape", label: "Bush/Shrub", width: 2, height: 2 },
   { id: "planter", type: "shape", label: "Planter/Pot", width: 1.5, height: 1.5 },
-  
+
   // TECHNICAL & ENTERTAINMENT
   { id: "tv", type: "shape", label: "TV (Top View)", width: 3, height: 0.5 },
   { id: "tv-large", type: "shape", label: "Large TV", width: 4.5, height: 0.7 },
@@ -121,19 +122,19 @@ const PREDEFINED_BLOCKS = [
   { id: "speaker", type: "shape", label: "Speaker", width: 0.8, height: 0.8 },
   { id: "lamp-floor", type: "shape", label: "Floor Lamp", width: 1, height: 1 },
   { id: "lamp-table", type: "shape", label: "Table Lamp", width: 0.7, height: 0.7 },
-  
+
   // DOORS & WINDOWS
   { id: "door-single", type: "shape", label: "Single Door", width: 3, height: 0.15 },
   { id: "door-double", type: "shape", label: "Double Door", width: 6, height: 0.15 },
   { id: "door-sliding", type: "shape", label: "Sliding Door", width: 4, height: 0.2 },
   { id: "window-single", type: "shape", label: "Window", width: 2, height: 0.2 },
   { id: "window-large", type: "shape", label: "Large Window", width: 4, height: 0.2 },
-  
+
   // ROOM BUNDLES & SETS
   { id: "living-room", type: "shape", label: "Living Room Set", width: 12, height: 10 },
   { id: "bedroom-set", type: "shape", label: "Bedroom Set", width: 12, height: 10 },
   { id: "dining-set", type: "shape", label: "Dining Room Set", width: 10, height: 8 },
-  
+
   // GENERAL SHAPES & AREAS
   { id: "shape-rect-small", type: "shape", label: "Rectangle", width: 5, height: 3 },
   { id: "shape-rect-medium", type: "shape", label: "Rectangle (Medium)", width: 8, height: 5 },
@@ -169,7 +170,9 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(2);
-  const [mode, setMode] = useState<"pencil" | "line" | "rect" | "measure" | "circle" | "delete" | "pan" | "calibrate" | "select">("pencil");
+  const [mode, setMode] = useState<"pencil" | "line" | "rect" | "measure" | "circle" | "delete" | "pan" | "calibrate" | "select" | "area-select">("pencil");
+  const [selectionRect, setSelectionRect] = useState<{ start: Point; end: Point } | null>(null);
+  const [multiSelectedIds, setMultiSelectedIds] = useState<{ shapes: string[]; blocks: string[] }>({ shapes: [], blocks: [] });
 
   // Viewport state
   const [zoom, setZoom] = useState(1);
@@ -530,8 +533,8 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         ctx.shadowColor = "rgba(79, 70, 229, 0.4)";
       }
 
-      ctx.lineWidth = isSelected 
-        ? Math.max(s.thickness, s.thickness / zoom) + 2 / zoom 
+      ctx.lineWidth = isSelected
+        ? Math.max(s.thickness, s.thickness / zoom) + 2 / zoom
         : Math.max(s.thickness, s.thickness / zoom);
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -680,7 +683,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
       const lineColor = isSelected ? "rgba(20, 20, 50, 0.9)" : "rgba(50, 50, 100, 0.8)";
       const fillColor = isSelected ? "rgba(100, 100, 200, 0.15)" : "rgba(100, 100, 150, 0.08)";
       const accentColor = isSelected ? "rgba(79, 70, 229, 0.7)" : "rgba(79, 70, 229, 0.5)";
-      
+
       ctx.strokeStyle = lineColor;
       ctx.fillStyle = fillColor;
 
@@ -688,7 +691,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         // Draw outer frame
         ctx.strokeRect(-w / 2, -h / 2, w, h);
         ctx.fillRect(-w / 2, -h / 2, w, h);
-        
+
         // Backrest (top thicker line)
         ctx.lineWidth = 3.5 / zoom;
         ctx.strokeStyle = accentColor;
@@ -696,17 +699,17 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         ctx.moveTo(-w / 2 + 2 / zoom, -h / 2 + 3 / zoom);
         ctx.lineTo(w / 2 - 2 / zoom, -h / 2 + 3 / zoom);
         ctx.stroke();
-        
+
         // Left armrest
         ctx.lineWidth = 3 / zoom;
         ctx.fillStyle = "rgba(79, 70, 229, 0.2)";
         ctx.fillRect(-w / 2 + 1 / zoom, -h / 2 + 6 / zoom, w * 0.1, h - 8 / zoom);
         ctx.strokeRect(-w / 2 + 1 / zoom, -h / 2 + 6 / zoom, w * 0.1, h - 8 / zoom);
-        
+
         // Right armrest
         ctx.fillRect(w / 2 - w * 0.1 - 1 / zoom, -h / 2 + 6 / zoom, w * 0.1, h - 8 / zoom);
         ctx.strokeRect(w / 2 - w * 0.1 - 1 / zoom, -h / 2 + 6 / zoom, w * 0.1, h - 8 / zoom);
-        
+
         // Seat cushions - multiple divisions based on sofa width in feet
         ctx.strokeStyle = lineColor;
         ctx.lineWidth = 2 / zoom;
@@ -715,14 +718,14 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         // Determine number of seats based on actual width in feet
         const numSeats = b.width <= 3.5 ? 1 : (b.width <= 7 ? 2 : (b.width <= 10 ? 3 : 4));
         const cushionWidth = seatWidth / numSeats;
-        
+
         for (let i = 0; i < numSeats; i++) {
           const cx = seatStartX + i * cushionWidth;
           ctx.fillStyle = "rgba(100, 100, 150, 0.12)";
           ctx.fillRect(cx, -h / 2 + h * 0.2, cushionWidth - 1 / zoom, h * 0.7);
           ctx.strokeRect(cx, -h / 2 + h * 0.2, cushionWidth - 1 / zoom, h * 0.7);
         }
-        
+
       } else if (b.type === "bed") {
         // Outer frame
         ctx.strokeStyle = lineColor;
@@ -730,14 +733,14 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         ctx.strokeRect(-w / 2 + 1 / zoom, -h / 2 + 1 / zoom, w - 2 / zoom, h - 2 / zoom);
         ctx.fillStyle = fillColor;
         ctx.fillRect(-w / 2 + 1 / zoom, -h / 2 + 1 / zoom, w - 2 / zoom, h - 2 / zoom);
-        
+
         // Headboard (solid darker top)
         ctx.strokeStyle = accentColor;
         ctx.fillStyle = "rgba(79, 70, 229, 0.3)";
         ctx.lineWidth = 3 / zoom;
         ctx.fillRect(-w / 2 + 2 / zoom, -h / 2 + 1 / zoom, w - 4 / zoom, h * 0.12);
         ctx.strokeRect(-w / 2 + 2 / zoom, -h / 2 + 1 / zoom, w - 4 / zoom, h * 0.12);
-        
+
         // Pillows at headboard
         ctx.fillStyle = "rgba(120, 120, 200, 0.2)";
         ctx.strokeStyle = accentColor;
@@ -746,13 +749,13 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         const pillow1Y = -h / 2 + h * 0.15;
         ctx.fillRect(pillow1X, pillow1Y, w * 0.2, h * 0.15);
         ctx.strokeRect(pillow1X, pillow1Y, w * 0.2, h * 0.15);
-        
+
         if (w > 60 / zoom) {
           const pillow2X = w / 2 - w * 0.35;
           ctx.fillRect(pillow2X, pillow1Y, w * 0.2, h * 0.15);
           ctx.strokeRect(pillow2X, pillow1Y, w * 0.2, h * 0.15);
         }
-        
+
         // Mattress/bed surface with pattern
         ctx.strokeStyle = lineColor;
         ctx.lineWidth = 1.5 / zoom;
@@ -764,7 +767,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
           ctx.lineTo(w / 2 - 3 / zoom, y);
           ctx.stroke();
         }
-        
+
       } else if (b.type === "table") {
         // Table top
         ctx.fillStyle = fillColor;
@@ -772,42 +775,42 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         ctx.lineWidth = 3 / zoom;
         ctx.fillRect(-w / 2 + 2 / zoom, -h / 2 + 2 / zoom, w - 4 / zoom, h - 4 / zoom);
         ctx.strokeRect(-w / 2 + 2 / zoom, -h / 2 + 2 / zoom, w - 4 / zoom, h - 4 / zoom);
-        
+
         // Inner border pattern
         ctx.strokeStyle = accentColor;
         ctx.lineWidth = 1.5 / zoom;
         ctx.strokeRect(-w / 2 + 6 / zoom, -h / 2 + 6 / zoom, w - 12 / zoom, h - 12 / zoom);
-        
+
         // Chairs around dining table
         if (b.label.toLowerCase().includes("dining")) {
           ctx.fillStyle = "rgba(79, 70, 229, 0.2)";
           ctx.strokeStyle = accentColor;
           ctx.lineWidth = 2.5 / zoom;
           const chairR = 6 / zoom;
-          
+
           // Left chairs
           ctx.beginPath();
           ctx.arc(-w / 2 - chairR * 2, -h / 2 + h * 0.3, chairR, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
-          
+
           ctx.beginPath();
           ctx.arc(-w / 2 - chairR * 2, h / 2 - h * 0.3, chairR, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
-          
+
           // Right chairs
           ctx.beginPath();
           ctx.arc(w / 2 + chairR * 2, -h / 2 + h * 0.3, chairR, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
-          
+
           ctx.beginPath();
           ctx.arc(w / 2 + chairR * 2, h / 2 - h * 0.3, chairR, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
         }
-        
+
       } else if (b.type === "cabinet") {
         // Cabinet outer frame
         ctx.fillStyle = fillColor;
@@ -815,39 +818,39 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         ctx.lineWidth = 3 / zoom;
         ctx.fillRect(-w / 2 + 1 / zoom, -h / 2 + 1 / zoom, w - 2 / zoom, h - 2 / zoom);
         ctx.strokeRect(-w / 2 + 1 / zoom, -h / 2 + 1 / zoom, w - 2 / zoom, h - 2 / zoom);
-        
+
         // Door panels (two doors)
         ctx.strokeStyle = accentColor;
         ctx.lineWidth = 2.5 / zoom;
         ctx.fillStyle = "rgba(79, 70, 229, 0.1)";
-        
+
         const doorGap = 2 / zoom;
         const doorW = (w - doorGap) / 2 - 3 / zoom;
-        
+
         // Left door
         ctx.fillRect(-w / 2 + 3 / zoom, -h / 2 + 3 / zoom, doorW, h - 6 / zoom);
         ctx.strokeRect(-w / 2 + 3 / zoom, -h / 2 + 3 / zoom, doorW, h - 6 / zoom);
-        
+
         // Right door
         ctx.fillRect(-w / 2 + 3 / zoom + doorW + doorGap, -h / 2 + 3 / zoom, doorW, h - 6 / zoom);
         ctx.strokeRect(-w / 2 + 3 / zoom + doorW + doorGap, -h / 2 + 3 / zoom, doorW, h - 6 / zoom);
-        
+
         // Door handles (knobs)
         ctx.fillStyle = "rgba(79, 70, 229, 0.4)";
         ctx.lineWidth = 2 / zoom;
         ctx.strokeStyle = accentColor;
         const handleR = 2.5 / zoom;
-        
+
         ctx.beginPath();
         ctx.arc(-w / 4 - doorW / 2, 0, handleR, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        
+
         ctx.beginPath();
         ctx.arc(w / 4 + doorW / 2, 0, handleR, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        
+
       } else if (b.type === "shape") {
         // Generic shape with pattern
         ctx.fillStyle = fillColor;
@@ -855,7 +858,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         ctx.lineWidth = 3 / zoom;
         ctx.fillRect(-w / 2 + 2 / zoom, -h / 2 + 2 / zoom, w - 4 / zoom, h - 4 / zoom);
         ctx.strokeRect(-w / 2 + 2 / zoom, -h / 2 + 2 / zoom, w - 4 / zoom, h - 4 / zoom);
-        
+
         // Cross pattern for different shapes
         if (b.label.toLowerCase().includes("toilet")) {
           // Toilet oval shape
@@ -865,14 +868,14 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
           ctx.ellipse(0, 0, w * 0.35, h * 0.45, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
-          
+
           // Seat opening
           ctx.strokeStyle = lineColor;
           ctx.lineWidth = 2 / zoom;
           ctx.beginPath();
           ctx.ellipse(0, h * 0.15, w * 0.3, h * 0.35, 0, 0, Math.PI * 2);
           ctx.stroke();
-          
+
         } else if (b.label.toLowerCase().includes("sink") || b.label.toLowerCase().includes("bath")) {
           // Curved sink/tub
           ctx.strokeStyle = accentColor;
@@ -880,7 +883,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
           ctx.beginPath();
           ctx.ellipse(0, 0, w * 0.4, h * 0.45, 0, 0, Math.PI * 2);
           ctx.stroke();
-          
+
         } else {
           // Generic diagonal lines pattern
           ctx.strokeStyle = accentColor;
@@ -945,12 +948,123 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
     } else {
       blocks.forEach(drawBlock);
     }
+
+    // Draw multi-selection highlights
+    multiSelectedIds.shapes.forEach(id => {
+      const s = shapes.find(x => x.id === id);
+      if (s) {
+        ctx.strokeStyle = "rgba(79, 70, 229, 0.5)";
+        ctx.lineWidth = s.thickness + (4 / zoom);
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        if (s.type === "rect" && s.points.length >= 2) {
+          ctx.strokeRect(s.points[0].x * zoom + panOffset.x, s.points[0].y * zoom + panOffset.y, (s.points[1].x - s.points[0].x) * zoom, (s.points[1].y - s.points[0].y) * zoom);
+        } else if (s.type === "circle" && s.points.length >= 2) {
+          const radius = Math.sqrt(Math.pow(s.points[1].x - s.points[0].x, 2) + Math.pow(s.points[1].y - s.points[0].y, 2));
+          ctx.arc(s.points[0].x * zoom + panOffset.x, s.points[0].y * zoom + panOffset.y, radius * zoom, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if ((s.type === "line" || s.type === "measure") && s.points.length >= 2) {
+          ctx.moveTo(s.points[0].x * zoom + panOffset.x, s.points[0].y * zoom + panOffset.y);
+          ctx.lineTo(s.points[1].x * zoom + panOffset.x, s.points[1].y * zoom + panOffset.y);
+          ctx.stroke();
+        } else {
+          ctx.moveTo(s.points[0].x * zoom + panOffset.x, s.points[0].y * zoom + panOffset.y);
+          s.points.forEach(p => ctx.lineTo(p.x * zoom + panOffset.x, p.y * zoom + panOffset.y));
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+    });
+
+    multiSelectedIds.blocks.forEach(id => {
+      const b = blocks.find(x => x.id === id);
+      if (b) {
+        ctx.strokeStyle = "rgba(79, 70, 229, 0.8)";
+        ctx.lineWidth = 2 / zoom;
+        ctx.setLineDash([5, 5]);
+        const pixelsPerUnit = canvas.width / referenceScale;
+        const w = b.width * pixelsPerUnit;
+        const h = b.height * pixelsPerUnit;
+        ctx.strokeRect((b.x - w / 2) * zoom + panOffset.x - 2, (b.y - h / 2) * zoom + panOffset.y - 2, (w * zoom) + 4, (h * zoom) + 4);
+        ctx.setLineDash([]);
+      }
+    });
+
+    // Draw area selection rectangle
+    if (mode === "area-select" && selectionRect) {
+      ctx.strokeStyle = "rgba(79, 70, 229, 0.8)";
+      ctx.fillStyle = "rgba(79, 70, 229, 0.1)";
+      ctx.lineWidth = 1 / zoom;
+      ctx.setLineDash([5, 5]);
+      const x = selectionRect.start.x * zoom + panOffset.x;
+      const y = selectionRect.start.y * zoom + panOffset.y;
+      const w = (selectionRect.end.x - selectionRect.start.x) * zoom;
+      const h = (selectionRect.end.y - selectionRect.start.y) * zoom;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+    }
+
     ctx.restore();
-  }, [shapes, currentShape, blocks, selectedBlockId, activeTab, showGrid, gridSize, referenceScale, unitPrefix, initialImage, zoom, panOffset]);
+  }, [shapes, currentShape, blocks, selectedBlockId, activeTab, showGrid, gridSize, referenceScale, unitPrefix, initialImage, zoom, panOffset, mode, selectionRect, multiSelectedIds]);
 
   useEffect(() => {
     render();
   }, [render]);
+
+  const forceStraightenLine = (start: Point, end: Point): Point => {
+    if (!autoStraighten) return end;
+    const dx = Math.abs(end.x - start.x);
+    const dy = Math.abs(end.y - start.y);
+    if (dx > dy * 2) return { x: end.x, y: start.y };
+    if (dy > dx * 2) return { x: start.x, y: end.y };
+    if (Math.abs(dx - dy) < Math.max(dx, dy) * 0.3) {
+      const signX = end.x > start.x ? 1 : -1;
+      const signY = end.y > start.y ? 1 : -1;
+      const mag = Math.max(dx, dy);
+      return { x: start.x + mag * signX, y: start.y + mag * signY };
+    }
+    return end;
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent | React.TouchEvent) => {
+    if (readOnly || activeTab === "block") return;
+    const pos = getPos(e);
+    const threshold = 15 / zoom;
+
+    let foundShape: Shape | null = null;
+    let foundIndex = -1;
+
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i];
+      if (s.type === "pencil" && s.points.length >= 2) {
+        const hit = s.points.some(p => Math.sqrt(Math.pow(p.x - pos.x, 2) + Math.pow(p.y - pos.y, 2)) < threshold);
+        if (hit) {
+          foundShape = s;
+          foundIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (foundShape && foundIndex !== -1) {
+      const start = foundShape.points[0];
+      const end = foundShape.points[foundShape.points.length - 1];
+
+      const newShapes = [...shapes];
+      const snappedStart = snapPoint(start);
+      const snappedEnd = snapPoint(end);
+      const correctedEnd = forceStraightenLine(snappedStart, snappedEnd);
+
+      newShapes[foundIndex] = {
+        ...foundShape,
+        type: "line",
+        points: [snappedStart, correctedEnd]
+      };
+
+      updateShapes(newShapes);
+    }
+  };
 
   const getPos = (e: React.MouseEvent | React.TouchEvent | PointerEvent): Point => {
     const canvas = canvasRef.current;
@@ -1010,6 +1124,13 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
       } else {
         setSelectedBlockId(null);
       }
+      return;
+    }
+
+    if (mode === "area-select") {
+      setIsDrawing(true);
+      setSelectionRect({ start: pos, end: pos });
+      setMultiSelectedIds({ shapes: [], blocks: [] });
       return;
     }
 
@@ -1181,6 +1302,30 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
       return;
     }
 
+    if (multiSelectedIds.shapes.length > 0 || multiSelectedIds.blocks.length > 0) {
+      if (isDrawing && lastTouchPos) {
+        const dx = pos.x - lastTouchPos.x;
+        const dy = pos.y - lastTouchPos.y;
+
+        if (multiSelectedIds.shapes.length > 0) {
+          setShapes(prev => prev.map(s =>
+            multiSelectedIds.shapes.includes(s.id)
+              ? { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) }
+              : s
+          ));
+        }
+        if (multiSelectedIds.blocks.length > 0) {
+          setBlocks(prev => prev.map(b =>
+            multiSelectedIds.blocks.includes(b.id)
+              ? { ...b, x: b.x + dx, y: b.y + dy }
+              : b
+          ));
+        }
+        setLastTouchPos(pos);
+        return;
+      }
+    }
+
     if (mode === "select" && selectedShapeId && isDrawing && lastTouchPos) {
       const dx = pos.x - lastTouchPos.x;
       const dy = pos.y - lastTouchPos.y;
@@ -1191,6 +1336,11 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
           : s
       ));
       setLastTouchPos(pos);
+      return;
+    }
+
+    if (mode === "area-select" && selectionRect) {
+      setSelectionRect({ ...selectionRect, end: pos });
       return;
     }
 
@@ -1217,7 +1367,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         const delta = d / lastTouchDist;
         const canvas = canvasRef.current;
         const newZoom = Math.min(Math.max(zoom * delta, 0.1), 10);
-        
+
         if (canvas) {
           const rect = canvas.getBoundingClientRect();
           const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
@@ -1263,6 +1413,33 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
       setIsDrawing(false);
       setLastTouchPos(null);
       setLastTouchDist(null);
+      return;
+    }
+
+    if (mode === "area-select" && selectionRect) {
+      const x1 = Math.min(selectionRect.start.x, selectionRect.end.x);
+      const y1 = Math.min(selectionRect.start.y, selectionRect.end.y);
+      const x2 = Math.max(selectionRect.start.x, selectionRect.end.x);
+      const y2 = Math.max(selectionRect.start.y, selectionRect.end.y);
+
+      const selectedShapes = shapes.filter(s => {
+        return s.points.some(p => p.x >= x1 && p.x <= x2 && p.y >= y1 && p.y <= y2);
+      }).map(s => s.id);
+
+      const canvas = canvasRef.current;
+      const pixelsPerUnit = canvas ? canvas.width / referenceScale : 1;
+      const selectedBlocks = blocks.filter(b => {
+        const w = b.width * pixelsPerUnit;
+        const h = b.height * pixelsPerUnit;
+        return (b.x - w / 2 >= x1 && b.x + w / 2 <= x2 && b.y - h / 2 >= y1 && b.y + h / 2 <= y2);
+      }).map(b => b.id);
+
+      setMultiSelectedIds({ shapes: selectedShapes, blocks: selectedBlocks });
+      setIsDrawing(false);
+      setSelectionRect(null);
+      if (selectedShapes.length > 0 || selectedBlocks.length > 0) {
+        setLastTouchPos(selectionRect.end);
+      }
       return;
     }
 
@@ -1378,14 +1555,14 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
       e.preventDefault();
       const canvas = canvasRef.current;
       if (!canvas) return;
-      
+
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
       const newZoom = Math.min(Math.max(zoom * delta, 0.1), 10);
-      
+
       setPanOffset(prev => ({
         x: mouseX - (mouseX - prev.x) * (newZoom / zoom),
         y: mouseY - (mouseY - prev.y) * (newZoom / zoom)
@@ -1433,7 +1610,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
         ctx.moveTo(s.points[0].x, s.points[0].y);
         ctx.lineTo(s.points[1].x, s.points[1].y);
         ctx.stroke();
-        
+
         // Draw measurement labels
         const dist = Math.sqrt(Math.pow(s.points[1].x - s.points[0].x, 2) + Math.pow(s.points[1].y - s.points[0].y, 2));
         const realLen = (dist / offscreen.width) * referenceScale;
@@ -1445,14 +1622,14 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
           const bgH = 18;
           const centerX = (s.points[0].x + s.points[1].x) / 2;
           const centerY = (s.points[0].y + s.points[1].y) / 2;
-          
+
           ctx.save();
           ctx.translate(centerX, centerY);
           const angle = Math.atan2(s.points[1].y - s.points[0].y, s.points[1].x - s.points[0].x);
           let drawAngle = angle;
           if (Math.abs(angle) > Math.PI / 2) drawAngle += Math.PI;
           ctx.rotate(drawAngle);
-          
+
           ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
           ctx.beginPath();
           ctx.roundRect(-bgW / 2, -bgH / 2, bgW, bgH, 4);
@@ -1460,7 +1637,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
           ctx.strokeStyle = "#cbd5e1";
           ctx.lineWidth = 1;
           ctx.stroke();
-          
+
           ctx.fillStyle = "#334155";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
@@ -1490,7 +1667,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
       ctx.roundRect(-w / 2, -h / 2, w, h, 4);
       ctx.fill();
       ctx.stroke();
-      
+
       // Basic block label
       const labelText = `${b.width}×${b.height}${unitPrefix}`;
       ctx.font = `bold 10px Inter, system-ui, sans-serif`;
@@ -1581,6 +1758,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
                   { id: "line", icon: LineIcon, label: "Line" },
                   { id: "rect", icon: Square, label: "Rect" },
                   { id: "circle", icon: Circle, label: "Circle" },
+                  { id: "area-select", icon: Maximize, label: "Area" },
                   { id: "select", icon: Monitor, label: "Select" },
                   { id: "pan", icon: Hand, label: "Pan" },
                 ].map((tool) => (
@@ -1599,6 +1777,38 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
                   </Button>
                 ))}
               </div>
+
+              {/* Multi-Selection Group */}
+              {(multiSelectedIds.shapes.length > 0 || multiSelectedIds.blocks.length > 0) && (
+                <div className="flex items-center gap-1 px-2 border-r border-slate-100 bg-amber-50/50">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (multiSelectedIds.shapes.length > 0) {
+                        setShapes(prev => prev.filter(s => !multiSelectedIds.shapes.includes(s.id)));
+                      }
+                      if (multiSelectedIds.blocks.length > 0) {
+                        setBlocks(prev => prev.filter(b => !multiSelectedIds.blocks.includes(b.id)));
+                      }
+                      setMultiSelectedIds({ shapes: [], blocks: [] });
+                    }}
+                    className="flex flex-col items-center gap-0.5 h-11 px-2 text-red-600 font-black"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span className="text-[8px] uppercase">Del All</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMultiSelectedIds({ shapes: [], blocks: [] })}
+                    className="flex flex-col items-center gap-0.5 h-11 px-2 text-slate-500 font-black"
+                  >
+                    <X className="w-4 h-4" />
+                    <span className="text-[8px] uppercase">Clear</span>
+                  </Button>
+                </div>
+              )}
 
               {/* Dynamic Action Group (appears only when shape selected) */}
               {selectedShapeId && (
@@ -1875,6 +2085,7 @@ export function SketchPad({ onSave, onAutoSave, initialData, width = 600, height
             onTouchStart={startDrawing}
             onTouchMove={draw}
             onTouchEnd={stopDrawing}
+            onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}
             className="bg-transparent touch-none selection:bg-transparent"
           />
