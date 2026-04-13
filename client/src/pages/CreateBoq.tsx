@@ -1845,8 +1845,18 @@ export default function CreateBom() {
 
         // If rate is 0, check if we can get it from the material master
         const mId = item.material_id || item.id;
-        if (rate === 0 && mId && materialsById[mId]) {
-          rate = Number(materialsById[mId].rate || 0);
+        let hsn = "";
+        let sac = "";
+        let taxType = null;
+        let taxValue = "";
+
+        if (mId && materialsById[mId]) {
+          const mat = materialsById[mId];
+          if (rate === 0) rate = Number(mat.rate || 0);
+          hsn = mat.hsn_code || mat.template_hsn_code || "";
+          sac = mat.sac_code || mat.template_sac_code || "";
+          taxType = mat.tax_code_type || (hsn ? "hsn" : (sac ? "sac" : null));
+          taxValue = mat.tax_code_value || hsn || sac || "";
         }
 
         return {
@@ -1855,6 +1865,10 @@ export default function CreateBom() {
             product_name: item.item_name || "Sketch Item",
             product_id: null,
             material_id: item.material_id || null,
+            hsn_code: hsn,
+            sac_code: sac,
+            hsn_sac_type: taxType,
+            hsn_sac_code: taxValue,
             category: item.category || "General",
             category_name: item.category || "General",
             finalize_description: desc,
@@ -2084,21 +2098,32 @@ export default function CreateBom() {
         const pr = await apiFetch("/api/products");
         if (pr.ok) {
           const pd = await pr.json();
-          const byId: Record<string, any> = Object.fromEntries((pd.products || []).map((p: any) => [p.id, p]));
+          const prodById: Record<string, any> = Object.fromEntries((pd.products || []).map((p: any) => [p.id, p]));
           items.forEach(item => {
             const td = parseTableData(item.table_data);
-            if (td.product_id && !td.hsn_code && !td.sac_code) {
-              const prod = byId[td.product_id];
-              if (prod) {
-                if (prod.hsn_code) td.hsn_code = prod.hsn_code;
-                if (prod.sac_code) td.sac_code = prod.sac_code;
-                if (prod.tax_code_value) { td.hsn_sac_code = prod.tax_code_value; td.hsn_sac_type = prod.tax_code_type || null; }
+            if (!td.hsn_code && !td.sac_code) {
+              if (td.product_id) {
+                const prod = prodById[td.product_id];
+                if (prod) {
+                  if (prod.hsn_code) td.hsn_code = prod.hsn_code;
+                  if (prod.sac_code) td.sac_code = prod.sac_code;
+                  if (prod.tax_code_value) { td.hsn_sac_code = prod.tax_code_value; td.hsn_sac_type = prod.tax_code_type || null; }
+                  item.table_data = td;
+                }
+              } else if (td.material_id && materialsById[td.material_id]) {
+                const mat = materialsById[td.material_id];
+                if (mat.hsn_code || mat.template_hsn_code) td.hsn_code = mat.hsn_code || mat.template_hsn_code;
+                if (mat.sac_code || mat.template_sac_code) td.sac_code = mat.sac_code || mat.template_sac_code;
+                if (mat.tax_code_value || mat.hsn_sac_code) { 
+                  td.hsn_sac_code = mat.tax_code_value || mat.hsn_sac_code; 
+                  td.hsn_sac_type = mat.tax_code_type || mat.hsn_sac_type || null; 
+                }
                 item.table_data = td;
               }
             }
           });
         }
-      } catch { /* ignore */ }
+      } catch (e) { console.warn("Backfill error", e); }
       setBoqItems(items);
     } catch { toast({ title: "Error", description: "Failed to load BOQ items", variant: "destructive" }); }
   }, [selectedVersionId]);
