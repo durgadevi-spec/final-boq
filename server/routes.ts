@@ -9754,6 +9754,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const { name, projectId } = req.body;
       const created_by = (req as any).user?.id || null;
   
+      console.log(`[clone] Cloning plan ${id} to project ${projectId || 'none'}...`);
+
       // Get the source plan
       const planRes = await query("SELECT * FROM sketch_plans WHERE id = $1", [id]);
       if (planRes.rows.length === 0) return res.status(404).json({ message: "Plan not found" });
@@ -9761,7 +9763,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
   
       const newId = `skp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const newName = name || `${sourcePlan.name} (Clone)`;
-      const newProjId = projectId || sourcePlan.project_id;
+      const newProjId = (projectId === "none" || !projectId) ? null : projectId;
   
       await query("BEGIN");
       try {
@@ -9777,10 +9779,15 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         for (let i = 0; i < srcItems.rows.length; i++) {
           const srcItem = srcItems.rows[i];
           const newItemId = `ski-${Date.now()}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
+          
+          // Ensure UUID fields are null if empty string
+          const safeMatId = srcItem.material_id || null;
+          const safeVendorId = srcItem.assigned_vendor_id || null;
+
           await query(
             `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-            [newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, srcItem.material_id, srcItem.dimension_unit || 'feet', srcItem.assigned_vendor_id || null, srcItem.vendor_name || null]
+            [newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, safeMatId, srcItem.dimension_unit || 'feet', safeVendorId, srcItem.vendor_name || null]
           );
   
           // Copy item-level images
@@ -9815,14 +9822,16 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
         }
   
         await query("COMMIT");
+        console.log(`[clone] Successfully cloned plan ${id} to new plan ${newId}`);
         res.json({ id: newId, message: "Plan cloned successfully" });
       } catch (err) {
         await query("ROLLBACK");
+        console.error("[clone] Transaction error:", err);
         throw err;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("POST /api/sketch-plans/:id/clone error", err);
-      res.status(500).json({ message: "Failed to clone plan" });
+      res.status(500).json({ message: "Failed to clone plan", details: err.message });
     }
   });
 
