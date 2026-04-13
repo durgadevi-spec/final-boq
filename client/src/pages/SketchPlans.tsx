@@ -77,6 +77,9 @@ export default function SketchPlans() {
   // Per-group selected version id
   const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
   const [creatingVersion, setCreatingVersion] = useState<string | null>(null);
+  const [showTasksMode, setShowTasksMode] = useState(false);
+  const [assignedTasks, setAssignedTasks] = useState<any[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
 
   useEffect(() => {
     if (isSupplier) {
@@ -111,8 +114,40 @@ export default function SketchPlans() {
     }
   };
 
+  const loadAssignedTasks = async () => {
+    try {
+      setLoadingTasks(true);
+      const res = await apiFetch("/api/sketch-plans/assigned-tasks");
+      if (res.ok) {
+        const data = await res.json();
+        setAssignedTasks(data.tasks || []);
+      }
+    } catch (err) {
+      console.error("Failed to load tasks", err);
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  const updateTaskStatus = async (taskId: string, status: string) => {
+    try {
+      const res = await apiFetch(`/api/sketch-plans/assigned-tasks/${taskId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        toast({ title: "Success", description: `Task marked as ${status}` });
+        loadAssignedTasks();
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to update task", variant: "destructive" });
+    }
+  };
+
   useEffect(() => {
     loadPlans();
+    loadAssignedTasks();
   }, []);
 
   // Init selected version to latest per group
@@ -231,6 +266,16 @@ export default function SketchPlans() {
               )}
               {!isSupplier && (
                 <>
+                  <Button 
+                    variant={showTasksMode ? "default" : "outline"} 
+                    onClick={() => setShowTasksMode(!showTasksMode)} 
+                    className={`flex items-center gap-2 ${showTasksMode ? 'bg-indigo-600 text-white' : ''}`}
+                  >
+                    <Check className="w-4 h-4" /> Assigned Tasks
+                    {assignedTasks.filter(t => t.user_task_status !== 'completed').length > 0 && (
+                      <Badge className="ml-1 bg-red-500">{assignedTasks.filter(t => t.user_task_status !== 'completed').length}</Badge>
+                    )}
+                  </Button>
                   <Button variant="outline" onClick={() => setLocation("/sketch-templates")} className="flex items-center gap-2">
                     <Layers className="w-4 h-4" /> Manage Templates
                   </Button>
@@ -253,8 +298,69 @@ export default function SketchPlans() {
         </div>
 
         <div className="space-y-4">
-          {loading ? (
-            <div className="py-20 text-center text-muted-foreground italic">Loading plans...</div>
+          {loading || loadingTasks ? (
+            <div className="py-20 text-center text-muted-foreground italic">Loading...</div>
+          ) : showTasksMode ? (
+            <div className="space-y-4">
+              {assignedTasks.length === 0 ? (
+                <div className="py-20 border border-dashed rounded-xl text-center text-muted-foreground">No tasks assigned to you.</div>
+              ) : (
+                assignedTasks.map((task) => (
+                  <Card key={task.id} className={`border rounded-xl shadow-sm overflow-hidden ${task.user_task_status === 'completed' ? 'opacity-70 bg-slate-50' : 'bg-white'}`}>
+                    <CardHeader className="py-3 px-4 bg-slate-50/50 border-b flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-sm font-bold flex items-center gap-2">
+                          {task.user_task_status === 'completed' ? <Check className="w-4 h-4 text-green-500" /> : <Layers className="w-4 h-4 text-indigo-500" />}
+                          {task.item_name}
+                        </CardTitle>
+                        <p className="text-[11px] text-slate-500 font-medium">Plan: <span className="text-indigo-600">{task.plan_name}</span></p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {task.user_task_status !== 'completed' ? (
+                          <Button 
+                            size="sm" 
+                            className="h-7 text-[10px] bg-green-600 hover:bg-green-700 text-white font-bold"
+                            onClick={() => updateTaskStatus(task.id, 'completed')}
+                          >
+                            Mark as Complete
+                          </Button>
+                        ) : (
+                          <Badge className="bg-green-100 text-green-700 border-green-200">Completed</Badge>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px]"
+                          onClick={() => setLocation(`/edit-sketch-plan/${task.plan_id}`)}
+                        >
+                          View Plan
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400">Dimensions</p>
+                          <p className="text-xs font-medium">
+                            {task.length || 0} x {task.width || 0} x {task.height || 0} {task.unit}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400">Quantity</p>
+                          <p className="text-xs font-bold text-indigo-600">{task.qty} {task.unit}</p>
+                        </div>
+                        {task.description && (
+                          <div className="col-span-2">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Notes/Instructions</p>
+                            <p className="text-xs italic text-slate-600">"{task.description}"</p>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
           ) : filteredGroups.length === 0 ? (
             <div className="py-20 border border-dashed rounded-xl text-center text-muted-foreground">No matching plans found.</div>
           ) : (
