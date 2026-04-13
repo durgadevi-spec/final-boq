@@ -1840,6 +1840,14 @@ export default function CreateBom() {
       const batchItems = items.map((item: any) => {
         const dims = [item.length, item.width, item.height].filter(Boolean).filter(d => d !== "0" && d !== "").join(' x ');
         const desc = `${item.description || ''} ${dims ? `(Dims: ${dims} ${item.dimension_unit || ''})` : ''}`.trim();
+        const qty = Number(item.qty ?? item.quantity ?? item.qty_required ?? item.requiredQty ?? 1) || 1;
+        let rate = Number(item.rate ?? item.price ?? item.unit_rate ?? item.unitRate ?? (item.amount && qty > 0 ? Number(item.amount) / qty : undefined) ?? 0) || 0;
+
+        // If rate is 0, check if we can get it from the material master
+        const mId = item.material_id || item.id;
+        if (rate === 0 && mId && materialsById[mId]) {
+          rate = Number(materialsById[mId].rate || 0);
+        }
 
         return {
           estimator: "General",
@@ -1850,8 +1858,8 @@ export default function CreateBom() {
             category: item.category || "General",
             category_name: item.category || "General",
             finalize_description: desc,
-            finalize_qty: Number(item.qty) || 1,
-            finalize_rate: 0,
+            finalize_qty: qty,
+            finalize_rate: rate,
             unit: item.unit || "nos",
             step11_items: [
               {
@@ -1860,9 +1868,10 @@ export default function CreateBom() {
                 title: item.item_name || "Sketch Item",
                 description: desc,
                 unit: item.unit || "nos",
-                qty: Number(item.qty) || 1,
-                supply_rate: 0,
+                qty,
+                supply_rate: rate,
                 install_rate: 0,
+                rate,
                 manual: true,
                 category: item.category || "General"
               }
