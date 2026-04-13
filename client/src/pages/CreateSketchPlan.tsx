@@ -374,7 +374,7 @@ const SketchPlanRow = ({
                         if (itemSearchTab === "product") return m.type === "Product";
                         return true;
                       })
-                      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
                       .map((m: any) => (
                         <CommandItem
                           key={`${m.type}-${m.id}`}
@@ -793,7 +793,7 @@ export default function CreateSketchPlan() {
       
       const updatedItems = items.map(item => {
         if (selectedItemIds.has(item.id)) {
-          return { ...item, assigned_user_id: userId, assigned_user_name: userName, user_task_status: 'pending' };
+          return { ...item, assigned_user_id: String(userId), assigned_user_name: userName, user_task_status: 'pending' };
         }
         return item;
       });
@@ -817,7 +817,7 @@ export default function CreateSketchPlan() {
       const shopName = vendors.find(v => v.id === shopId)?.name || "Vendor";
       const updatedItems = items.map(item => {
         if (selectedItemIds.has(item.id)) {
-          return { ...item, assigned_vendor_id: shopId, vendor_name: shopName };
+          return { ...item, assigned_vendor_id: String(shopId), vendor_name: shopName };
         }
         return item;
       });
@@ -2305,8 +2305,8 @@ export default function CreateSketchPlan() {
                   <Reorder.Group as="tbody" axis="y" values={items} onReorder={setItems}>
                     {items.filter(it =>
                       (isSupplier ? it.assigned_vendor_id === (user as any)?.shopId : true) &&
-                      (it.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        it.description.toLowerCase().includes(searchTerm.toLowerCase())) &&
+                      ((it.item_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        (it.description || "").toLowerCase().includes(searchTerm.toLowerCase())) &&
                       (categoryFilter === "all" || it.category === categoryFilter)
                     ).map((item, idx) => (
                       <SketchPlanRow
@@ -2317,7 +2317,6 @@ export default function CreateSketchPlan() {
                         isLocked={isLocked || userRole === "supplier"}
                         isCompact={isCompact}
                         updateItem={updateItem}
-                        addItem={addItem}
                         removeItem={removeItem}
                         moveItemToPosition={moveItemToPosition}
                         selectMaterial={selectMaterial}
