@@ -758,6 +758,10 @@ export async function registerRoutes(
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS dimension_unit VARCHAR(10) DEFAULT 'feet'`);
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_vendor_id VARCHAR(100)`);
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255)`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS dimensions JSONB`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_user_id VARCHAR(100)`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_user_name VARCHAR(255)`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS user_task_status VARCHAR(50) DEFAULT 'unassigned'`);
   } catch (err) {
     console.warn("[db] Could not add enhanced columns to sketch_plan_items:", (err as any)?.message || err);
   }
@@ -1192,7 +1196,9 @@ export async function registerRoutes(
     await query(
       `ALTER TABLE material_templates ADD COLUMN IF NOT EXISTS finishtype VARCHAR(255)`
     );
-    console.log("[db] material_templates tax/vendor/techspec/hsn/sac/image/metaltype/brandname/dimensions/finishtype columns ensured");
+    await query(`ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(50)`);
+    await query(`ALTER TABLE material_submissions ADD COLUMN IF NOT EXISTS sac_code VARCHAR(50)`);
+    console.log("[db] material_templates/submissions hsn/sac/image/metaltype/brandname/dimensions/finishtype columns ensured");
   } catch (err: unknown) {
     console.warn(
       "[db] Could not ensure material_templates columns:",
@@ -2098,8 +2104,8 @@ export async function registerRoutes(
       // Query materials table (independent try/catch)
       try {
         const r = hasQuery
-          ? await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.name ILIKE $1 OR COALESCE(m.code,'') ILIKE $1 ORDER BY m.name ASC LIMIT 50`, [searchPattern])
-          : await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id ORDER BY m.name ASC LIMIT 50`);
+          ? await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.name ILIKE $1 OR COALESCE(m.code,'') ILIKE $1 ORDER BY m.name ASC LIMIT 500`, [searchPattern])
+          : await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id ORDER BY m.name ASC LIMIT 500`);
         materialsRows = r.rows || [];
         console.log(`[api/search] materials: ${materialsRows.length}`);
       } catch (e) {
@@ -2109,8 +2115,8 @@ export async function registerRoutes(
       // Query material_templates table (independent try/catch)
       try {
         const r = hasQuery
-          ? await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates WHERE name ILIKE $1 OR COALESCE(code,'') ILIKE $1 ORDER BY name ASC LIMIT 50`, [searchPattern])
-          : await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates ORDER BY name ASC LIMIT 50`);
+          ? await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates WHERE name ILIKE $1 OR COALESCE(code,'') ILIKE $1 ORDER BY name ASC LIMIT 500`, [searchPattern])
+          : await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates ORDER BY name ASC LIMIT 500`);
         templatesRows = r.rows || [];
         console.log(`[api/search] templates: ${templatesRows.length}`);
       } catch (e) {
@@ -2118,10 +2124,11 @@ export async function registerRoutes(
       }
 
       // Query products table (independent try/catch)
+      // Join material_subcategories -> material_categories to get the parent category name
       try {
         const r = hasQuery
-          ? await query(`SELECT id::text, name, null as code, null as rate, null as unit, COALESCE(subcategory,'') as category, image, 'Product' as type FROM products WHERE name ILIKE $1 ORDER BY name ASC LIMIT 50`, [searchPattern])
-          : await query(`SELECT id::text, name, null as code, null as rate, null as unit, COALESCE(subcategory,'') as category, image, 'Product' as type FROM products ORDER BY name ASC LIMIT 50`);
+          ? await query(`SELECT p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(mc.name, ms.category, p.subcategory, '') as category, p.image, 'Product' as type FROM products p LEFT JOIN material_subcategories ms ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(ms.name)) LEFT JOIN material_categories mc ON LOWER(TRIM(ms.category)) = LOWER(TRIM(mc.name)) WHERE p.name ILIKE $1 ORDER BY p.name ASC LIMIT 500`, [searchPattern])
+          : await query(`SELECT p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(mc.name, ms.category, p.subcategory, '') as category, p.image, 'Product' as type FROM products p LEFT JOIN material_subcategories ms ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(ms.name)) LEFT JOIN material_categories mc ON LOWER(TRIM(ms.category)) = LOWER(TRIM(mc.name)) ORDER BY p.name ASC LIMIT 500`);
         productsRows = r.rows || [];
         console.log(`[api/search] products: ${productsRows.length}`);
       } catch (e) {
@@ -2143,7 +2150,8 @@ export async function registerRoutes(
       // Only return materials that are approved for public listing
       const result = await query(
         `SELECT m.*, s.name as shop_name, 
-                mt.tax_code_type, mt.tax_code_value 
+                mt.tax_code_type, mt.tax_code_value,
+                mt.hsn_code as template_hsn_code, mt.sac_code as template_sac_code 
          FROM materials m 
          LEFT JOIN shops s ON m.shop_id = s.id 
          LEFT JOIN material_templates mt ON m.template_id = mt.id 
@@ -2255,10 +2263,23 @@ export async function registerRoutes(
         );
 
         const template_id = body.template_id || body.templateId || null;
+        let hsnCode = body.hsn_code || body.hsnCode || null;
+        let sacCode = body.sac_code || body.sacCode || null;
+
+        if (template_id && (!hsnCode || !sacCode)) {
+          try {
+            const templateRes = await query("SELECT hsn_code, sac_code FROM material_templates WHERE id = $1", [template_id]);
+            if (templateRes.rows.length > 0) {
+              const t = templateRes.rows[0];
+              if (!hsnCode) hsnCode = t.hsn_code;
+              if (!sacCode) sacCode = t.sac_code;
+            }
+          } catch (e) { console.warn("[POST /api/materials] Could not fetch template for fallback codes", e); }
+        }
 
         const result = await query(
-          `INSERT INTO materials (id, template_id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, dimensions, finishtype, metaltype, image, attributes, master_material_id, approved, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20, now()) RETURNING *`,
+          `INSERT INTO materials (id, template_id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, dimensions, finishtype, metaltype, image, attributes, master_material_id, hsn_code, sac_code, approved, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22, now()) RETURNING *`,
           [
             id,
             template_id,
@@ -2279,6 +2300,8 @@ export async function registerRoutes(
             body.image || null,
             JSON.stringify(attributes || {}),
             body.masterMaterialId || null,
+            hsnCode,
+            sacCode,
             true, // Default to true for admin-created materials
           ],
         );
@@ -2475,7 +2498,8 @@ export async function registerRoutes(
       const id = req.params.id;
       const result = await query(
         `SELECT m.*, s.name as shop_name, 
-                mt.tax_code_type, mt.tax_code_value 
+                mt.tax_code_type, mt.tax_code_value,
+                mt.hsn_code as template_hsn_code, mt.sac_code as template_sac_code 
          FROM materials m 
          LEFT JOIN shops s ON m.shop_id = s.id 
          LEFT JOIN material_templates mt ON m.template_id = mt.id 
@@ -3364,9 +3388,9 @@ export async function registerRoutes(
               const tId = randomUUID();
               const tCode = code || `ITM-${tId.slice(0, 8)}`;
               const tpl = await query(
-                `INSERT INTO material_templates (id, name, code, category, subcategory, vendor_category, tax_code_type, tax_code_value, technicalspecification, brandname, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW()) RETURNING *`,
-                [tId, name, tCode, category, subcategory, vendor_category, tax_code_type, tax_code_value, technicalspecification, raw.brandname || raw.brandName || null],
+                `INSERT INTO material_templates (id, name, code, category, subcategory, vendor_category, tax_code_type, tax_code_value, hsn_code, sac_code, technicalspecification, brandname, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW()) RETURNING *`,
+                [tId, name, tCode, category, subcategory, vendor_category, tax_code_type, tax_code_value, raw.hsn_code || raw.hsnCode || null, raw.sac_code || raw.sacCode || null, technicalspecification, raw.brandname || raw.brandName || null],
               );
               templateId = tpl.rows[0].id;
               createdTemplates.push(tpl.rows[0]);
@@ -3380,8 +3404,8 @@ export async function registerRoutes(
           try {
             const msId = randomUUID();
             const submission = await query(
-              `INSERT INTO material_submissions (id, template_id, shop_id, rate, unit, brandname, modelnumber, subcategory, category, product, technicalspecification, dimensions, finishtype, metaltype, submitted_by, submitted_at, approved)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NULL)
+              `INSERT INTO material_submissions (id, template_id, shop_id, rate, unit, brandname, modelnumber, subcategory, category, product, technicalspecification, dimensions, finishtype, metaltype, hsn_code, sac_code, submitted_by, submitted_at, approved)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NULL)
                RETURNING *`,
               [
                 msId,
@@ -3398,6 +3422,8 @@ export async function registerRoutes(
                 raw.dimensions || null,
                 raw.finishtype || raw.finish || null,
                 raw.metaltype || raw.metalType || null,
+                raw.hsn_code || raw.hsnCode || null,
+                raw.sac_code || raw.sacCode || null,
                 (req as any).user?.id
               ],
             );
@@ -4027,19 +4053,32 @@ export async function registerRoutes(
           s.name as subcategory_name,
           c.name as category_name,
           EXISTS (
+            SELECT 1 FROM step11_products WHERE product_id = p.id
+            UNION ALL
+            SELECT 1 FROM product_approvals WHERE product_id = p.id AND status = 'approved'
+          ) AS is_approved,
+          EXISTS (
             SELECT 1 FROM (
-              SELECT si.material_id, COALESCE(si.supply_rate, si.rate) AS config_rate
+              SELECT si.material_id::text, COALESCE(si.supply_rate, si.rate) AS config_rate, NULL::text as status
               FROM step11_products sp
               JOIN step11_product_items si ON si.step11_product_id = sp.id
               WHERE sp.product_id = p.id
               UNION ALL
-              SELECT ci.material_id, COALESCE(ci.supply_rate, ci.rate) AS config_rate
+              SELECT ci.material_id::text, COALESCE(ci.supply_rate, ci.rate) AS config_rate, NULL::text as status
               FROM product_step3_config pc
               JOIN product_step3_config_items ci ON ci.step3_config_id = pc.id
               WHERE pc.product_id = p.id::varchar
+              UNION ALL
+              SELECT * FROM (
+                SELECT DISTINCT ON (pa.config_name) ai.material_id::text, COALESCE(ai.supply_rate, ai.rate) AS config_rate, pa.status::text
+                FROM product_approvals pa
+                JOIN product_approval_items ai ON ai.approval_id = pa.id
+                WHERE pa.product_id::text = p.id::text
+                ORDER BY pa.config_name, pa.created_at DESC
+              ) sub_pa
             ) cfg
             JOIN materials m ON m.id::text = cfg.material_id::text
-            WHERE ABS(cfg.config_rate - m.rate) > 0.01
+            WHERE (cfg.status IS NULL OR cfg.status = 'pending') AND ABS(cfg.config_rate - m.rate) > 0.01 AND m.approved IS TRUE
           ) AS has_price_updates
         FROM products p
         LEFT JOIN material_subcategories s ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(s.name))
@@ -4236,10 +4275,28 @@ export async function registerRoutes(
           return;
         }
 
+        // Inherit HSN/SAC from template if not provided
+        let hsn_code = (req.body as any).hsn_code || (req.body as any).hsnCode || null;
+        let sac_code = (req.body as any).sac_code || (req.body as any).sacCode || null;
+        
+        if (template_id && (!hsn_code || !sac_code)) {
+          try {
+            const templateRes = await query("SELECT hsn_code, sac_code FROM material_templates WHERE id = $1", [template_id]);
+            if (templateRes.rows.length > 0) {
+              const t = templateRes.rows[0];
+              if (!hsn_code) hsn_code = t.hsn_code;
+              if (!sac_code) sac_code = t.sac_code;
+            }
+          } catch (e) { console.warn("[POST /api/material-submissions] Could not fetch template for fallback codes", e); }
+        }
+
+        // Ensure metaltype/materialtype handled consistently
+        let final_metaltype = metaltype || (req.body as any).materialtype || (req.body as any).materialType || (req.body as any).metalType || null;
+
         const id = randomUUID();
         const result = await query(
-          `INSERT INTO material_submissions (id, template_id, shop_id, rate, unit, brandname, modelnumber, subcategory, category, product, technicalspecification, dimensions, finishtype, metaltype, image, submitted_by, submitted_at, approved)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NULL)
+          `INSERT INTO material_submissions (id, template_id, shop_id, rate, unit, brandname, modelnumber, subcategory, category, product, technicalspecification, dimensions, finishtype, metaltype, image, hsn_code, sac_code, submitted_by, submitted_at, approved)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NULL)
            RETURNING *`,
           [
             id,
@@ -4249,14 +4306,16 @@ export async function registerRoutes(
             unit,
             brandname || null,
             modelnumber || null,
-            subcategory || null,
+            subcategory || (req.body as any).subCategory || null,
             category || null,
             product || null,
-            technicalspecification || null,
-            dimensions || null,
-            finishtype || null,
-            metaltype || null,
+            technicalspecification || (req.body as any).technicalSpecification || null,
+            dimensions || (req.body as any).Dimensions || null,
+            finishtype || (req.body as any).finishType || null,
+            final_metaltype,
             (req.body as any)?.image || null,
+            hsn_code,
+            sac_code,
             (req as any).user?.id,
           ],
         );
@@ -4410,8 +4469,8 @@ export async function registerRoutes(
 
         const materialId = randomUUID();
         await query(
-          `INSERT INTO materials (id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, template_id, image, approved)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true)`,
+          `INSERT INTO materials (id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, template_id, image, hsn_code, sac_code, approved)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, true)`,
           [
             materialId,
             template.name,
@@ -4419,14 +4478,16 @@ export async function registerRoutes(
             submission.rate,
             submission.shop_id,
             submission.unit,
-            template.category || submission.category,
+            submission.category || template.category,
             submission.brandname,
             submission.modelnumber,
-            template.subcategory || submission.subcategory,
+            submission.subcategory || template.subcategory,
             submission.product,
             submission.technicalspecification,
             submission.template_id,
             submission.image || template.image || null,
+            submission.hsn_code || submission.hsnCode || template.hsn_code || null,
+            submission.sac_code || submission.sacCode || template.sac_code || null,
           ],
         );
 
@@ -7518,11 +7579,13 @@ export async function registerRoutes(
 
         const seenNames = new Set<string>();
         const allConfigs = mergedConfigs.filter(cfg => {
-          const configName = (cfg.product.config_name || "").toLowerCase().trim();
-          if (seenNames.has(configName)) {
+          // Deduplicate within the same status, but allow different statuses with same name
+          // This ensures an Approved config isn't hidden by a newer Draft of the same name.
+          const configKey = `${(cfg.product.config_name || "").toLowerCase().trim()}|${cfg.product.status}`;
+          if (seenNames.has(configKey)) {
             return false;
           }
-          seenNames.add(configName);
+          seenNames.add(configKey);
           return true;
         });
 
@@ -9685,6 +9748,52 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
   });
 
 
+  // GET /api/sketch-plans/assigned-tasks - Get tasks assigned to the current user
+  app.get("/api/sketch-plans/assigned-tasks", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      const result = await query(
+        `SELECT spi.*, sp.name as plan_name, sp.project_id 
+         FROM sketch_plan_items spi
+         JOIN sketch_plans sp ON spi.plan_id = sp.id
+         WHERE spi.assigned_user_id = $1
+         ORDER BY sp.created_at DESC`,
+        [userId]
+      );
+      
+      res.json({ tasks: result.rows });
+    } catch (err) {
+      console.error("GET /api/sketch-plans/assigned-tasks error", err);
+      res.status(500).json({ message: "Failed to fetch assigned tasks" });
+    }
+  });
+
+  // POST /api/sketch-plans/assigned-tasks/:id/status - Update task status
+  app.post("/api/sketch-plans/assigned-tasks/:id/status", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      const userId = (req as any).user?.id;
+      
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      // Verify the item is assigned to this user
+      const checkRes = await query("SELECT id FROM sketch_plan_items WHERE id = $1 AND assigned_user_id = $2", [id, userId]);
+      if (checkRes.rows.length === 0) {
+        return res.status(403).json({ message: "Not authorized to update this task" });
+      }
+
+      await query("UPDATE sketch_plan_items SET user_task_status = $1 WHERE id = $2", [status, id]);
+      
+      res.json({ message: "Task status updated successfully" });
+    } catch (err) {
+      console.error("POST /api/sketch-plans/assigned-tasks/:id/status error", err);
+      res.status(500).json({ message: "Failed to update task status" });
+    }
+  });
+
   // GET /api/sketch-plans/:id - Get plan details
   app.get("/api/sketch-plans/:id", authMiddleware, async (req: Request, res: Response) => {
     try {
@@ -9704,10 +9813,12 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
 
       const itemsRes = await query(`
         SELECT spi.*, 
-               COALESCE(m.category, p.subcategory) AS category
+               COALESCE(m.category, mc.name, ms.category, p.subcategory) AS category
         FROM sketch_plan_items spi
         LEFT JOIN materials m ON spi.material_id::text = m.id::text
         LEFT JOIN products p ON spi.material_id::text = p.id::text
+        LEFT JOIN material_subcategories ms ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(ms.name))
+        LEFT JOIN material_categories mc ON LOWER(TRIM(ms.category)) = LOWER(TRIM(mc.name))
         WHERE spi.plan_id = $1 
         ORDER BY spi.created_at ASC, spi.id ASC`,
         [id]
@@ -9756,8 +9867,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             const item = items[i];
             const itemId = `ski-${`${Date.now()}`.padStart(15, '0')}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name) 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status) 
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
               [
                 itemId, id, item.item_name, item.description,
                 parseSafeNumeric(item.length),
@@ -9768,7 +9879,11 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
                 item.material_id || null,
                 item.dimension_unit || 'feet',
                 item.assigned_vendor_id || null,
-                item.vendor_name || null
+                item.vendor_name || null,
+                item.dimensions ? JSON.stringify(item.dimensions) : null,
+                item.assigned_user_id || null,
+                item.assigned_user_name || null,
+                item.user_task_status || 'unassigned'
               ]
             );
 
@@ -9852,8 +9967,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             const item = items[i];
             const itemId = `ski-${`${Date.now()}`.padStart(15, '0')}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name) 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status) 
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
               [
                 itemId, id, item.item_name, item.description,
                 parseSafeNumeric(item.length),
@@ -9864,7 +9979,11 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
                 item.material_id || null,
                 item.dimension_unit || 'feet',
                 item.assigned_vendor_id || null,
-                item.vendor_name || null
+                item.vendor_name || null,
+                item.dimensions ? JSON.stringify(item.dimensions) : null,
+                item.assigned_user_id || null,
+                item.assigned_user_name || null,
+                item.user_task_status || 'unassigned'
               ]
             );
 
