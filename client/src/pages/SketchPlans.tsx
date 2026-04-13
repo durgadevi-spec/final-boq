@@ -4,15 +4,17 @@ import { Layout } from "@/components/layout/Layout";
 import { SupplierLayout } from "@/components/layout/SupplierLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Edit2, FileText, Calendar, MapPin, Layers, Lock, AlertCircle, Check, X, GitBranch, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Edit2, FileText, Calendar, MapPin, Layers, Lock, AlertCircle, Check, X, GitBranch, ChevronDown, Copy } from "lucide-react";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { DeleteConfirmationDialog } from "@/components/ui/DeleteConfirmationDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 // Group plans by their root (parent_plan_id or id)
 interface PlanGroup {
@@ -80,6 +82,9 @@ export default function SketchPlans() {
   const [showTasksMode, setShowTasksMode] = useState(false);
   const [assignedTasks, setAssignedTasks] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [cloneDialog, setCloneDialog] = useState<{ isOpen: boolean; sourceId: string; name: string; projectId: string; versions: any[] } | null>(null);
+  const [isCloning, setIsCloning] = useState(false);
 
   useEffect(() => {
     if (isSupplier) {
@@ -129,6 +134,18 @@ export default function SketchPlans() {
     }
   };
 
+  const loadProjects = async () => {
+    try {
+      const res = await apiFetch("/api/boq-projects");
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.projects || []);
+      }
+    } catch (err) {
+      console.error("Failed to load projects", err);
+    }
+  };
+
   const updateTaskStatus = async (taskId: string, status: string) => {
     try {
       const res = await apiFetch(`/api/sketch-plans/assigned-tasks/${taskId}/status`, {
@@ -148,6 +165,7 @@ export default function SketchPlans() {
   useEffect(() => {
     loadPlans();
     loadAssignedTasks();
+    loadProjects();
   }, []);
 
   // Init selected version to latest per group
@@ -208,6 +226,37 @@ export default function SketchPlans() {
       toast({ title: "Error", description: "Failed to create new version", variant: "destructive" });
     } finally {
       setCreatingVersion(null);
+    }
+  };
+
+  const handleClonePlan = async () => {
+    if (!cloneDialog || !cloneDialog.sourceId) return;
+    setIsCloning(true);
+    try {
+      const res = await apiFetch(`/api/sketch-plans/${cloneDialog.sourceId}/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: cloneDialog.name,
+          projectId: cloneDialog.projectId === "none" ? null : cloneDialog.projectId
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        toast({ title: "Plan Cloned", description: `"${cloneDialog.name}" has been created as a new plan.` });
+        setCloneDialog(null);
+        await loadPlans();
+        // Redirect to edit the new plan
+        setLocation(`/edit-sketch-plan/${data.id}`);
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.message || "Failed to clone plan", variant: "destructive" });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to clone plan", variant: "destructive" });
+    } finally {
+      setIsCloning(false);
     }
   };
 
@@ -446,6 +495,25 @@ export default function SketchPlans() {
                         </Button>
                       )}
 
+                      {!isSupplier && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] gap-1 text-amber-600 border-amber-200 hover:bg-amber-50"
+                          onClick={() => setCloneDialog({
+                            isOpen: true,
+                            sourceId: selectedPlan.id,
+                            name: `${selectedPlan.name} (Clone)`,
+                            projectId: selectedPlan.project_id || "none",
+                            versions: group.versions
+                          })}
+                          title="Clone this plan as a new root plan"
+                        >
+                          <Copy className="w-3 h-3" />
+                          Clone
+                        </Button>
+                      )}
+
                       <Button
                         variant="outline"
                         size="sm"
@@ -540,6 +608,77 @@ export default function SketchPlans() {
           title="Delete Sketch Plan?"
         />
       )}
+
+      {/* Clone Plan Dialog */}
+      <Dialog open={!!cloneDialog?.isOpen} onOpenChange={(open) => !open && setCloneDialog(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-5 h-5 text-amber-500" />
+              Clone Sketch Plan
+            </DialogTitle>
+            <DialogDescription>
+              Create a new standalone copy of this plan. You can change the name and project.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="clone-name">Plan Name</Label>
+              <Input
+                id="clone-name"
+                value={cloneDialog?.name || ""}
+                onChange={(e) => setCloneDialog(prev => prev ? { ...prev, name: e.target.value } : null)}
+                placeholder="Enter new plan name..."
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="clone-version">Source Version</Label>
+              <Select
+                value={cloneDialog?.sourceId || ""}
+                onValueChange={(val) => setCloneDialog(prev => prev ? { ...prev, sourceId: val } : null)}
+              >
+                <SelectTrigger id="clone-version">
+                  <SelectValue placeholder="Select version to clone" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[200px] overflow-y-auto">
+                  {cloneDialog?.versions?.map((v: any) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      Version {v.version_number} ({v.version_status || 'Draft'})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="clone-project">Target Project</Label>
+              <Select
+                value={cloneDialog?.projectId || "none"}
+                onValueChange={(val) => setCloneDialog(prev => prev ? { ...prev, projectId: val } : null)}
+              >
+                <SelectTrigger id="clone-project">
+                  <SelectValue placeholder="Select a project" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
+                  <SelectItem value="none">No Project</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCloneDialog(null)} disabled={isCloning}>Cancel</Button>
+            <Button 
+              className="bg-amber-600 hover:bg-amber-700 text-white" 
+              onClick={handleClonePlan} 
+              disabled={isCloning || !cloneDialog?.name}
+            >
+              {isCloning ? "Cloning..." : "Confirm Clone"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </LayoutComponent>
   );
 }
