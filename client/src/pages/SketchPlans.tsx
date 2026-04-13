@@ -251,7 +251,11 @@ export default function SketchPlans() {
         setLocation(`/edit-sketch-plan/${data.id}`);
       } else {
         const data = await res.json();
-        toast({ title: "Error", description: data.message || "Failed to clone plan", variant: "destructive" });
+        toast({ 
+          title: "Error", 
+          description: data.details ? `Failed: ${data.details}` : (data.message || "Failed to clone plan"), 
+          variant: "destructive" 
+        });
       }
     } catch (error) {
       toast({ title: "Error", description: "Failed to clone plan", variant: "destructive" });
