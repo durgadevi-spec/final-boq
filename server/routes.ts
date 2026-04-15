@@ -9789,9 +9789,13 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
           const safeVendorId = srcItem.assigned_vendor_id || null;
 
           await query(
-            `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-            [newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, safeMatId, srcItem.dimension_unit || 'feet', safeVendorId, srcItem.vendor_name || null]
+            `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+            [
+              newItemId, newId, srcItem.item_name, srcItem.description, srcItem.length, srcItem.width, srcItem.height, srcItem.qty, srcItem.unit, srcItem.remarks, safeMatId, srcItem.dimension_unit || 'feet', safeVendorId, srcItem.vendor_name || null,
+              srcItem.dimensions ? JSON.stringify(srcItem.dimensions) : null,
+              srcItem.assigned_user_id || null, srcItem.assigned_user_name || null, srcItem.user_task_status || 'unassigned'
+            ]
           );
   
           // Copy item-level images
