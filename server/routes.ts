@@ -5838,33 +5838,20 @@ export async function registerRoutes(
       const archivedIds = archiveService.getArchivedItemIds('boq_items');
       const trashedIds = archiveService.getTrashedItemIds('boq_items');
 
-      // Deduplicate items based on product name/estimator key to prevent inflated project values
-      const seenProducts = new Map<string, any>();
+
+      const entriesToProcess = [];
       for (const row of itemsResult.rows) {
-        // Skip archived or trashed items
         if (archivedIds.includes(row.id) || trashedIds.includes(row.id)) continue;
 
         let tableData = row.table_data;
         if (typeof tableData === "string") {
           try { tableData = JSON.parse(tableData); } catch (e) { continue; }
         }
-
-        const productKey = (tableData?.product_name || row.estimator || row.id).toLowerCase().trim();
-        const existing = seenProducts.get(productKey);
-
-        if (!existing) {
-          seenProducts.set(productKey, { row, tableData });
-        } else {
-          const existingDate = new Date(existing.row.created_at).getTime();
-          const newDate = new Date(row.created_at).getTime();
-          if (newDate > existingDate) {
-            seenProducts.set(productKey, { row, tableData });
-          }
-        }
+        entriesToProcess.push({ row, tableData });
       }
 
       let totalValue = 0;
-      for (const entry of seenProducts.values()) {
+      for (const entry of entriesToProcess) {
         const { tableData } = entry;
 
         // Logic must handle BOTH Engine-based (with materialLines) and Manual items
@@ -6318,23 +6305,7 @@ export async function registerRoutes(
             created_at: row.created_at,
           }));
 
-        // Deduplicate by product_name: if the same product appears more than once
-        // (due to past cumulative version copies), keep only the most recently updated entry.
-        const seenProducts = new Map<string, any>();
-        for (const item of rawItems) {
-          const productKey = (item.table_data?.product_name || item.estimator || item.id).toLowerCase().trim();
-          const existing = seenProducts.get(productKey);
-          if (!existing) {
-            seenProducts.set(productKey, item);
-          } else {
-            const existingDate = new Date(existing.created_at).getTime();
-            const newDate = new Date(item.created_at).getTime();
-            if (newDate > existingDate) {
-              seenProducts.set(productKey, item);
-            }
-          }
-        }
-        const items = Array.from(seenProducts.values());
+        const items = rawItems;
 
         res.json({ items });
       } catch (err) {
