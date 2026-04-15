@@ -6080,7 +6080,11 @@ export async function registerRoutes(
         res.status(201).json({ message: "Batch items saved successfully", count: items.length });
       } catch (err) {
         console.error("POST /api/boq-items/batch error", err);
-        res.status(500).json({ message: "Failed to batch save BOQ items" });
+        res.status(500).json({ 
+          message: "Failed to batch save BOQ items", 
+          error: (err as any)?.message,
+          stack: (err as any)?.stack
+        });
       }
     },
   );
