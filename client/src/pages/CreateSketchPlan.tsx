@@ -50,7 +50,7 @@ interface PlanItem {
   unit: string;
   dimension_unit: "feet" | "mm" | "inch" | "cm" | "meter" | "sqft" | "sqmt" | "rft" | "rmt" | "nos" | "pcs" | "kg" | "litre" | "set" | "ls";
   remarks: string;
-  dimensions?: { id: string; length: string; width: string; height: string }[];
+  dimensions?: { id: string; length: string; width: string; height: string; note?: string }[];
   preImages: PlanImage[]; // PRE-work images
   postImages: PlanImage[]; // POST-work images
   images?: PlanImage[]; // Legacy field for compatibility
@@ -220,7 +220,7 @@ const SketchPlanRow = ({
   const dragControls = useDragControls();
   const isSupplier = userRole === "supplier";
 
-  const dims = item.dimensions?.length ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height }];
+  const dims = item.dimensions?.length ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
 
   return (
     <Reorder.Item
@@ -282,26 +282,117 @@ const SketchPlanRow = ({
             </Tooltip>
           </TooltipProvider>
 
-          <DialogContent className="z-[110]">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-[750px] max-h-[90vh] flex flex-col p-0">
+            <DialogHeader className="p-6 pb-2">
               <DialogTitle>Notes for {item.item_name || `Item ${idx + 1}`}</DialogTitle>
             </DialogHeader>
-            <div className="py-4">
-              <Textarea
-                value={item.description}
-                onChange={(e) => updateItem(idx, "description", e.target.value)}
-                placeholder="Enter detailed site notes or specifications..."
-                className="min-h-[200px]"
-                disabled={isLocked}
-              />
+            <div className="flex-1 overflow-y-auto p-6 pt-2 custom-scrollbar space-y-4">
+              <div>
+                <Label className="text-xs font-bold uppercase text-slate-500 mb-2 block">Main Item Notes (Site Specifications)</Label>
+                <Textarea
+                  value={item.description}
+                  onChange={(e) => updateItem(idx, "description", e.target.value)}
+                  placeholder="Enter detailed site notes or specifications..."
+                  className="min-h-[120px] resize-none"
+                  disabled={isLocked}
+                />
+              </div>
+
+              <div className="border-t pt-4">
+                <div className="flex justify-between items-center mb-3">
+                  <Label className="text-xs font-bold uppercase text-slate-500">Sub-Notes (Per Dimension Row)</Label>
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline" 
+                    className="h-7 text-[10px] bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
+                    onClick={() => addDimension(idx)}
+                    disabled={isLocked}
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> Add Sub Note
+                  </Button>
+                </div>
+                
+                <div className="space-y-4">
+                  {dims.map((dim: any, dIdx: number) => (
+                    <div key={dim.id} className="flex gap-3 items-start bg-slate-50 p-3 rounded-lg border border-slate-100 shadow-sm">
+                      <div className="flex-1">
+                        <Label className="text-[10px] text-slate-400 font-bold mb-1.5 block uppercase tracking-tight">
+                          {dIdx === 0 ? "Linked to Main Notes" : `Sub Note #${dIdx}`}
+                        </Label>
+                        <Input 
+                          value={dIdx === 0 ? item.description : (dim.note || "")} 
+                          onChange={(e) => {
+                            if (dIdx === 0) {
+                              updateItem(idx, "description", e.target.value);
+                            } else {
+                              updateDimension(idx, dIdx, "note" as any, e.target.value);
+                            }
+                          }}
+                          placeholder={dIdx === 0 ? "Main notes..." : "Enter sub-note for this dimension..."}
+                          className="h-9 text-xs bg-white"
+                          disabled={isLocked}
+                        />
+                      </div>
+                      <div className="w-[180px] shrink-0">
+                        <Label className="text-[10px] text-slate-400 font-bold mb-1.5 block text-center uppercase tracking-tight">Dimensions (L / W / H)</Label>
+                        <div className="flex gap-1 px-1">
+                          <Input 
+                            value={dim.length} 
+                            onChange={(e) => updateDimension(idx, dIdx, "length", e.target.value)}
+                            placeholder="L"
+                            className="h-9 text-[11px] text-center px-0.5 font-bold bg-white border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            disabled={isLocked}
+                          />
+                          <div className="flex items-center text-slate-300 px-0.5">/</div>
+                          <Input 
+                            value={dim.width} 
+                            onChange={(e) => updateDimension(idx, dIdx, "width", e.target.value)}
+                            placeholder="W"
+                            className="h-9 text-[11px] text-center px-0.5 font-bold bg-white border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            disabled={isLocked}
+                          />
+                          <div className="flex items-center text-slate-300 px-0.5">/</div>
+                          <Input 
+                            value={dim.height} 
+                            onChange={(e) => updateDimension(idx, dIdx, "height", e.target.value)}
+                            placeholder="H"
+                            className="h-9 text-[11px] text-center px-0.5 font-bold bg-white border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            disabled={isLocked}
+                          />
+                        </div>
+                      </div>
+                      {dIdx > 0 && (
+                        <Button 
+                          type="button" 
+                          size="icon" 
+                          variant="ghost" 
+                          className="h-9 w-9 text-red-400 mt-5 hover:bg-red-50 hover:text-red-500 rounded-md"
+                          onClick={() => removeDimension(idx, dIdx)}
+                          disabled={isLocked}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="p-6 border-t bg-slate-50/50">
               <DialogTrigger asChild>
-                <Button className="bg-indigo-600 text-white">Save Notes</Button>
+                <Button className="bg-indigo-600 text-white hover:bg-indigo-700 h-10 px-8 text-sm font-bold shadow-lg shadow-indigo-100">Save Changes</Button>
               </DialogTrigger>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      </td>
+      <td className={cn("px-1", isCompact ? "py-0 w-[80px] min-w-[80px]" : "py-2 w-[100px] min-w-[100px] max-w-[100px]")}>
+        <div className={cn("bg-slate-50 border border-slate-200 rounded px-1.5 flex items-center h-8", isCompact ? "h-6" : "h-8")}>
+          <span className={cn("truncate font-bold italic text-slate-500", isCompact ? "text-[8px]" : "text-[10px]")}>
+            {item.category || "-"}
+          </span>
+        </div>
       </td>
       <td className={cn("px-2", isCompact ? "py-0 w-[120px] min-w-[120px] max-w-[120px]" : "py-2 w-[160px] min-w-[160px] max-w-[160px]")}>
         <Dialog open={openPopoverIdx === idx} onOpenChange={(open) => {
@@ -451,35 +542,62 @@ const SketchPlanRow = ({
               </PopoverTrigger>
               <PopoverContent className="w-[300px] p-3 shadow-xl z-[200]">
                 <div className="flex justify-between items-center mb-3 border-b pb-2">
-                  <span className="font-bold text-[10px] uppercase text-slate-500 tracking-wider">Dimension Entries</span>
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                    <span className="font-bold text-[10px] uppercase text-slate-500 tracking-wider">Site Measurements</span>
+                  </div>
                   {!isLocked && (
-                    <Button type="button" size="sm" variant="ghost" onClick={() => addDimension(idx)} className="h-6 px-2 text-xs text-indigo-600 hover:bg-indigo-50 font-bold">
-                      <Plus className="w-3 h-3 mr-1.5" /> Add Option
+                    <Button type="button" size="sm" variant="ghost" onClick={() => addDimension(idx)} className="h-6 px-2 text-[10px] text-indigo-600 hover:bg-indigo-50 font-bold uppercase">
+                      <Plus className="w-3 h-3 mr-1" /> Add Sub Note
                     </Button>
                   )}
                 </div>
-                <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1 custom-scrollbar">
+                <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
                   {dims.map((dim: any, dIdx: number) => (
-                    <div key={dim.id} className="flex gap-1.5 items-center bg-slate-50 border border-slate-100 p-2 rounded-md">
-                      <div className="flex flex-col flex-1">
-                        <Label className="text-[8px] text-slate-400 font-bold mb-0.5 ml-1 uppercase">L</Label>
-                        <Input value={dim.length} onChange={(e) => updateDimension(idx, dIdx, "length", e.target.value)} placeholder="0" className="h-7 text-xs text-center px-1" disabled={isLocked} />
+                    <div key={dim.id} className={cn("bg-white border rounded-lg shadow-sm overflow-hidden", dIdx === 0 ? "border-slate-200" : "border-indigo-100")}>
+                      <div className={cn("px-2 py-1.5 flex items-center gap-2", dIdx === 0 ? "bg-slate-50" : "bg-indigo-50/50")}>
+                        {dIdx === 0 ? (
+                          <FileText className="w-3 h-3 text-slate-400" />
+                        ) : (
+                          <GitBranch className="w-3 h-3 text-indigo-400" />
+                        )}
+                        <span className={cn("text-[9px] font-bold uppercase truncate flex-1", dIdx === 0 ? "text-slate-500" : "text-indigo-600")}>
+                          {dIdx === 0 ? "Primary Dimensions" : `Sub: ${dim.note || 'Untitled'}`}
+                        </span>
+                        {dIdx > 0 && (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button className="p-0.5 hover:bg-indigo-100 rounded text-indigo-400">
+                                <ChevronDown className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent side="right" className="w-[200px] p-2 text-[10px] bg-slate-900 text-white border-slate-700">
+                              <p className="font-bold border-b border-slate-700 pb-1 mb-1">Sub Note Detail</p>
+                              <p className="italic text-slate-300">"{dim.note || 'No description provided'}"</p>
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                        {dIdx > 0 && !isLocked && (
+                          <button type="button" onClick={() => removeDimension(idx, dIdx)} className="p-0.5 hover:bg-red-50 text-red-400 rounded transition-colors ml-1">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
-                      <X className="w-3 h-3 text-slate-300 mt-4 shrink-0" />
-                      <div className="flex flex-col flex-1">
-                        <Label className="text-[8px] text-slate-400 font-bold mb-0.5 ml-1 uppercase">W</Label>
-                        <Input value={dim.width} onChange={(e) => updateDimension(idx, dIdx, "width", e.target.value)} placeholder="0" className="h-7 text-xs text-center px-1" disabled={isLocked} />
+                      
+                      <div className="p-2 grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[8px] text-slate-400 font-bold uppercase block text-center">Length</Label>
+                          <Input value={dim.length} onChange={(e) => updateDimension(idx, dIdx, "length", e.target.value)} placeholder="0" className="h-7 text-[11px] text-center px-1 font-bold" disabled={isLocked} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[8px] text-slate-400 font-bold uppercase block text-center">Width</Label>
+                          <Input value={dim.width} onChange={(e) => updateDimension(idx, dIdx, "width", e.target.value)} placeholder="0" className="h-7 text-[11px] text-center px-1 font-bold" disabled={isLocked} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[8px] text-slate-400 font-bold uppercase block text-center">Height</Label>
+                          <Input value={dim.height} onChange={(e) => updateDimension(idx, dIdx, "height", e.target.value)} placeholder="0" className="h-7 text-[11px] text-center px-1 font-bold" disabled={isLocked} />
+                        </div>
                       </div>
-                      <X className="w-3 h-3 text-slate-300 mt-4 shrink-0" />
-                      <div className="flex flex-col flex-1">
-                        <Label className="text-[8px] text-slate-400 font-bold mb-0.5 ml-1 uppercase">H</Label>
-                        <Input value={dim.height} onChange={(e) => updateDimension(idx, dIdx, "height", e.target.value)} placeholder="0" className="h-7 text-xs text-center px-1" disabled={isLocked} />
-                      </div>
-                      {dIdx > 0 && !isLocked && (
-                        <button type="button" onClick={() => removeDimension(idx, dIdx)} title="Remove" className="p-1 hover:bg-red-100 text-red-500 rounded mt-4 shrink-0 border border-transparent hover:border-red-200 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -583,7 +701,7 @@ export default function CreateSketchPlan() {
   const [locationStr, setLocationStr] = useState("");
   const [planDate, setPlanDate] = useState(new Date().toISOString().split("T")[0]);
   const [items, setItems] = useState<PlanItem[]>([
-    { id: "1", item_name: "", description: "", length: "", width: "", height: "", qty: "1", unit: "Nos", dimension_unit: "feet", remarks: "", preImages: [], postImages: [], images: [] }
+    { id: "1", item_name: "", description: "", length: "", width: "", height: "", qty: "1", unit: "Nos", dimension_unit: "feet", category: "", remarks: "", preImages: [], postImages: [], images: [] }
   ]);
 
   const [projects, setProjects] = useState<any[]>([]);
@@ -596,6 +714,7 @@ export default function CreateSketchPlan() {
   // PDF / Export State
   const [isPdfDialogOpen, setIsPdfDialogOpen] = useState(false);
   const [includePlanPhotosInExport, setIncludePlanPhotosInExport] = useState(true);
+  const [includeSubNotesInExport, setIncludeSubNotesInExport] = useState(true);
   const [selectedPdfCols, setSelectedPdfCols] = useState<string[]>(["#", "Item", "Notes", "L", "W", "H", "Qty", "Unit", "Pre Photos", "Post Photos"]
   );
   const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
@@ -1109,8 +1228,8 @@ export default function CreateSketchPlan() {
     setItems((prevItems) => {
       const newItems = [...prevItems];
       const item = { ...newItems[itemIdx] };
-      const dims = item.dimensions?.length ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
-      dims.push({ id: `dim-${Date.now()}`, length: "", width: "", height: "" });
+      const dims = item.dimensions?.length ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
+      dims.push({ id: `dim-${Date.now()}`, length: "", width: "", height: "", note: "" });
       item.dimensions = dims;
       newItems[itemIdx] = item;
       return newItems;
@@ -1151,7 +1270,7 @@ export default function CreateSketchPlan() {
     setItems((prevItems) => {
       const newItems = [...prevItems];
       const item = { ...newItems[itemIdx] };
-      const dims = item.dimensions?.length ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
+      const dims = item.dimensions?.length ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
 
       dims[dimIdx] = { ...dims[dimIdx], [field]: value };
       item.dimensions = dims;
@@ -1191,7 +1310,7 @@ export default function CreateSketchPlan() {
     // Auto-calculate quantity if dimensions or unit change
     if (["length", "width", "height", "dimension_unit"].includes(field)) {
       if (field === "dimension_unit") {
-        const dims = newItems[idx].dimensions?.length ? newItems[idx].dimensions : [{ id: "def", length: newItems[idx].length, width: newItems[idx].width, height: newItems[idx].height }];
+        const dims = newItems[idx].dimensions?.length ? newItems[idx].dimensions : [{ id: "def", length: newItems[idx].length, width: newItems[idx].width, height: newItems[idx].height, note: newItems[idx].description }];
         let totalQty = 0;
         dims.forEach((d: any) => {
           const l = parseFloat(d.length) || 0;
@@ -1515,22 +1634,45 @@ export default function CreateSketchPlan() {
       doc.text(`Plan: ${name}`, metaX, headerBoxY + 13, { align: "right" });
       doc.text(`Date: ${planDate}`, metaX, headerBoxY + 19, { align: "right" });
 
+      const getDisplayUnit = (u: string) => {
+        const unitMap: any = { feet: "ft", mm: "mm", inch: "in", cm: "cm", meter: "m", sqft: "sqft", sqmt: "sqmt", rft: "rft", rmt: "rmt", nos: "nos", pcs: "pcs", kg: "kg", litre: "ltr", set: "set", ls: "LS" };
+        return unitMap[u] || u;
+      };
+
       const headers = selectedPdfCols;
-      const body = processedItems.map((item, idx) => {
-        const row: any[] = [];
-        headers.forEach(h => {
-          if (h === "#") row.push(idx + 1);
-          else if (h === "Item") row.push(item.item_name);
-          else if (h === "Notes") row.push(item.description);
-          else if (h === "L") row.push(item.length);
-          else if (h === "W") row.push(item.width);
-          else if (h === "H") row.push(item.height);
-          else if (h === "Qty") row.push(item.qty);
-          else if (h === "Unit") row.push(item.unit);
-          else if (h === "Pre Photos") row.push("");
-          else if (h === "Post Photos") row.push("");
+      const body: any[] = [];
+      processedItems.forEach((item, idx) => {
+        const itemDims = (includeSubNotesInExport && item.dimensions?.length) ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
+        
+        itemDims.forEach((dim: any, dIdx: number) => {
+          const row: any[] = [];
+          headers.forEach(h => {
+            if (h === "#") {
+              row.push(dIdx === 0 ? idx + 1 : "");
+            } else if (h === "Item") {
+              row.push(dIdx === 0 ? item.item_name : "");
+            } else if (h === "Notes") {
+              const noteText = dIdx === 0 ? item.description : (dim.note || "");
+              row.push(dIdx === 0 ? noteText : `     -  ${noteText}`);
+            } else if (h === "L") {
+              row.push(dim.length || "");
+            } else if (h === "W") {
+              row.push(dim.width || "");
+            } else if (h === "H") {
+              row.push(dim.height || "");
+            } else if (h === "Qty") {
+              // Only show total qty on the first row of the item to avoid confusion
+              row.push(dIdx === 0 ? item.qty : "");
+            } else if (h === "Unit") {
+              row.push(dIdx === 0 ? getDisplayUnit(item.dimension_unit) : "");
+            } else if (h === "Pre Photos") {
+              row.push("");
+            } else if (h === "Post Photos") {
+              row.push("");
+            }
+          });
+          body.push(row);
         });
-        return row;
       });
 
       const prePhotoColIdx = headers.indexOf("Pre Photos");
@@ -1548,19 +1690,55 @@ export default function CreateSketchPlan() {
           [prePhotoColIdx]: { cellWidth: 25 },
           [postPhotoColIdx]: { cellWidth: 25 },
         },
-        didParseCell: (data) => {
+        didParseCell: (data: any) => {
+          // Check if this is a sub-row (empty S.No cell)
+          const sNoIdx = headers.indexOf("#");
+          const isSubRow = data.section === 'body' && (sNoIdx !== -1 ? !data.row.raw[sNoIdx] : !data.row.raw[0]);
+          
+          if (isSubRow) {
+            data.cell.styles.fillColor = [240, 245, 250]; // Slightly stronger blue-ish gray
+            data.cell.styles.textColor = [80, 80, 80];
+            data.cell.styles.fontStyle = 'italic';
+            data.cell.styles.fontSize = 7.5;
+          }
+
           if (data.section === 'body' && (data.column.index === prePhotoColIdx || data.column.index === postPhotoColIdx)) {
-            const item = processedItems[data.row.index];
+            const itemIdx = processedItems.findIndex((it, i) => {
+               // Find which item this row belongs to by matching cumulative row count
+               let count = 0;
+               for(let j=0; j<=i; j++) {
+                 count += (processedItems[j].dimensions?.length || 1);
+                 if (count > data.row.index) return true;
+               }
+               return false;
+            });
+            const item = processedItems[itemIdx];
             if (!item) return;
-            const pdfImg = data.column.index === prePhotoColIdx ? item._pdfPre : item._pdfPost;
+            // Photos should only appear on the first row of an item to save space or be handled specially
+            // For now, let's only allow photos on the main row (where # is present)
+            const hasSNo = !!data.row.raw[headers.indexOf("#")];
+            const pdfImg = hasSNo ? (data.column.index === prePhotoColIdx ? item._pdfPre : item._pdfPost) : null;
             if (pdfImg) {
               data.cell.styles.minCellHeight = 25;
+            } else if (!hasSNo) {
+              data.cell.text = ""; // Clear text for sub-row photo cells
             }
           }
         },
-        didDrawCell: (data) => {
+        didDrawCell: (data: any) => {
           if (data.section === 'body' && (data.column.index === prePhotoColIdx || data.column.index === postPhotoColIdx)) {
-            const item = processedItems[data.row.index];
+            const hasSNo = !!data.row.raw[headers.indexOf("#")];
+            if (!hasSNo) return; // Don't draw images on sub-rows
+
+            const itemIdx = processedItems.findIndex((it, i) => {
+               let count = 0;
+               for(let j=0; j<=i; j++) {
+                 count += (processedItems[j].dimensions?.length || 1);
+                 if (count > data.row.index) return true;
+               }
+               return false;
+            });
+            const item = processedItems[itemIdx];
             if (!item) return;
             const pdfImg = data.column.index === prePhotoColIdx ? item._pdfPre : item._pdfPost;
             if (pdfImg) {
@@ -1646,18 +1824,28 @@ export default function CreateSketchPlan() {
         [], // Spacing row
       ];
 
+      const getDisplayUnit = (u: string) => {
+        const unitMap: any = { feet: "ft", mm: "mm", inch: "in", cm: "cm", meter: "m", sqft: "sqft", sqmt: "sqmt", rft: "rft", rmt: "rmt", nos: "nos", pcs: "pcs", kg: "kg", litre: "ltr", set: "set", ls: "LS" };
+        return unitMap[u] || u;
+      };
+
       // 2. Prepare Table Data
-      const tableData = items.map((item, idx) => {
-        const row: any = {};
-        if (selectedPdfCols.includes("#")) row["S.No"] = idx + 1;
-        if (selectedPdfCols.includes("Item")) row["Item Name"] = item.item_name;
-        if (selectedPdfCols.includes("Notes")) row["Notes"] = item.description;
-        if (selectedPdfCols.includes("L")) row["L"] = item.length;
-        if (selectedPdfCols.includes("W")) row["W"] = item.width;
-        if (selectedPdfCols.includes("H")) row["H"] = item.height;
-        if (selectedPdfCols.includes("Qty")) row["Quantity"] = item.qty;
-        if (selectedPdfCols.includes("Unit")) row["Unit"] = item.unit;
-        return row;
+      const tableData: any[] = [];
+      items.forEach((item, idx) => {
+        const itemDims = (includeSubNotesInExport && item.dimensions?.length) ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
+        
+        itemDims.forEach((dim: any, dIdx: number) => {
+          const row: any = {};
+          if (selectedPdfCols.includes("#")) row["S.No"] = dIdx === 0 ? idx + 1 : "";
+          if (selectedPdfCols.includes("Item")) row["Item Name"] = dIdx === 0 ? item.item_name : "";
+          if (selectedPdfCols.includes("Notes")) row["Notes"] = dIdx === 0 ? item.description : (dim.note || "");
+          if (selectedPdfCols.includes("L")) row["L"] = dim.length || "";
+          if (selectedPdfCols.includes("W")) row["W"] = dim.width || "";
+          if (selectedPdfCols.includes("H")) row["H"] = dim.height || "";
+          if (selectedPdfCols.includes("Qty")) row["Quantity"] = dIdx === 0 ? item.qty : "";
+          if (selectedPdfCols.includes("Unit")) row["Unit"] = dIdx === 0 ? getDisplayUnit(item.dimension_unit) : "";
+          tableData.push(row);
+        });
       });
 
       // 3. Create Worksheet
@@ -2283,7 +2471,8 @@ export default function CreateSketchPlan() {
                         )}
                       </th>
                       <th className={cn("w-10 px-2 text-left", isCompact ? "py-1" : "py-3")}>#</th>
-                      <th className={cn("w-[220px] min-w-[220px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Notes/Review</th>
+                      <th className={cn("w-[200px] min-w-[200px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Notes/Review</th>
+                      <th className={cn("w-[100px] min-w-[100px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Category</th>
                       <th className={cn("w-[160px] min-w-[160px] max-w-[160px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Item/Product</th>
                       <th className={cn("w-[60px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Unit</th>
                       <th className={cn("w-[110px] min-w-[110px] max-w-[110px] px-2 text-center font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Dimensions</th>
@@ -2594,15 +2783,27 @@ export default function CreateSketchPlan() {
 
               <div className="pt-4 border-t border-slate-100">
                 <Label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Additional Content</Label>
-                <div className="flex items-center space-x-2 bg-amber-50 p-3 rounded border border-amber-100">
-                  <Checkbox
-                    id="include-plan-photos"
-                    checked={includePlanPhotosInExport}
-                    onCheckedChange={(checked) => setIncludePlanPhotosInExport(!!checked)}
-                  />
-                  <label htmlFor="include-plan-photos" className="text-xs font-bold leading-none cursor-pointer text-amber-900 flex items-center gap-2">
-                    <ImageIcon className="w-3.5 h-3.5" /> Include Plan-Level Site Photos
-                  </label>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2 bg-amber-50 p-3 rounded border border-amber-100">
+                    <Checkbox
+                      id="include-plan-photos"
+                      checked={includePlanPhotosInExport}
+                      onCheckedChange={(checked) => setIncludePlanPhotosInExport(!!checked)}
+                    />
+                    <label htmlFor="include-plan-photos" className="text-xs font-bold leading-none cursor-pointer text-amber-900 flex items-center gap-2">
+                      <ImageIcon className="w-3.5 h-3.5" /> Include Plan-Level Site Photos
+                    </label>
+                  </div>
+                  <div className="flex items-center space-x-2 bg-indigo-50 p-3 rounded border border-indigo-100">
+                    <Checkbox
+                      id="include-sub-notes"
+                      checked={includeSubNotesInExport}
+                      onCheckedChange={(checked) => setIncludeSubNotesInExport(!!checked)}
+                    />
+                    <label htmlFor="include-sub-notes" className="text-xs font-bold leading-none cursor-pointer text-indigo-900 flex items-center gap-2">
+                      <GitBranch className="w-3.5 h-3.5" /> Include Sub-Notes & Detailed Dimensions
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
