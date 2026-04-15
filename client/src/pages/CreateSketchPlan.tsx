@@ -437,29 +437,16 @@ const SketchPlanRow = ({
           </SelectContent>
         </Select>
       </td>
-      <td className={cn("px-1 align-top border-l", isCompact ? "py-1" : "py-2")}>
-        <div className="flex flex-col gap-1 w-full h-full relative">
+      <td className={cn("px-2 align-top border-l w-[110px] min-w-[110px] max-w-[110px]", isCompact ? "py-1" : "py-2")}>
+        <div className="flex flex-col gap-1 w-full h-[calc(100%-4px)] relative justify-center">
           <div className={cn("relative flex items-center justify-center w-full", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")}>
-            <Input value={dims[0].length} onChange={(e) => updateDimension(idx, 0, "length", e.target.value)} className="w-full h-full px-1 text-center" placeholder="0" disabled={isLocked} />
-          </div>
-        </div>
-      </td>
-      <td className={cn("px-1 align-top", isCompact ? "py-1" : "py-2")}>
-        <div className="flex flex-col gap-1 w-full h-full relative">
-          <div className={cn("relative flex items-center justify-center w-full", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")}>
-            <Input value={dims[0].width} onChange={(e) => updateDimension(idx, 0, "width", e.target.value)} className="w-full h-full px-1 text-center" placeholder="0" disabled={isLocked} />
-          </div>
-        </div>
-      </td>
-      <td className={cn("px-1 align-top", isCompact ? "py-1" : "py-2")}>
-        <div className="flex flex-col gap-1 w-full h-full relative">
-          <div className={cn("relative flex items-center gap-1 w-full", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")}>
-            <Input value={dims[0].height} onChange={(e) => updateDimension(idx, 0, "height", e.target.value)} className="w-full h-full px-1 text-center" placeholder="0" disabled={isLocked} />
             <Popover>
               <PopoverTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className={cn("p-0 min-w-4 text-slate-500 hover:text-indigo-600 bg-slate-50 shrink-0 relative", isCompact ? "w-4 h-5" : "w-6 h-8", dims.length > 1 && "bg-indigo-100 text-indigo-700 border-indigo-200")}>
-                  {dims.length > 1 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-bold px-1 rounded-full">{dims.length}</span>}
-                  <ChevronDown className="w-3 h-3" />
+                <Button type="button" variant="outline" size="sm" className={cn("w-full justify-between px-2 text-slate-500 hover:text-indigo-600 bg-slate-50 relative top-1", isCompact ? "h-5 text-[9px]" : "h-8 text-[11px]", dims.length > 1 && "bg-indigo-100 text-indigo-700 border-indigo-200 font-bold")}>
+                  <span className="truncate">
+                    {dims[0].length || dims[0].width || dims[0].height ? `${dims[0].length || '-'} × ${dims[0].width || '-'} × ${dims[0].height || '-'}` + (dims.length > 1 ? ` (+${dims.length - 1})` : '') : "Add Dims"}
+                  </span>
+                  <ChevronDown className="w-3 h-3 ml-1 shrink-0" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[300px] p-3 shadow-xl z-[200]">
@@ -501,7 +488,7 @@ const SketchPlanRow = ({
           </div>
         </div>
       </td>
-      <td className={cn("px-1 align-top", isCompact ? "py-1" : "py-2")}>
+      <td className={cn("px-1 align-top w-[80px] min-w-[80px] max-w-[80px]", isCompact ? "py-1" : "py-2")}>
         <div className="flex flex-col gap-1 w-full relative h-[calc(100%-4px)]">
           <div className={cn("relative flex items-center justify-center top-1")}>
             <Input value={item.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={cn("bg-slate-50 font-bold text-indigo-700 px-1 w-full max-w-[80px] text-center", isCompact ? "h-5 text-[10px]" : "h-8 text-xs")} disabled={isLocked} />
@@ -867,21 +854,21 @@ export default function CreateSketchPlan() {
     const sorted = [...items].sort((a, b) => {
       switch (criteria) {
         case "name-asc":
-          return (a.item_name || "").localeCompare(b.item_name || "");
+          return (a.item_name || "").trim().localeCompare((b.item_name || "").trim());
         case "name-desc":
-          return (b.item_name || "").localeCompare(a.item_name || "");
+          return (b.item_name || "").trim().localeCompare((a.item_name || "").trim());
         case "qty-asc":
           return (Number(a.qty) || 0) - (Number(b.qty) || 0);
         case "qty-desc":
           return (Number(b.qty) || 0) - (Number(a.qty) || 0);
         case "category-asc":
-          return (a.category || "").localeCompare(b.category || "");
+          return (a.category || "").trim().localeCompare((b.category || "").trim());
         case "category-desc":
-          return (b.category || "").localeCompare(a.category || "");
+          return (b.category || "").trim().localeCompare((a.category || "").trim());
         case "notes-asc":
-          return (a.description || "").localeCompare(b.description || "");
+          return (a.description || "").trim().localeCompare((b.description || "").trim());
         case "notes-desc":
-          return (b.description || "").localeCompare(a.description || "");
+          return (b.description || "").trim().localeCompare((a.description || "").trim());
         case "vendor-asc":
           return (a.vendor_name || "").localeCompare(b.vendor_name || "");
         case "vendor-desc":
@@ -1093,6 +1080,7 @@ export default function CreateSketchPlan() {
     // Clear filters to ensure the new item is visible
     setSearchTerm("");
     setCategoryFilter("all");
+    if (sortBy !== "none") setSortBy("none");
 
     setItems([
       ...items,
@@ -1105,6 +1093,7 @@ export default function CreateSketchPlan() {
     const newItems = [...items];
     newItems.splice(idx, 1);
     setItems(newItems);
+    if (sortBy !== "none") setSortBy("none");
   };
 
   const moveItemToPosition = (fromIdx: number, toIdx: number) => {
@@ -1113,13 +1102,14 @@ export default function CreateSketchPlan() {
     const item = newItems.splice(fromIdx, 1)[0];
     newItems.splice(toIdx, 0, item);
     setItems(newItems);
+    if (sortBy !== "none") setSortBy("none");
   };
 
   const addDimension = useCallback((itemIdx: number) => {
     setItems((prevItems) => {
       const newItems = [...prevItems];
       const item = { ...newItems[itemIdx] };
-      const dims = item.dimensions ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
+      const dims = item.dimensions?.length ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
       dims.push({ id: `dim-${Date.now()}`, length: "", width: "", height: "" });
       item.dimensions = dims;
       newItems[itemIdx] = item;
@@ -1161,7 +1151,7 @@ export default function CreateSketchPlan() {
     setItems((prevItems) => {
       const newItems = [...prevItems];
       const item = { ...newItems[itemIdx] };
-      const dims = item.dimensions ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
+      const dims = item.dimensions?.length ? [...item.dimensions] : [{ id: "def", length: item.length, width: item.width, height: item.height }];
 
       dims[dimIdx] = { ...dims[dimIdx], [field]: value };
       item.dimensions = dims;
@@ -1201,7 +1191,7 @@ export default function CreateSketchPlan() {
     // Auto-calculate quantity if dimensions or unit change
     if (["length", "width", "height", "dimension_unit"].includes(field)) {
       if (field === "dimension_unit") {
-        const dims = newItems[idx].dimensions ? newItems[idx].dimensions : [{ id: "def", length: newItems[idx].length, width: newItems[idx].width, height: newItems[idx].height }];
+        const dims = newItems[idx].dimensions?.length ? newItems[idx].dimensions : [{ id: "def", length: newItems[idx].length, width: newItems[idx].width, height: newItems[idx].height }];
         let totalQty = 0;
         dims.forEach((d: any) => {
           const l = parseFloat(d.length) || 0;
@@ -1236,6 +1226,7 @@ export default function CreateSketchPlan() {
     }
 
     setItems(newItems);
+    if (sortBy !== "none") setSortBy("none");
   };
 
   const handlePlanImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1897,6 +1888,14 @@ export default function CreateSketchPlan() {
     });
   };
 
+  const filteredItems = items.filter(it =>
+    (isSupplier ? it.assigned_vendor_id === (user as any)?.shopId : true) &&
+    ((it.item_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (it.description || "").toLowerCase().includes(searchTerm.toLowerCase())) &&
+    (categoryFilter === "all" || it.category === categoryFilter)
+  );
+  const isFiltering = filteredItems.length !== items.length;
+
   const LayoutComponent = isSupplier ? SupplierLayout : Layout;
 
   return (
@@ -2205,15 +2204,12 @@ export default function CreateSketchPlan() {
                 </SelectTrigger>
                 <SelectContent className="z-[110]">
                   <SelectItem value="none">Manual Order</SelectItem>
-                  <SelectItem value="name-asc">Name (A-Z)</SelectItem>
-                  <SelectItem value="name-desc">Name (Z-A)</SelectItem>
-                  <SelectItem value="qty-desc">Qty (High to Low)</SelectItem>
-                  <SelectItem value="qty-asc">Qty (Low to High)</SelectItem>
-                  <SelectItem value="category-asc">Category (A-Z)</SelectItem>
-                  <SelectItem value="notes-asc">Notes (A-Z)</SelectItem>
-                  <SelectItem value="notes-desc">Notes (Z-A)</SelectItem>
-                  <SelectItem value="vendor-asc">Assignee (A-Z)</SelectItem>
-                  <SelectItem value="vendor-desc">Assignee (Z-A)</SelectItem>
+                  <SelectItem value="name-asc">Item Sort (A-Z)</SelectItem>
+                  <SelectItem value="name-desc">Item Sort (Z-A)</SelectItem>
+                  <SelectItem value="notes-asc">Notes Sort (A-Z)</SelectItem>
+                  <SelectItem value="notes-desc">Notes Sort (Z-A)</SelectItem>
+                  <SelectItem value="qty-desc">Qty Sort (High to Low)</SelectItem>
+                  <SelectItem value="qty-asc">Qty Sort (Low to High)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2290,10 +2286,8 @@ export default function CreateSketchPlan() {
                       <th className={cn("w-[220px] min-w-[220px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Notes/Review</th>
                       <th className={cn("w-[160px] min-w-[160px] max-w-[160px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Item/Product</th>
                       <th className={cn("w-[60px] px-2 text-left", isCompact ? "py-1" : "py-3")}>Unit</th>
-                      <th className={cn("w-[60px] px-2 text-left font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>L</th>
-                      <th className={cn("w-[60px] px-2 text-left font-bold text-indigo-900 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>W</th>
-                      <th className={cn("w-[60px] px-2 text-left font-bold text-indigo-900 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>H</th>
-                      <th className={cn("w-[80px] px-2 text-center bg-indigo-50 font-bold text-indigo-700", isCompact ? "py-1" : "py-3")}>QTY</th>
+                      <th className={cn("w-[110px] min-w-[110px] max-w-[110px] px-2 text-center font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Dimensions</th>
+                      <th className={cn("w-[80px] min-w-[80px] max-w-[80px] px-2 text-center bg-indigo-50 font-bold text-indigo-700", isCompact ? "py-1" : "py-3")}>QTY</th>
                       {!isSupplier && (
                         <th className={cn("w-[100px] px-2 text-left font-bold text-indigo-900 border-l border-slate-200/50 bg-indigo-50/20", isCompact ? "py-1" : "py-3")}>Assignee</th>
                       )}
@@ -2302,19 +2296,18 @@ export default function CreateSketchPlan() {
                       <th className={cn("w-10 px-2 text-center", isCompact ? "py-1" : "py-3")}>Del</th>
                     </tr>
                   </thead>
-                  <Reorder.Group as="tbody" axis="y" values={items} onReorder={setItems}>
-                    {items.filter(it =>
-                      (isSupplier ? it.assigned_vendor_id === (user as any)?.shopId : true) &&
-                      ((it.item_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        (it.description || "").toLowerCase().includes(searchTerm.toLowerCase())) &&
-                      (categoryFilter === "all" || it.category === categoryFilter)
-                    ).map((item, idx) => (
+                  <Reorder.Group as="tbody" axis="y" values={isFiltering ? items : items} onReorder={(newOrder) => {
+                    if (isFiltering) return;
+                    setItems(newOrder);
+                    if (sortBy !== "none") setSortBy("none");
+                  }} key={sortBy}>
+                    {filteredItems.map((item, idx) => (
                       <SketchPlanRow
                         key={item.id}
                         item={item}
                         idx={items.indexOf(item)}
                         itemsLength={items.length}
-                        isLocked={isLocked || userRole === "supplier"}
+                        isLocked={isLocked || userRole === "supplier" || isFiltering}
                         isCompact={isCompact}
                         updateItem={updateItem}
                         removeItem={removeItem}
