@@ -625,8 +625,8 @@ export default function ManageProduct() {
         setConfigMaterials(prev => prev.map((cm, idx) => {
             const mismatch = activeMismatches.find(m => m.index === idx);
             if (mismatch) {
-                const newSupply = mismatch.newRate;
-                return { ...cm, supplyRate: newSupply, rate: newSupply + (cm.installRate || 0) };
+                const newSupply = Number(mismatch.newRate);
+                return { ...cm, supplyRate: newSupply, rate: newSupply + Number(cm.installRate || 0) };
             }
             return cm;
         }));
@@ -657,8 +657,8 @@ export default function ManageProduct() {
     const handleUpdateSingleRate = (mismatch: typeof mismatches[0]) => {
         setConfigMaterials(prev => prev.map((cm, idx) => {
             if (idx === mismatch.index) {
-                const newSupply = mismatch.newRate;
-                return { ...cm, supplyRate: newSupply, rate: newSupply + (cm.installRate || 0) };
+                const newSupply = Number(mismatch.newRate);
+                return { ...cm, supplyRate: newSupply, rate: newSupply + Number(cm.installRate || 0) };
             }
             return cm;
         }));
