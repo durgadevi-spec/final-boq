@@ -509,7 +509,39 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                 Indicate
               </label>
             )}
-            {tableData.category && !isCompactView && <span className="text-xs text-gray-500 font-normal">({tableData.category})</span>}
+            {!isVersionSubmitted && !isCompactView ? (
+              <div className="flex items-center gap-1 ml-2">
+                <MapPin className="h-3 w-3 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Area (e.g. Hall)"
+                  className="text-[10px] w-24 h-5 px-1.5 border border-slate-200 rounded outline-none focus:ring-1 ring-blue-400 transition-all bg-white font-medium"
+                  value={tableData.category || ""}
+                  onChange={(e) => {
+                    const newArea = e.target.value;
+                    updateEditedField(boqItem.id, "category", newArea);
+                    updateEditedField(boqItem.id, "category_name", newArea);
+                  }}
+                  onBlur={async () => {
+                    const newArea = editedFields[boqItem.id]?.category;
+                    if (newArea === undefined) return;
+                    try {
+                      // Update product and optionally all its materials
+                      const updatedTd = { ...tableData, category: newArea, category_name: newArea };
+                      if (updatedTd.materialLines) {
+                        updatedTd.materialLines = updatedTd.materialLines.map((ml: any) => ({ ...ml, category: newArea }));
+                      }
+                      const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
+                      if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
+                    } catch (err) { console.error("Failed to save area", err); }
+                  }}
+                  onClick={e => e.stopPropagation()}
+                  title="Project Area / Location"
+                />
+              </div>
+            ) : (
+              tableData.category && !isCompactView && <span className="text-xs text-gray-500 font-normal">({tableData.category})</span>
+            )}
             {tableData.is_finalized && <span className={`inline-block bg-green-100 text-green-700 px-2 py-0.5 rounded font-semibold ml-2 ${isCompactView ? 'text-[10px]' : 'text-xs'}`}>Finalized</span>}
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-1 shrink-0" title={isExpanded ? "Collapse" : "Expand"} onClick={toggle}>
               {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -702,6 +734,7 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                   <th className="border px-2 py-2 text-left font-semibold w-10">Sl</th>
                   <th className="border px-1 py-1 text-center w-12 font-semibold">Image</th>
                   <th className="border px-2 py-2 text-left font-semibold w-64">Item</th>
+                  {!isCompactView && <th className="border px-2 py-2 text-left font-semibold w-24">Project Area</th>}
                   {!isCompactView && <th className="border px-2 py-2 text-left font-semibold w-32">Shop</th>}
                   {!isCompactView && <th className="border px-2 py-2 text-left font-semibold w-[300px]">Description</th>}
                   <th className="border px-2 py-2 text-center font-semibold w-16">Unit</th>
@@ -900,8 +933,18 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           </div>
         </td>
         <td className="border px-2 py-2 text-left w-64">
-          <div className="font-medium text-gray-900 flex items-center justify-between gap-1">
-            <span>{item.title || item.name || "-"}</span>
+          <div className="font-medium text-gray-900">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span>{item.title || item.name || "-"}</span>
+              {item.category && item.category !== "General" && (
+                <Badge variant="secondary" className="bg-indigo-50 text-indigo-600 border-indigo-100 text-[9px] px-1.5 py-0 h-4 font-bold uppercase tracking-tight">
+                  {item.category}
+                </Badge>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-1 mt-1">
+            <span></span>
             {!isVersionSubmitted && (
               <label className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm whitespace-nowrap cursor-pointer">
                 <input type="checkbox" checked={isIndicate} onChange={(e) => updateEditedField(itemKey, "indicate", e.target.checked)} className="cursor-pointer" />
@@ -911,6 +954,17 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           </div>
           {mismatch && (<div className="mt-1 flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200"><ArrowUp className="h-3 w-3" />Rate updated ₹{mismatch.new.toLocaleString()}</div>)}
         </td>
+        {!isCompactView && (
+          <td className="border px-2 py-2 text-left w-24">
+            <Input
+              value={item.category || ""}
+              onChange={(e) => updateEditedField(itemKey, "category", e.target.value)}
+              placeholder="Area..."
+              className="h-7 text-[10px] border-gray-200 focus:border-blue-400 px-1.5"
+              disabled={isVersionSubmitted}
+            />
+          </td>
+        )}
         {!isCompactView && <td className="border px-2 py-2 text-left w-32 text-gray-600">{item.shop_name || "-"}</td>}
         {!isCompactView && <td className="border px-2 py-2 text-left w-[300px] text-gray-600 truncate max-w-[300px]">{item.description || "-"}</td>}
         <td className="border px-2 py-2 text-center w-16">{item.unit || "-"}</td>
@@ -1028,7 +1082,16 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
       <td className="border px-2 py-2 text-left w-64">
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-2">
-            <div className="font-medium text-gray-900">{item.title || item.name || "-"}</div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="font-medium text-gray-900">{item.title || item.name || "-"}</div>
+                {item.category && item.category !== "General" && (
+                  <Badge variant="secondary" className="bg-indigo-50 text-indigo-600 border-indigo-100 text-[9px] px-1.5 py-0 h-4 font-bold uppercase tracking-tight">
+                    {item.category}
+                  </Badge>
+                )}
+              </div>
+            </div>
             {item.manual && (
               <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] px-1.5 py-0 font-bold uppercase leading-tight">
                 Manual
@@ -1049,6 +1112,17 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           </div>
         )}
       </td>
+      {!isCompactView && (
+        <td className="border px-2 py-2 text-left w-24">
+          <Input
+            value={item.category || ""}
+            onChange={(e) => updateEditedField(itemKey, "category", e.target.value)}
+            placeholder="Area..."
+            className="h-7 text-[10px] border-gray-200 focus:border-blue-400 px-1.5"
+            disabled={isVersionSubmitted}
+          />
+        </td>
+      )}
       {!isCompactView && <td className="border px-2 py-2 text-left w-32 text-gray-600">{item.shop_name || "-"}</td>}
       {!isCompactView && <td className="border px-2 py-2 text-left w-[300px]">
         <Input
@@ -1835,23 +1909,97 @@ export default function CreateBom() {
         return;
       }
 
-      toast({ title: "Importing Sketch", description: `Adding ${items.length} items to your BOM...` });
+      // 1. Fetch products & materials once to avoid over-fetching in loops
+      const [prodResp, matResp] = await Promise.all([
+        apiFetch("/api/products"),
+        apiFetch("/api/materials")
+      ]);
 
-      const batchItems = items.map((item: any) => {
+      const allProds: Product[] = prodResp.ok ? (await prodResp.json()).products || [] : [];
+      const allMats: any[] = matResp.ok ? (await matResp.json()).materials || [] : [];
+      const matMap = Object.fromEntries(allMats.map(m => [m.id, m]));
+
+      toast({ title: "Importing Sketch", description: `Processing ${items.length} items...` });
+
+      const batchItems = [];
+
+      for (const item of items) {
+        const itemName = (item.item_name || "").toLowerCase().trim();
+        const mId = item.material_id || item.id;
+        const area = item.category || "General";
+
+        // Try to find a matching product
+        const matchedProd = allProds.find(p =>
+          p.id === mId ||
+          p.name.toLowerCase().trim() === itemName
+        );
+
         const dims = [item.length, item.width, item.height].filter(Boolean).filter(d => d !== "0" && d !== "").join(' x ');
         const desc = `${item.description || ''} ${dims ? `(Dims: ${dims} ${item.dimension_unit || ''})` : ''}`.trim();
         const qty = Number(item.qty ?? item.quantity ?? item.qty_required ?? item.requiredQty ?? 1) || 1;
-        let rate = Number(item.rate ?? item.price ?? item.unit_rate ?? item.unitRate ?? (item.amount && qty > 0 ? Number(item.amount) / qty : undefined) ?? 0) || 0;
 
-        // If rate is 0, check if we can get it from the material master
-        const mId = item.material_id || item.id;
+        if (matchedProd) {
+          // It's a product! Fetch its config
+          try {
+            const configRes = await apiFetch(`/api/product-step3-config/${matchedProd.id}`);
+            if (configRes.ok) {
+              const { items: configLines, config } = await configRes.json();
+              if (configLines && configLines.length > 0) {
+                const materialLines = configLines.map((it: any) => ({
+                  id: it.material_id,
+                  name: it.material_name,
+                  unit: it.unit,
+                  baseQty: Number(it.base_qty ?? it.qty ?? 0),
+                  wastagePct: it.wastage_pct != null ? Number(it.wastage_pct) : undefined,
+                  supplyRate: Number(it.supply_rate ?? it.rate ?? 0),
+                  installRate: Number(it.install_rate ?? 0),
+                  shop_name: it.shop_name,
+                  freezeAndEdit: it.freezeAndEdit || it.freeze_and_edit,
+                  freeze_and_edit: it.freezeAndEdit || it.freeze_and_edit,
+                  category: area // Apply area to all materials
+                }));
+
+                batchItems.push({
+                  estimator: matchedProd.name.substring(0, 50),
+                  table_data: {
+                    product_name: matchedProd.name,
+                    product_id: matchedProd.id,
+                    image: matchedProd.image,
+                    category: area,
+                    category_name: area,
+                    hsn_sac_type: matchedProd.tax_code_type || null,
+                    hsn_sac_code: matchedProd.tax_code_value || null,
+                    hsn_code: matchedProd.hsn_code || null,
+                    sac_code: matchedProd.sac_code || null,
+                    targetRequiredQty: qty,
+                    configBasis: {
+                      requiredUnitType: config.required_unit_type || config.basis_unit || "nos",
+                      baseRequiredQty: Number(config.base_required_qty || config.basis_qty || 1),
+                      wastagePctDefault: Number(config.wastage_pct_default || 0)
+                    },
+                    materialLines,
+                    step11_items: [],
+                    finalize_description: desc || matchedProd.name,
+                    created_at: new Date().toISOString()
+                  }
+                });
+                continue;
+              }
+            }
+          } catch (e) {
+            console.warn("Failed to fetch product config for", matchedProd.name, e);
+          }
+        }
+
+        // Fallback: Manual Item (either product config failed or it's a raw material)
+        let rate = Number(item.rate ?? item.price ?? item.unit_rate ?? item.unitRate ?? (item.amount && qty > 0 ? Number(item.amount) / qty : undefined) ?? 0) || 0;
         let hsn = "";
         let sac = "";
         let taxType = null;
         let taxValue = "";
 
-        if (mId && materialsById[mId]) {
-          const mat = materialsById[mId];
+        const mat = matMap[mId] || allMats.find(m => m.name.toLowerCase().trim() === itemName);
+        if (mat) {
           if (rate === 0) rate = Number(mat.rate || 0);
           hsn = mat.hsn_code || mat.template_hsn_code || "";
           sac = mat.sac_code || mat.template_sac_code || "";
@@ -1859,18 +2007,18 @@ export default function CreateBom() {
           taxValue = mat.tax_code_value || hsn || sac || "";
         }
 
-        return {
+        batchItems.push({
           estimator: "General",
           table_data: {
             product_name: item.item_name || "Sketch Item",
             product_id: null,
-            material_id: item.material_id || null,
+            material_id: mId || null,
             hsn_code: hsn,
             sac_code: sac,
             hsn_sac_type: taxType,
             hsn_sac_code: taxValue,
-            category: item.category || "General",
-            category_name: item.category || "General",
+            category: area,
+            category_name: area,
             finalize_description: desc,
             finalize_qty: qty,
             finalize_rate: rate,
@@ -1878,7 +2026,7 @@ export default function CreateBom() {
             step11_items: [
               {
                 s_no: 1,
-                material_id: item.material_id || null,
+                material_id: mId || null,
                 title: item.item_name || "Sketch Item",
                 description: desc,
                 unit: item.unit || "nos",
@@ -1887,13 +2035,13 @@ export default function CreateBom() {
                 install_rate: 0,
                 rate,
                 manual: true,
-                category: item.category || "General"
+                category: area
               }
             ],
             created_at: new Date().toISOString()
           }
-        };
-      });
+        });
+      }
 
       const resp = await apiFetch("/api/boq-items/batch", {
         method: "POST",
@@ -1910,7 +2058,9 @@ export default function CreateBom() {
         toast({ title: "Sketch Imported", description: `${items.length} items added from sketch template.` });
         loadBoqItemsAndEdits();
       } else {
-        throw new Error("Batch import failed");
+        const errData = await resp.json().catch(() => ({}));
+        console.error("Batch import failed details:", errData);
+        throw new Error(errData.error || errData.message || "Batch import failed");
       }
     } catch (e) {
       console.error("Apply sketch template error:", e);
@@ -2114,9 +2264,9 @@ export default function CreateBom() {
                 const mat = materialsById[td.material_id];
                 if (mat.hsn_code || mat.template_hsn_code) td.hsn_code = mat.hsn_code || mat.template_hsn_code;
                 if (mat.sac_code || mat.template_sac_code) td.sac_code = mat.sac_code || mat.template_sac_code;
-                if (mat.tax_code_value || mat.hsn_sac_code) { 
-                  td.hsn_sac_code = mat.tax_code_value || mat.hsn_sac_code; 
-                  td.hsn_sac_type = mat.tax_code_type || mat.hsn_sac_type || null; 
+                if (mat.tax_code_value || mat.hsn_sac_code) {
+                  td.hsn_sac_code = mat.tax_code_value || mat.hsn_sac_code;
+                  td.hsn_sac_type = mat.tax_code_type || mat.hsn_sac_type || null;
                 }
                 item.table_data = td;
               }
@@ -4213,10 +4363,10 @@ export default function CreateBom() {
       <div className="fixed right-6 bottom-24 z-50 flex flex-col items-end gap-2 md:gap-3">
         <Button onClick={handleAddProduct} className="bg-primary text-white h-8 px-3 text-xs font-semibold shadow-sm" disabled={isVersionSubmitted || !selectedVersionId} title="Add Product">+ Add Product</Button>
         <Button onClick={handleAddProductManual} variant="outline" className="border-slate-200 h-8 px-3 text-xs font-semibold shadow-sm bg-white" disabled={isVersionSubmitted || !selectedVersionId} title="Add Item">+ Add Item</Button>
-        <Button 
-          onClick={() => setIsCompactView(!isCompactView)} 
-          variant="outline" 
-          className={`h-8 px-3 text-xs font-semibold shadow-sm ${isCompactView ? 'bg-blue-50 text-blue-600 border-blue-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`} 
+        <Button
+          onClick={() => setIsCompactView(!isCompactView)}
+          variant="outline"
+          className={`h-8 px-3 text-xs font-semibold shadow-sm ${isCompactView ? 'bg-blue-50 text-blue-600 border-blue-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
           title="Toggle Compact View"
         >
           Compact View
