@@ -2497,6 +2497,8 @@ export default function CreateSketchPlan() {
                   <SelectItem value="none">Manual Order</SelectItem>
                   <SelectItem value="name-asc">Item Sort (A-Z)</SelectItem>
                   <SelectItem value="name-desc">Item Sort (Z-A)</SelectItem>
+                  <SelectItem value="category-asc">Category Sort (A-Z)</SelectItem>
+                  <SelectItem value="category-desc">Category Sort (Z-A)</SelectItem>
                   <SelectItem value="notes-asc">Notes Sort (A-Z)</SelectItem>
                   <SelectItem value="notes-desc">Notes Sort (Z-A)</SelectItem>
                   <SelectItem value="qty-desc">Qty Sort (High to Low)</SelectItem>
