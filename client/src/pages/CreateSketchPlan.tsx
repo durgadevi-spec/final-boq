@@ -12,7 +12,7 @@ import { Reorder, useDragControls } from "framer-motion";
 import { SketchPad } from "@/components/SketchPad";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import jsPDF from "jspdf";
@@ -214,7 +214,7 @@ const SketchPlanRow = ({
   handleRowImageUpload, isLocked, isCompact, setPreviewImage,
   setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen,
   isSelected, toggleSelect, userRole, onImageDragStart, onImageDrop,
-  addDimension, removeDimension, updateDimension, cloneItem
+  addDimension, removeDimension, updateDimension, cloneItem, categories
 }: any) => {
   const [itemSearchTab, setItemSearchTab] = useState<"all" | "material" | "product">("all");
   const dragControls = useDragControls();
@@ -301,10 +301,10 @@ const SketchPlanRow = ({
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center mb-3">
                   <Label className="text-xs font-bold uppercase text-slate-500">Sub-Notes (Per Dimension Row)</Label>
-                  <Button 
-                    type="button" 
-                    size="sm" 
-                    variant="outline" 
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
                     className="h-7 text-[10px] bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
                     onClick={() => addDimension(idx)}
                     disabled={isLocked}
@@ -312,7 +312,7 @@ const SketchPlanRow = ({
                     <Plus className="w-3 h-3 mr-1" /> Add Sub Note
                   </Button>
                 </div>
-                
+
                 <div className="space-y-4">
                   {dims.map((dim: any, dIdx: number) => (
                     <div key={dim.id} className="flex gap-3 items-start bg-slate-50 p-3 rounded-lg border border-slate-100 shadow-sm">
@@ -320,8 +320,8 @@ const SketchPlanRow = ({
                         <Label className="text-[10px] text-slate-400 font-bold mb-1.5 block uppercase tracking-tight">
                           {dIdx === 0 ? "Linked to Main Notes" : `Sub Note #${dIdx}`}
                         </Label>
-                        <Input 
-                          value={dIdx === 0 ? item.description : (dim.note || "")} 
+                        <Input
+                          value={dIdx === 0 ? item.description : (dim.note || "")}
                           onChange={(e) => {
                             if (dIdx === 0) {
                               updateItem(idx, "description", e.target.value);
@@ -337,24 +337,24 @@ const SketchPlanRow = ({
                       <div className="w-[180px] shrink-0">
                         <Label className="text-[10px] text-slate-400 font-bold mb-1.5 block text-center uppercase tracking-tight">Dimensions (L / W / H)</Label>
                         <div className="flex gap-1 px-1">
-                          <Input 
-                            value={dim.length} 
+                          <Input
+                            value={dim.length}
                             onChange={(e) => updateDimension(idx, dIdx, "length", e.target.value)}
                             placeholder="L"
                             className="h-9 text-[11px] text-center px-0.5 font-bold bg-white border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                             disabled={isLocked}
                           />
                           <div className="flex items-center text-slate-300 px-0.5">/</div>
-                          <Input 
-                            value={dim.width} 
+                          <Input
+                            value={dim.width}
                             onChange={(e) => updateDimension(idx, dIdx, "width", e.target.value)}
                             placeholder="W"
                             className="h-9 text-[11px] text-center px-0.5 font-bold bg-white border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                             disabled={isLocked}
                           />
                           <div className="flex items-center text-slate-300 px-0.5">/</div>
-                          <Input 
-                            value={dim.height} 
+                          <Input
+                            value={dim.height}
                             onChange={(e) => updateDimension(idx, dIdx, "height", e.target.value)}
                             placeholder="H"
                             className="h-9 text-[11px] text-center px-0.5 font-bold bg-white border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
@@ -363,10 +363,10 @@ const SketchPlanRow = ({
                         </div>
                       </div>
                       {dIdx > 0 && (
-                        <Button 
-                          type="button" 
-                          size="icon" 
-                          variant="ghost" 
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
                           className="h-9 w-9 text-red-400 mt-5 hover:bg-red-50 hover:text-red-500 rounded-md"
                           onClick={() => removeDimension(idx, dIdx)}
                           disabled={isLocked}
@@ -388,11 +388,44 @@ const SketchPlanRow = ({
         </Dialog>
       </td>
       <td className={cn("px-1", isCompact ? "py-0 w-[80px] min-w-[80px]" : "py-2 w-[100px] min-w-[100px] max-w-[100px]")}>
-        <div className={cn("bg-slate-50 border border-slate-200 rounded px-1.5 flex items-center h-8", isCompact ? "h-6" : "h-8")}>
-          <span className={cn("truncate font-bold italic text-slate-500", isCompact ? "text-[8px]" : "text-[10px]")}>
-            {item.category || "-"}
-          </span>
-        </div>
+        <Popover>
+          <PopoverTrigger asChild>
+            <div className={cn("bg-slate-50 border border-slate-200 rounded px-1.5 flex items-center h-8 cursor-pointer hover:border-indigo-400", isCompact ? "h-6" : "h-8")}>
+              <span className={cn("truncate font-bold italic text-slate-500", isCompact ? "text-[8px]" : "text-[10px]")}>
+                {item.category || "-"}
+              </span>
+            </div>
+          </PopoverTrigger>
+          <PopoverContent className="p-0 w-[200px]" align="start">
+            <Command>
+              <CommandInput placeholder="Search category..." className="h-8 text-xs" />
+              <CommandList className="max-h-[200px]">
+                <CommandEmpty>No category found.</CommandEmpty>
+                <CommandGroup heading="Existing Categories">
+                  {categories.map((catName: string, cIdx: number) => (
+                    <CommandItem
+                      key={cIdx}
+                      onSelect={() => {
+                        updateItem(idx, "category", catName);
+                      }}
+                      className="text-xs cursor-pointer"
+                    >
+                      {catName}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+            <div className="p-2 border-t bg-slate-50">
+              <Input
+                placeholder="Manual entry..."
+                className="h-8 text-xs"
+                value={item.category || ""}
+                onChange={(e) => updateItem(idx, "category", e.target.value)}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
       </td>
       <td className={cn("px-2", isCompact ? "py-0 w-[120px] min-w-[120px] max-w-[120px]" : "py-2 w-[160px] min-w-[160px] max-w-[160px]")}>
         <Dialog open={openPopoverIdx === idx} onOpenChange={(open) => {
@@ -421,6 +454,7 @@ const SketchPlanRow = ({
             <Command shouldFilter={false}>
               <CommandInput
                 placeholder="Search materials, products..."
+                value={materialSearch}
                 onValueChange={setMaterialSearch}
                 className="h-10"
               />
@@ -583,7 +617,7 @@ const SketchPlanRow = ({
                           </button>
                         )}
                       </div>
-                      
+
                       <div className="p-2 grid grid-cols-3 gap-2">
                         <div className="space-y-1">
                           <Label className="text-[8px] text-slate-400 font-bold uppercase block text-center">Length</Label>
@@ -744,6 +778,9 @@ export default function CreateSketchPlan() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [showAssignUserDialog, setShowAssignUserDialog] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [categories, setCategories] = useState<any[]>([]);
+  const [rowToConfirm, setRowToConfirm] = useState<{ idx: number, material: any } | null>(null);
+  const [showCategoryConfirm, setShowCategoryConfirm] = useState(false);
 
   // New state
   const [projectOpen, setProjectOpen] = useState(false);
@@ -903,7 +940,7 @@ export default function CreateSketchPlan() {
     try {
       const userObj = usersList.find(u => u.id === userId);
       const userName = userObj ? (userObj.fullName || userObj.username) : "User";
-      
+
       const updatedItems = items.map(item => {
         if (selectedItemIds.has(item.id)) {
           return { ...item, assigned_user_id: String(userId), assigned_user_name: userName, user_task_status: 'pending' };
@@ -1009,6 +1046,17 @@ export default function CreateSketchPlan() {
   // Load initial data
   useEffect(() => {
     const loadInitialData = async () => {
+      // Load Categories
+      try {
+        const catRes = await apiFetch("/api/categories");
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          setCategories(catData.categories || []);
+        }
+      } catch (e) {
+        console.error("Failed to load categories", e);
+      }
+
       try {
         if (!isSupplier) {
           const projectsRes = await apiFetch("/api/boq-projects");
@@ -1231,7 +1279,7 @@ export default function CreateSketchPlan() {
       preImages: (itemToClone.preImages || []).map(img => ({ ...img, id: undefined })),
       postImages: (itemToClone.postImages || []).map(img => ({ ...img, id: undefined }))
     };
-    
+
     const newItems = [...items];
     newItems.splice(idx + 1, 0, clonedItem);
     setItems(newItems);
@@ -1454,10 +1502,23 @@ export default function CreateSketchPlan() {
   };
 
   const selectMaterial = (idx: number, material: any) => {
+    const currentCategory = items[idx].category;
+    const materialCategory = material.category;
+
+    if (currentCategory && materialCategory && currentCategory !== materialCategory) {
+      setRowToConfirm({ idx, material });
+      setShowCategoryConfirm(true);
+      return;
+    }
+
+    applyMaterialSelection(idx, material);
+  };
+
+  const applyMaterialSelection = (idx: number, material: any, updateCategory: boolean = true) => {
     const newItems = [...items];
     newItems[idx].material_id = material.id;
     newItems[idx].item_name = material.name;
-    if (material.category) newItems[idx].category = material.category;
+    if (updateCategory && material.category) newItems[idx].category = material.category;
     if (material.unit) newItems[idx].unit = material.unit;
 
     // Automatically load material image into PRE option if available
@@ -1477,6 +1538,24 @@ export default function CreateSketchPlan() {
     }
 
     setItems(newItems);
+    setMaterialSearch("");
+    setSearchResults([]);
+  };
+
+  const confirmCategoryReplace = () => {
+    if (rowToConfirm) {
+      applyMaterialSelection(rowToConfirm.idx, rowToConfirm.material, true);
+      setRowToConfirm(null);
+      setShowCategoryConfirm(false);
+    }
+  };
+
+  const cancelCategoryReplace = () => {
+    // "On cancel → keep existing category and prevent mismatch"
+    // This implies we don't apply the material selection because it has a different category.
+    setRowToConfirm(null);
+    setShowCategoryConfirm(false);
+    setOpenPopoverIdx(null); // Close the item picker
     setMaterialSearch("");
     setSearchResults([]);
   };
@@ -1667,7 +1746,7 @@ export default function CreateSketchPlan() {
       const body: any[] = [];
       processedItems.forEach((item, idx) => {
         const itemDims = (includeSubNotesInExport && item.dimensions?.length) ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
-        
+
         itemDims.forEach((dim: any, dIdx: number) => {
           const row: any[] = [];
           headers.forEach(h => {
@@ -1718,7 +1797,7 @@ export default function CreateSketchPlan() {
           // Check if this is a sub-row (empty S.No cell)
           const sNoIdx = headers.indexOf("#");
           const isSubRow = data.section === 'body' && (sNoIdx !== -1 ? !data.row.raw[sNoIdx] : !data.row.raw[0]);
-          
+
           if (isSubRow) {
             data.cell.styles.fillColor = [240, 245, 250]; // Slightly stronger blue-ish gray
             data.cell.styles.textColor = [80, 80, 80];
@@ -1728,13 +1807,13 @@ export default function CreateSketchPlan() {
 
           if (data.section === 'body' && (data.column.index === prePhotoColIdx || data.column.index === postPhotoColIdx)) {
             const itemIdx = processedItems.findIndex((it, i) => {
-               // Find which item this row belongs to by matching cumulative row count
-               let count = 0;
-               for(let j=0; j<=i; j++) {
-                 count += (processedItems[j].dimensions?.length || 1);
-                 if (count > data.row.index) return true;
-               }
-               return false;
+              // Find which item this row belongs to by matching cumulative row count
+              let count = 0;
+              for (let j = 0; j <= i; j++) {
+                count += (processedItems[j].dimensions?.length || 1);
+                if (count > data.row.index) return true;
+              }
+              return false;
             });
             const item = processedItems[itemIdx];
             if (!item) return;
@@ -1755,12 +1834,12 @@ export default function CreateSketchPlan() {
             if (!hasSNo) return; // Don't draw images on sub-rows
 
             const itemIdx = processedItems.findIndex((it, i) => {
-               let count = 0;
-               for(let j=0; j<=i; j++) {
-                 count += (processedItems[j].dimensions?.length || 1);
-                 if (count > data.row.index) return true;
-               }
-               return false;
+              let count = 0;
+              for (let j = 0; j <= i; j++) {
+                count += (processedItems[j].dimensions?.length || 1);
+                if (count > data.row.index) return true;
+              }
+              return false;
             });
             const item = processedItems[itemIdx];
             if (!item) return;
@@ -1857,7 +1936,7 @@ export default function CreateSketchPlan() {
       const tableData: any[] = [];
       items.forEach((item, idx) => {
         const itemDims = (includeSubNotesInExport && item.dimensions?.length) ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
-        
+
         itemDims.forEach((dim: any, dIdx: number) => {
           const row: any = {};
           if (selectedPdfCols.includes("#")) row["S.No"] = dIdx === 0 ? idx + 1 : "";
@@ -2550,6 +2629,7 @@ export default function CreateSketchPlan() {
                         removeDimension={removeDimension}
                         updateDimension={updateDimension}
                         cloneItem={cloneItem}
+                        categories={categories}
                       />
                     ))}
                   </Reorder.Group>
@@ -3074,15 +3154,38 @@ export default function CreateSketchPlan() {
 
       {/* Floating Action Button */}
       <div className="fixed right-6 bottom-24 z-[100] flex flex-col items-end gap-2 md:gap-3">
-        <Button 
-          onClick={() => setIsCompact(!isCompact)} 
-          variant="outline" 
-          className={`h-8 px-3 text-xs font-semibold shadow-sm ${isCompact ? 'bg-indigo-50 text-indigo-600 border-indigo-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`} 
+        <Button
+          onClick={() => setIsCompact(!isCompact)}
+          variant="outline"
+          className={`h-8 px-3 text-xs font-semibold shadow-sm ${isCompact ? 'bg-indigo-50 text-indigo-600 border-indigo-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
           title="Toggle Compact View"
         >
           Compact View
         </Button>
       </div>
+      {/* Category Mismatch Confirmation Dialog */}
+      <Dialog open={showCategoryConfirm} onOpenChange={setShowCategoryConfirm}>
+        <DialogContent className="sm:max-w-[425px] z-[300]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+              Category Mismatch
+            </DialogTitle>
+            <DialogDescription className="py-2 text-slate-600 font-medium">
+              This item belongs to a different category (<strong>{rowToConfirm?.material?.category}</strong>).
+              Do you want to replace the current category (<strong>{rowToConfirm?.idx !== undefined ? items[rowToConfirm.idx]?.category : ""}</strong>)?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={cancelCategoryReplace} className="flex-1 sm:flex-none">
+              Cancel
+            </Button>
+            <Button onClick={confirmCategoryReplace} className="bg-amber-600 hover:bg-amber-700 text-white flex-1 sm:flex-none">
+              Replace Category
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </LayoutComponent>
   );
 }
