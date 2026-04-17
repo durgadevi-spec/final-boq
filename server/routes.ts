@@ -3,7 +3,7 @@ import fs from "fs";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { comparePasswords, generateToken } from "./auth";
-import { authMiddleware, requireRole } from "./middleware";
+import { authMiddleware, requireRole, requireRoleOrPermission } from "./middleware";
 import { randomUUID } from "crypto";
 import { query } from "./db/client";
 import { sendSketchPlanEmail, sendSiteReportEmail, sendProposalStatusEmail, sendMaterialRateChangeEmail, sendCommentMentionEmail } from "./email";
@@ -2903,7 +2903,7 @@ export async function registerRoutes(
   app.post(
     "/api/material-templates",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "create_item"),
     async (req: Request, res: Response) => {
       try {
         const { name, code, category, subcategory, vendorCategory, taxCodeType, taxCodeValue, hsnCode, sacCode, hsn_code, sac_code, technicalspecification, technicalSpecification, image, metaltype, metalType, brandname, brandName, dimensions, Dimensions, finishtype, finishType } = req.body;
@@ -2938,7 +2938,7 @@ export async function registerRoutes(
   app.put(
     "/api/material-templates/:id",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "edit_item"),
     async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
@@ -3149,7 +3149,7 @@ export async function registerRoutes(
   app.delete(
     "/api/material-templates/:id",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "delete_item"),
     async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
@@ -3289,7 +3289,7 @@ export async function registerRoutes(
   app.post(
     "/api/bulk-materials",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "create_item"),
     async (req: Request, res: Response) => {
       const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
 
@@ -3455,7 +3455,7 @@ export async function registerRoutes(
   app.post(
     "/api/bulk-shops",
     authMiddleware,
-    requireRole("admin", "software_team", "purchase_team"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "create_item"),
     async (req: Request, res: Response) => {
       const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
 
