@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { extractTokenFromHeader, verifyToken } from "./auth";
+import { query } from "./db/client";
 
 declare global {
   namespace Express {
@@ -80,5 +81,34 @@ export function requireRole(...roles: string[]) {
     }
 
     next();
+  };
+}
+
+export function requireRoleOrPermission(roles: string[], permission: string) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.user) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    if (roles.includes(req.user.role)) {
+      next();
+      return;
+    }
+
+    try {
+      const check = await query(
+        `SELECT 1 FROM user_sidebar_permissions WHERE user_id = $1 AND module_name = $2`,
+        [req.user.id, permission]
+      );
+      if (check.rows.length > 0) {
+        next();
+        return;
+      }
+    } catch (e) {
+      console.error("[requireRoleOrPermission] DB error:", e);
+    }
+
+    res.status(403).json({ message: "Forbidden: Insufficient permissions" });
   };
 }
