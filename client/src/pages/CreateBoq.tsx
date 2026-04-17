@@ -329,6 +329,7 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
   const step11Items = Array.isArray(tableData.step11_items) ? tableData.step11_items : [];
   const productName = tableData.product_name || boqItem.estimator;
   const isBifProd = (productName || "").toLowerCase().includes('bif');
+  const isLumpSum = getEditedValue(boqItem.id, "is_lump_sum", tableData.is_lump_sum || false);
   const isExpanded = expandedProductIds.has(boqItem.id);
   const isProductIndicate = getEditedValue(boqItem.id, "indicate", tableData.indicate || false);
   const toggle = () => setExpandedProductIds((prev: Set<string>) => { const n = new Set(prev); n.has(boqItem.id) ? n.delete(boqItem.id) : n.add(boqItem.id); return n; });
@@ -497,6 +498,30 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
             </span>
             {!isVersionSubmitted && (
               <label
+                className="flex items-center gap-1 text-[10px] text-blue-600 font-bold bg-white px-1.5 py-0.5 rounded border border-blue-200 shadow-sm whitespace-nowrap cursor-pointer ml-1"
+                onClick={e => e.stopPropagation()}
+                title="Convert to Lump Sum"
+              >
+                <input
+                  type="checkbox"
+                  checked={isLumpSum}
+                  onChange={async (e) => {
+                    const checked = e.target.checked;
+                    updateEditedField(boqItem.id, "is_lump_sum", checked);
+                    try {
+                      // Update tableData in backend
+                      let updatedTd = { ...tableData, is_lump_sum: checked };
+                      const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
+                      if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
+                    } catch (err) { console.error("Failed to save is_lump_sum", err); }
+                  }}
+                  className="cursor-pointer"
+                />
+                Convert to LS
+              </label>
+            )}
+            {!isVersionSubmitted && (
+              <label
                 className="flex items-center gap-1 text-[10px] text-rose-600 font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 shadow-sm whitespace-nowrap cursor-pointer ml-1"
                 onClick={e => e.stopPropagation()}
               >
@@ -591,8 +616,8 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-4 mt-1">
                 <div className="flex flex-col bg-white border border-slate-200 rounded-md px-3 py-1.5 shadow-sm">
-                  <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight mb-1">Rate per {tableData.configBasis?.requiredUnitType || "Unit"}</span>
-                  <span className="text-sm font-extrabold text-blue-700">₹{ratePerUnit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight mb-1">Rate per {isLumpSum ? "LS" : (tableData.configBasis?.requiredUnitType || "Unit")}</span>
+                  <span className="text-sm font-extrabold text-blue-700">₹{isLumpSum ? grandTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ratePerUnit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex flex-col bg-white border border-slate-200 rounded-md px-3 py-1.5 shadow-sm">
                   <span className="text-[10px] leading-none text-slate-400 font-bold uppercase tracking-tight mb-1">Grand Total</span>
@@ -636,13 +661,13 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                 />
               </div>
               {isEngineBased && (
-                <div className="flex items-center gap-2 text-[11px] text-gray-600 font-medium whitespace-nowrap">
+                <div className={`flex items-center gap-2 text-[11px] text-gray-600 font-medium whitespace-nowrap ${isLumpSum ? "opacity-50 pointer-events-none" : ""}`}>
                   Project Target:
                   <div className="flex items-center gap-1 group/target">
                     <Input
                       type="number"
                       className="h-7 w-20 text-[11px] font-bold text-blue-600 px-1 py-0 border-blue-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-100 transition-all rounded"
-                      value={localTarget}
+                      value={isLumpSum ? 1 : localTarget}
                       onChange={(e) => setLocalTarget(parseFloat(e.target.value) || 0)}
                       disabled={isVersionSubmitted || tableData.is_finalized}
                       onBlur={async (e) => {
@@ -682,7 +707,7 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                         }
                       }}
                     />
-                    <span className="text-blue-600 font-bold">{tableData.configBasis?.requiredUnitType || "Unit"}</span>
+                    <span className="text-blue-600 font-bold">{isLumpSum ? "LS" : (tableData.configBasis?.requiredUnitType || "Unit")}</span>
                   </div>
                 </div>
               )}
@@ -1979,7 +2004,7 @@ export default function CreateBom() {
                     },
                     materialLines,
                     step11_items: [],
-                    finalize_description: desc || matchedProd.name,
+                    finalize_description: config?.description || desc || matchedProd.name,
                     created_at: new Date().toISOString()
                   }
                 });
