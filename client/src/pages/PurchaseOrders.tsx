@@ -97,6 +97,8 @@ export default function PurchaseOrders() {
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState<string>("all");
     const [projectFilter, setProjectFilter] = useState<string>("all");
+    const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+    const [projectSearch, setProjectSearch] = useState<string>("");
     const [deletingPo, setDeletingPo] = useState<PurchaseOrder | null>(null);
 
     // Bulk Delete State
@@ -373,6 +375,20 @@ export default function PurchaseOrders() {
         return poNumber.replace(/-(R\d+|Deferred\d+)$/, "");
     };
 
+    const filteredProjects = projects.filter((project) =>
+        project.name.toLowerCase().includes(projectSearch.toLowerCase())
+    );
+
+    const handleSelectProject = (projectId: string) => {
+        setSelectedProjectId(projectId);
+        setProjectFilter(projectId);
+    };
+
+    const handleBackToProjects = () => {
+        setSelectedProjectId("");
+        setProjectFilter("all");
+    };
+
     const filteredPOs = purchaseOrders.filter((po) => {
         const matchesSearch =
             po.po_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -416,6 +432,14 @@ export default function PurchaseOrders() {
         );
     }
 
+    const projectPOTotals = purchaseOrders.reduce<Record<string, number>>((acc, po) => {
+        acc[po.project_id] = (acc[po.project_id] || 0) + 1;
+        return acc;
+    }, {});
+
+    const selectedProject = projects.find((project) => project.id === selectedProjectId);
+    const showProjectList = selectedProjectId === "" && projects.length > 0;
+
     return (
         <Layout>
             <div className="space-y-6">
@@ -424,9 +448,69 @@ export default function PurchaseOrders() {
                         <h1 className="text-3xl font-bold tracking-tight">Annexures</h1>
                         <p className="text-muted-foreground">Manage and track your procurement orders.</p>
                     </div>
+                    {selectedProjectId !== "" && (
+                        <Button variant="ghost" size="sm" onClick={handleBackToProjects} className="h-9">
+                            <ChevronRight className="h-4 w-4 rotate-180" />
+                            Back to Projects
+                        </Button>
+                    )}
                 </div>
 
-                <Card className="border-slate-200 shadow-sm">
+                {showProjectList && (
+                    <Card className="border-slate-200 shadow-sm">
+                        <CardHeader className="pb-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                <div>
+                                    <h2 className="text-xl font-semibold">Select a Project</h2>
+                                    <p className="text-muted-foreground">View Annexures grouped by project.</p>
+                                </div>
+                                <Button variant="outline" size="sm" onClick={() => { setSelectedProjectId("all"); setProjectFilter("all"); }} className="h-9">
+                                    View All Annexures
+                                </Button>
+                            </div>
+                            <div className="mt-4 relative max-w-md">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Search projects..."
+                                    className="pl-9 h-9"
+                                    value={projectSearch}
+                                    onChange={(e) => setProjectSearch(e.target.value)}
+                                />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            {filteredProjects.length === 0 ? (
+                                <div className="py-12 text-center text-sm text-muted-foreground">
+                                    {projects.length === 0 ? "No projects available." : "No matching projects found."}
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {filteredProjects.map((project) => (
+                                        <button
+                                            key={project.id}
+                                            type="button"
+                                            onClick={() => handleSelectProject(project.id)}
+                                            className="w-full rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-primary/80 hover:bg-slate-50"
+                                        >
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-semibold text-slate-900 truncate">{project.name}</p>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        {projectPOTotals[project.id] || 0} Annexure{(projectPOTotals[project.id] || 0) === 1 ? "" : "s"}
+                                                    </p>
+                                                </div>
+                                                <ChevronRight className="h-4 w-4 text-slate-400" />
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
+
+                {(!showProjectList || selectedProjectId === "all") && (
+                    <Card className="border-slate-200 shadow-sm">
                     <CardHeader className="pb-3">
                         <div className="flex flex-wrap gap-4 items-center justify-between">
                             <div className="flex flex-1 min-w-[300px] gap-2">
@@ -667,6 +751,7 @@ export default function PurchaseOrders() {
                         </div>
                     </CardContent>
                 </Card>
+                )}
             </div>
 
             {/* Delete Confirmation Dialog */}
