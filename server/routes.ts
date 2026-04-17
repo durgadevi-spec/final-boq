@@ -2104,7 +2104,7 @@ export async function registerRoutes(
       // Query materials table (independent try/catch)
       try {
         const r = hasQuery
-          ? await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.name ILIKE $1 OR COALESCE(m.code,'') ILIKE $1 ORDER BY m.name ASC LIMIT 500`, [searchPattern])
+          ? await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id WHERE m.name ILIKE $1 OR COALESCE(m.code,'') ILIKE $1 OR COALESCE(m.category,'') ILIKE $1 OR COALESCE(m.subcategory,'') ILIKE $1 ORDER BY m.name ASC LIMIT 500`, [searchPattern])
           : await query(`SELECT m.id::text, m.name, COALESCE(m.code,'') as code, m.rate, m.unit, m.category, COALESCE(m.image, t.image) as image, 'Material' as type FROM materials m LEFT JOIN material_templates t ON m.template_id = t.id ORDER BY m.name ASC LIMIT 500`);
         materialsRows = r.rows || [];
         console.log(`[api/search] materials: ${materialsRows.length}`);
@@ -2115,7 +2115,7 @@ export async function registerRoutes(
       // Query material_templates table (independent try/catch)
       try {
         const r = hasQuery
-          ? await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates WHERE name ILIKE $1 OR COALESCE(code,'') ILIKE $1 ORDER BY name ASC LIMIT 500`, [searchPattern])
+          ? await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates WHERE name ILIKE $1 OR COALESCE(code,'') ILIKE $1 OR COALESCE(category,'') ILIKE $1 ORDER BY name ASC LIMIT 500`, [searchPattern])
           : await query(`SELECT id::text, name, COALESCE(code,'') as code, null as rate, null as unit, COALESCE(category,'') as category, image, 'Template' as type FROM material_templates ORDER BY name ASC LIMIT 500`);
         templatesRows = r.rows || [];
         console.log(`[api/search] templates: ${templatesRows.length}`);
@@ -2127,7 +2127,7 @@ export async function registerRoutes(
       // Join material_subcategories -> material_categories to get the parent category name
       try {
         const r = hasQuery
-          ? await query(`SELECT p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(mc.name, ms.category, p.subcategory, '') as category, p.image, 'Product' as type FROM products p LEFT JOIN material_subcategories ms ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(ms.name)) LEFT JOIN material_categories mc ON LOWER(TRIM(ms.category)) = LOWER(TRIM(mc.name)) WHERE p.name ILIKE $1 ORDER BY p.name ASC LIMIT 500`, [searchPattern])
+          ? await query(`SELECT p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(mc.name, ms.category, p.subcategory, '') as category, p.image, 'Product' as type FROM products p LEFT JOIN material_subcategories ms ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(ms.name)) LEFT JOIN material_categories mc ON LOWER(TRIM(ms.category)) = LOWER(TRIM(mc.name)) WHERE p.name ILIKE $1 OR COALESCE(mc.name, ms.category, p.subcategory, '') ILIKE $1 ORDER BY p.name ASC LIMIT 500`, [searchPattern])
           : await query(`SELECT p.id::text, p.name, null as code, null as rate, null as unit, COALESCE(mc.name, ms.category, p.subcategory, '') as category, p.image, 'Product' as type FROM products p LEFT JOIN material_subcategories ms ON LOWER(TRIM(p.subcategory)) = LOWER(TRIM(ms.name)) LEFT JOIN material_categories mc ON LOWER(TRIM(ms.category)) = LOWER(TRIM(mc.name)) ORDER BY p.name ASC LIMIT 500`);
         productsRows = r.rows || [];
         console.log(`[api/search] products: ${productsRows.length}`);
@@ -4278,7 +4278,7 @@ export async function registerRoutes(
         // Inherit HSN/SAC from template if not provided
         let hsn_code = (req.body as any).hsn_code || (req.body as any).hsnCode || null;
         let sac_code = (req.body as any).sac_code || (req.body as any).sacCode || null;
-        
+
         if (template_id && (!hsn_code || !sac_code)) {
           try {
             const templateRes = await query("SELECT hsn_code, sac_code FROM material_templates WHERE id = $1", [template_id]);
@@ -6067,8 +6067,8 @@ export async function registerRoutes(
         res.status(201).json({ message: "Batch items saved successfully", count: items.length });
       } catch (err) {
         console.error("POST /api/boq-items/batch error", err);
-        res.status(500).json({ 
-          message: "Failed to batch save BOQ items", 
+        res.status(500).json({
+          message: "Failed to batch save BOQ items",
           error: (err as any)?.message,
           stack: (err as any)?.stack
         });
@@ -6261,7 +6261,7 @@ export async function registerRoutes(
         q += ` AND (item_id = $3 OR product_id = $3)`;
         params.push(itemId);
       } else {
-        q += ` AND item_id IS NULL AND product_id IS NULL`; 
+        q += ` AND item_id IS NULL AND product_id IS NULL`;
       }
 
       await query(q, params);
@@ -9728,18 +9728,18 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const { id } = req.params;
       const { name, projectId } = req.body;
       const created_by = (req as any).user?.id || null;
-  
+
       console.log(`[clone] Cloning plan ${id} to project ${projectId || 'none'}...`);
 
       // Get the source plan
       const planRes = await query("SELECT * FROM sketch_plans WHERE id = $1", [id]);
       if (planRes.rows.length === 0) return res.status(404).json({ message: "Plan not found" });
       const sourcePlan = planRes.rows[0];
-  
+
       const newId = `skp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const newName = name || `${sourcePlan.name} (Clone)`;
       const newProjId = (projectId === "none" || !projectId) ? null : projectId;
-  
+
       await query("BEGIN");
       try {
         // Create the new root plan
@@ -9748,13 +9748,13 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
            VALUES ($1, $2, $3, $4, $5, $6, 1, NULL, 'draft')`,
           [newId, newName, newProjId, sourcePlan.location, sourcePlan.plan_date, created_by]
         );
-  
+
         // Copy items from source plan
         const srcItems = await query("SELECT * FROM sketch_plan_items WHERE plan_id = $1 ORDER BY created_at ASC", [id]);
         for (let i = 0; i < srcItems.rows.length; i++) {
           const srcItem = srcItems.rows[i];
           const newItemId = `ski-${Date.now()}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
-          
+
           // Ensure UUID fields are null if empty string
           const safeMatId = srcItem.material_id || null;
           const safeVendorId = srcItem.assigned_vendor_id || null;
@@ -9768,7 +9768,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
               srcItem.assigned_user_id || null, srcItem.assigned_user_name || null, srcItem.user_task_status || 'unassigned'
             ]
           );
-  
+
           // Copy item-level images
           const srcItemImages = await query("SELECT * FROM sketch_plan_images WHERE plan_id = $1 AND item_id = $2", [id, srcItem.id]);
           for (const img of srcItemImages.rows) {
@@ -9779,7 +9779,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             );
           }
         }
-  
+
         // Copy plan-level images
         const srcPlanImages = await query("SELECT * FROM sketch_plan_images WHERE plan_id = $1 AND item_id IS NULL", [id]);
         for (const img of srcPlanImages.rows) {
@@ -9789,7 +9789,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             [newImgId, newId, null, img.image_url, img.image_name]
           );
         }
-  
+
         // Copy attachments
         const srcAttachments = await query("SELECT * FROM sketch_plan_attachments WHERE plan_id = $1", [id]);
         for (const att of srcAttachments.rows) {
@@ -9799,7 +9799,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             [newAttId, newId, att.file_url, att.file_name, att.file_type]
           );
         }
-  
+
         await query("COMMIT");
         console.log(`[clone] Successfully cloned plan ${id} to new plan ${newId}`);
         res.json({ id: newId, message: "Plan cloned successfully" });
@@ -9829,7 +9829,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
          ORDER BY sp.created_at DESC`,
         [userId]
       );
-      
+
       res.json({ tasks: result.rows });
     } catch (err) {
       console.error("GET /api/sketch-plans/assigned-tasks error", err);
@@ -9843,7 +9843,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       const { id } = req.params;
       const { status } = req.body;
       const userId = (req as any).user?.id;
-      
+
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
       // Verify the item is assigned to this user
@@ -9853,7 +9853,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       }
 
       await query("UPDATE sketch_plan_items SET user_task_status = $1 WHERE id = $2", [status, id]);
-      
+
       res.json({ message: "Task status updated successfully" });
     } catch (err) {
       console.error("POST /api/sketch-plans/assigned-tasks/:id/status error", err);
