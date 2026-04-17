@@ -150,7 +150,12 @@ type Project = {
 const PROJECT_STATUSES: { value: string; label: string; color: string }[] = [
   { value: 'started', label: 'Started', color: 'bg-blue-100 text-blue-700' },
   { value: 'in_progress', label: 'In Progress', color: 'bg-amber-100 text-amber-700' },
-  { value: 'hold', label: 'Hold', color: 'bg-orange-100 text-orange-700' },
+  { value: 'bom_stage', label: 'BOM Stage', color: 'bg-cyan-100 text-cyan-700' },
+  { value: 'boq_stage', label: 'BOQ Stage', color: 'bg-indigo-100 text-indigo-700' },
+  { value: 'client_approval', label: 'Client Approval', color: 'bg-purple-100 text-purple-700' },
+  { value: 'work_in_execution', label: 'Work in Execution', color: 'bg-green-100 text-green-700' },
+  { value: 'finance', label: 'Finance', color: 'bg-teal-100 text-teal-700' },
+  { value: 'hold', label: 'On Hold', color: 'bg-orange-100 text-orange-700' },
   { value: 'cancelled', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
   { value: 'closed', label: 'Closed', color: 'bg-gray-200 text-gray-600' },
 ];
