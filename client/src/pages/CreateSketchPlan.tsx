@@ -209,7 +209,7 @@ const PhotoColumn = ({
 // Row Component for Drag and Drop
 const SketchPlanRow = ({
   item, idx, itemsLength, updateItem, removeItem, moveItemToPosition, selectMaterial,
-  searchResults, searching, loadMaterials, setMaterialSearch,
+  searchResults, searching, loadMaterials, materialSearch, setMaterialSearch,
   openPopoverIdx, setOpenPopoverIdx, renameRowImage, removeRowImage,
   handleRowImageUpload, isLocked, isCompact, setPreviewImage,
   setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen,
@@ -2608,6 +2608,7 @@ export default function CreateSketchPlan() {
                         searchResults={searchResults}
                         searching={searching}
                         loadMaterials={loadMaterials}
+                        materialSearch={materialSearch}
                         setMaterialSearch={setMaterialSearch}
                         openPopoverIdx={openPopoverIdx}
                         setOpenPopoverIdx={setOpenPopoverIdx}
