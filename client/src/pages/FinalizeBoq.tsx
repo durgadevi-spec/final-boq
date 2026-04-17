@@ -1898,12 +1898,13 @@ export default function FinalizeBoq() {
           : derivedProductName;
         const category = tableData.category || "";
 
+        const isLumpSum = tableData.is_lump_sum === true;
         const manualQtyStr = productQuantities[boqItem.id];
-        const displayQty = manualQtyStr !== undefined
+        const displayQty = isLumpSum ? 1 : (manualQtyStr !== undefined
           ? (parseFloat(manualQtyStr) || 0)
           : (tableData.materialLines && tableData.targetRequiredQty !== undefined
             ? tableData.targetRequiredQty
-            : (currentStep11Items[0]?.qty || 0));
+            : (currentStep11Items[0]?.qty || 0)));
 
         const { itemRate: rateSqft } = getItemMetrics(tableData);
         const totalVal = rateSqft * displayQty;
@@ -1942,9 +1943,9 @@ export default function FinalizeBoq() {
           else if (colName === "SAC") rowValues[colName] = tableData.sac_code || (tableData.hsn_sac_type === 'sac' ? tableData.hsn_sac_code : "") || "—";
           else if (colName === "Rate / Unit") rowValues[colName] = roundOff ? Math.round(rateSqft) : Number(rateSqft.toFixed(2));
           else if (colName === "Unit") {
-            const defaultUnit = (tableData.materialLines && tableData.targetRequiredQty !== undefined)
+            const defaultUnit = isLumpSum ? "LS" : ((tableData.materialLines && tableData.targetRequiredQty !== undefined)
               ? (tableData.configBasis?.requiredUnitType || tableData.unit || "Sqft")
-              : (currentStep11Items[0]?.unit || tableData.unit || "nos");
+              : (currentStep11Items[0]?.unit || tableData.unit || "nos"));
             rowValues[colName] = productUnits[boqItem.id] ?? defaultUnit;
           }
           else if (colName === "Qty") rowValues[colName] = roundOff ? Math.round(displayQty) : Number(displayQty.toFixed(2));
@@ -2175,12 +2176,13 @@ export default function FinalizeBoq() {
           rowImages[boqIdx] = parsedImageUrl;
         }
 
+        const isLumpSum = tableData.is_lump_sum === true;
         const manualQtyStr = productQuantities[boqItem.id];
-        const displayQty = manualQtyStr !== undefined
+        const displayQty = isLumpSum ? 1 : (manualQtyStr !== undefined
           ? (parseFloat(manualQtyStr) || 0)
           : (tableData.materialLines && tableData.targetRequiredQty !== undefined
             ? tableData.targetRequiredQty
-            : (currentStep11Items[0]?.qty || 0));
+            : (currentStep11Items[0]?.qty || 0)));
 
         // Totals
         const { itemRate: rateSqft } = getItemMetrics(tableData);
@@ -2237,9 +2239,9 @@ export default function FinalizeBoq() {
         if (selectedPdfExportCols.includes("HSN")) row.push(tableData.hsn_code || (tableData.hsn_sac_type === 'hsn' ? tableData.hsn_sac_code : "") || "—");
         if (selectedPdfExportCols.includes("SAC")) row.push(tableData.sac_code || (tableData.hsn_sac_type === 'sac' ? tableData.hsn_sac_code : "") || "—");
         if (selectedPdfExportCols.includes("Unit")) {
-          const defaultUnit = (tableData.materialLines && tableData.targetRequiredQty !== undefined)
+          const defaultUnit = isLumpSum ? "LS" : ((tableData.materialLines && tableData.targetRequiredQty !== undefined)
             ? (tableData.configBasis?.requiredUnitType || tableData.unit || "Sqft")
-            : (currentStep11Items[0]?.unit || tableData.unit || "nos");
+            : (currentStep11Items[0]?.unit || tableData.unit || "nos"));
           row.push(productUnits[boqItem.id] ?? defaultUnit);
         }
         if (selectedPdfExportCols.includes("Qty")) row.push(roundOff ? Math.round(displayQty).toString() : displayQty.toFixed(2));
@@ -3695,6 +3697,12 @@ export default function FinalizeBoq() {
                           rateSqft = (currentStep11Items[0]?.qty ?? 0) > 0 ? total / (currentStep11Items[0]?.qty || 1) : total;
                         }
 
+                        // When Convert to LS: use grand total as rate, qty becomes 1
+                        const isLumpSum = tableData.is_lump_sum === true;
+                        if (isLumpSum) {
+                          rateSqft = total;
+                        }
+
                         const manualDesc = productDescriptions[boqItem.id] ?? (
                           tableData.subcategory || currentStep11Items[0]?.description || category || ""
                         );
@@ -3787,15 +3795,16 @@ export default function FinalizeBoq() {
                                 <input
                                   type="text"
                                   value={(() => {
+                                    if (tableData.is_lump_sum) return "LS";
                                     const defaultUnit = (tableData.materialLines && tableData.targetRequiredQty !== undefined)
                                       ? (tableData.configBasis?.requiredUnitType || tableData.unit || "Sqft")
                                       : (currentStep11Items[0]?.unit || tableData.unit || "nos");
                                     return productUnits[boqItem.id] ?? defaultUnit;
                                   })()}
-                                  disabled={isVersionSubmitted}
+                                  disabled={isVersionSubmitted || tableData.is_lump_sum}
                                   onChange={e => setProductUnits(prev => ({ ...prev, [boqItem.id]: e.target.value }))}
                                   onBlur={() => saveItemLayout(boqItem.id, undefined, undefined, undefined, undefined, undefined, productUnits[boqItem.id])}
-                                  className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none bg-transparent text-center font-semibold h-7 ${(() => {
+                                  className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none ${tableData.is_lump_sum ? 'bg-transparent text-gray-500' : 'bg-transparent'} text-center font-semibold h-7 ${(() => {
                                     const defaultUnit = (tableData.materialLines && tableData.targetRequiredQty !== undefined)
                                       ? (tableData.configBasis?.requiredUnitType || tableData.unit || "Sqft")
                                       : (currentStep11Items[0]?.unit || tableData.unit || "nos");
@@ -3809,11 +3818,11 @@ export default function FinalizeBoq() {
                               <td className="border-r px-2 py-1 text-center font-semibold text-gray-800 align-middle w-32 min-w-[100px]">
                                 <input
                                   type="number"
-                                  value={productQuantities[boqItem.id] ?? (tableData.materialLines && tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0))}
-                                  disabled={isVersionSubmitted}
+                                  value={tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] ?? (tableData.materialLines && tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0)))}
+                                  disabled={isVersionSubmitted || tableData.is_lump_sum}
                                   onChange={e => setProductQuantities(prev => ({ ...prev, [boqItem.id]: e.target.value }))}
                                   onBlur={async () => { await saveItemLayout(boqItem.id, undefined, undefined, undefined, productQuantities[boqItem.id]); }}
-                                  className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none bg-blue-100/50 text-center font-semibold h-7 ${getIsModified(boqItem.id, "qty", productQuantities[boqItem.id] ?? (tableData.materialLines && tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0))) ? "text-blue-600 border-b border-blue-400" : ""}`}
+                                  className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none ${tableData.is_lump_sum ? 'bg-transparent text-gray-500' : 'bg-blue-100/50'} text-center font-semibold h-7 ${getIsModified(boqItem.id, "qty", productQuantities[boqItem.id] ?? (tableData.materialLines && tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0))) ? "text-blue-600 border-b border-blue-400" : ""}`}
                                   placeholder="Qty"
                                 />
                               </td>
@@ -3826,7 +3835,8 @@ export default function FinalizeBoq() {
                              {!hiddenPredefinedCols.system_total && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 align-middle text-[10px] w-32">
                                 ₹{(() => {
-                                  const rawVal = rateSqft * (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.materialLines && tableData.targetRequiredQty !== undefined ? Number(tableData.targetRequiredQty) : Number(currentStep11Items[0]?.qty || 0)));
+                                  const displayQty = tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.materialLines && tableData.targetRequiredQty !== undefined ? Number(tableData.targetRequiredQty) : Number(currentStep11Items[0]?.qty || 0)));
+                                  const rawVal = rateSqft * displayQty;
                                   return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
                                 })()}
                               </td>
@@ -3856,8 +3866,9 @@ export default function FinalizeBoq() {
                             )}
                             {/* Custom columns */}
                             {(() => {
+                              const isLumpSum = tableData.is_lump_sum === true;
                               const manualQtyStr = productQuantities[boqItem.id];
-                              const displayQty = manualQtyStr !== undefined ? (parseFloat(manualQtyStr) || 0) : (tableData.targetRequiredQty || currentStep11Items[0]?.qty || 0);
+                              const displayQty = isLumpSum ? 1 : (manualQtyStr !== undefined ? (parseFloat(manualQtyStr) || 0) : (tableData.targetRequiredQty || currentStep11Items[0]?.qty || 0));
                               const baseTotalValue = rateSqft * displayQty;
 
                               let itemRunningTotal = (parseFloat(overrideRates[boqItem.id] || "0") || 0) > 0
