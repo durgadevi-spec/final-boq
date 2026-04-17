@@ -1906,7 +1906,21 @@ export default function FinalizeBoq() {
             ? tableData.targetRequiredQty
             : (currentStep11Items[0]?.qty || 0)));
 
-        const { itemRate: rateSqft } = getItemMetrics(tableData);
+        // Totals — same calc as row render
+        let _exTotal = 0;
+        let _exRate = 0;
+        if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
+          const _res = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
+          const _manTot = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) =>
+            s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+          _exTotal = _res.grandTotal + _manTot;
+          _exRate = tableData.targetRequiredQty > 0 ? _exTotal / tableData.targetRequiredQty : 0;
+        } else {
+          _exTotal = currentStep11Items.reduce((s: number, it: any) =>
+            s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+          _exRate = (currentStep11Items[0]?.qty ?? 0) > 0 ? _exTotal / (currentStep11Items[0]?.qty || 1) : _exTotal;
+        }
+        const rateSqft = isLumpSum ? _exTotal : _exRate;
         const totalVal = rateSqft * displayQty;
 
         const manualDesc = productDescriptions[boqItem.id] ?? (
@@ -2184,8 +2198,21 @@ export default function FinalizeBoq() {
             ? tableData.targetRequiredQty
             : (currentStep11Items[0]?.qty || 0)));
 
-        // Totals
-        const { itemRate: rateSqft } = getItemMetrics(tableData);
+        // Totals — same calc as row render
+        let _total = 0;
+        let _rateSqft = 0;
+        if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
+          const _result = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
+          const _manualTotal = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) =>
+            s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+          _total = _result.grandTotal + _manualTotal;
+          _rateSqft = tableData.targetRequiredQty > 0 ? _total / tableData.targetRequiredQty : 0;
+        } else {
+          _total = currentStep11Items.reduce((s: number, it: any) =>
+            s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+          _rateSqft = (currentStep11Items[0]?.qty ?? 0) > 0 ? _total / (currentStep11Items[0]?.qty || 1) : _total;
+        }
+        const rateSqft = isLumpSum ? _total : _rateSqft;
         const totalVal = rateSqft * displayQty;
 
         const manualDesc = productDescriptions[boqItem.id] ?? (
