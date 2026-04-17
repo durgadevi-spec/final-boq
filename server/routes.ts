@@ -710,6 +710,7 @@ export async function registerRoutes(
         qty DECIMAL(10, 2),
         unit VARCHAR(50),
         remarks TEXT,
+        category TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (plan_id) REFERENCES sketch_plans(id) ON DELETE CASCADE
       )
@@ -762,6 +763,7 @@ export async function registerRoutes(
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_user_id VARCHAR(100)`);
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS assigned_user_name VARCHAR(255)`);
     await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS user_task_status VARCHAR(50) DEFAULT 'unassigned'`);
+    await query(`ALTER TABLE sketch_plan_items ADD COLUMN IF NOT EXISTS category TEXT`);
   } catch (err) {
     console.warn("[db] Could not add enhanced columns to sketch_plan_items:", (err as any)?.message || err);
   }
@@ -9880,7 +9882,7 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
 
       const itemsRes = await query(`
         SELECT spi.*, 
-               COALESCE(m.category, mc.name, ms.category, p.subcategory) AS category
+               COALESCE(spi.category, m.category, mc.name, ms.category, p.subcategory) AS category
         FROM sketch_plan_items spi
         LEFT JOIN materials m ON spi.material_id::text = m.id::text
         LEFT JOIN products p ON spi.material_id::text = p.id::text
@@ -9934,8 +9936,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             const item = items[i];
             const itemId = `ski-${`${Date.now()}`.padStart(15, '0')}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status) 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category) 
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
               [
                 itemId, id, item.item_name, item.description,
                 parseSafeNumeric(item.length),
@@ -9950,7 +9952,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
                 item.dimensions ? JSON.stringify(item.dimensions) : null,
                 item.assigned_user_id || null,
                 item.assigned_user_name || null,
-                item.user_task_status || 'unassigned'
+                item.user_task_status || 'unassigned',
+                item.category || null
               ]
             );
 
@@ -10034,8 +10037,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
             const item = items[i];
             const itemId = `ski-${`${Date.now()}`.padStart(15, '0')}-${String(i).padStart(4, '0')}-${Math.random().toString(36).substr(2, 5)}`;
             await query(
-              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status) 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+              `INSERT INTO sketch_plan_items (id, plan_id, item_name, description, length, width, height, qty, unit, remarks, material_id, dimension_unit, assigned_vendor_id, vendor_name, dimensions, assigned_user_id, assigned_user_name, user_task_status, category) 
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
               [
                 itemId, id, item.item_name, item.description,
                 parseSafeNumeric(item.length),
@@ -10050,7 +10053,8 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
                 item.dimensions ? JSON.stringify(item.dimensions) : null,
                 item.assigned_user_id || null,
                 item.assigned_user_name || null,
-                item.user_task_status || 'unassigned'
+                item.user_task_status || 'unassigned',
+                item.category || null
               ]
             );
 
