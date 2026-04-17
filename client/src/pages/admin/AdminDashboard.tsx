@@ -1904,22 +1904,26 @@ export default function AdminDashboard() {
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      {canEditDelete && (
+                                      {(canEditDelete || user?.role === "pre_sales") && (
                                         <>
                                           <Button size="sm" variant="outline" onClick={() => handleEditShop(shop)}>Edit</Button>
-                                          <Button size="sm" variant="ghost" onClick={() => setLocalShops((prev: any[]) => prev.map((s: any) => s.id === shop.id ? { ...s, disabled: !s.disabled } : s))}>
-                                            {shop.disabled ? 'Enable' : 'Disable'}
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-destructive"
-                                            onClick={() => {
-                                              setGenericDelete({ isOpen: true, id: shop.id, name: shop.name, type: 'shop' });
-                                            }}
-                                          >
-                                            <Trash2 className="h-4 w-4" />
-                                          </Button>
+                                          {canEditDelete && (
+                                            <>
+                                              <Button size="sm" variant="ghost" onClick={() => setLocalShops((prev: any[]) => prev.map((s: any) => s.id === shop.id ? { ...s, disabled: !s.disabled } : s))}>
+                                                {shop.disabled ? 'Enable' : 'Disable'}
+                                              </Button>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="text-destructive"
+                                                onClick={() => {
+                                                  setGenericDelete({ isOpen: true, id: shop.id, name: shop.name, type: 'shop' });
+                                                }}
+                                              >
+                                                <Trash2 className="h-4 w-4" />
+                                              </Button>
+                                            </>
+                                          )}
                                         </>
                                       )}
                                     </div>
@@ -2157,22 +2161,26 @@ export default function AdminDashboard() {
                                     )}
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    {canEditDelete && (
+                                    {(canEditDelete || user?.role === "pre_sales") && (
                                       <>
-                                        <Button size="sm" variant="ghost" onClick={() => setLocalMaterials((prev: any[]) => prev.map((m: any) => m.id === mat.id ? { ...m, disabled: !m.disabled } : m))}>
-                                          {mat.disabled ? 'Enable' : 'Disable'}
-                                        </Button>
+                                        {canEditDelete && (
+                                          <Button size="sm" variant="ghost" onClick={() => setLocalMaterials((prev: any[]) => prev.map((m: any) => m.id === mat.id ? { ...m, disabled: !m.disabled } : m))}>
+                                            {mat.disabled ? 'Enable' : 'Disable'}
+                                          </Button>
+                                        )}
                                         <Button size="sm" variant="outline" onClick={() => handleEditMaterial(mat)}>Edit</Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="text-destructive"
-                                          onClick={() => {
-                                            setGenericDelete({ isOpen: true, id: mat.id, name: mat.name, type: 'material' });
-                                          }}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
+                                        {canEditDelete && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="text-destructive"
+                                            onClick={() => {
+                                              setGenericDelete({ isOpen: true, id: mat.id, name: mat.name, type: 'material' });
+                                            }}
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        )}
                                       </>
                                     )}
                                   </div>
@@ -3136,7 +3144,7 @@ export default function AdminDashboard() {
           {/* === MATERIALS TAB === */}
           <TabsContent value="materials" className="space-y-4 mt-4">
             {/* ADMIN/SOFTWARE/PURCHASE_TEAM: Create Master Material */}
-            {(isAdminOrSoftwareTeam || user?.role === "purchase_team") && (
+            {hasPerm(isAdminOrSoftwareTeam || user?.role === "purchase_team", "create_item") && (
               <Card className="border-blue-200 bg-blue-50">
                 <CardHeader>
                   <CardTitle className="text-blue-900" id="create-material-section">
@@ -3322,7 +3330,7 @@ export default function AdminDashboard() {
             )}
 
             {/* Created Material Templates List - Admin/Software/Purchase Team */}
-            {(isAdminOrSoftwareTeam || user?.role === "purchase_team") && (
+            {hasPerm(isAdminOrSoftwareTeam || user?.role === "purchase_team", "create_item") && (
               <Card>
                 <CardHeader>
                   <CardTitle>Created Material Templates</CardTitle>
