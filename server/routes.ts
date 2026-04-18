@@ -2940,7 +2940,7 @@ export async function registerRoutes(
   app.put(
     "/api/material-templates/:id",
     authMiddleware,
-    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "edit_item"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "create_item"),
     async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
@@ -3151,7 +3151,7 @@ export async function registerRoutes(
   app.delete(
     "/api/material-templates/:id",
     authMiddleware,
-    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "delete_item"),
+    requireRoleOrPermission(["admin", "software_team", "purchase_team"], "create_item"),
     async (req: Request, res: Response) => {
       try {
         const id = req.params.id;
