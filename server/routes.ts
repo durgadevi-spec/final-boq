@@ -6307,7 +6307,25 @@ export async function registerRoutes(
             created_at: row.created_at,
           }));
 
-        const items = rawItems;
+        // Deduplicate items to ensure clean display (same logic as in copy-version)
+        const seenItems = new Map<string, any>();
+        for (const item of rawItems) {
+          const td = item.table_data || {};
+          // Construct a unique key for the logical item: estimator + name + subcategory + category
+          const productKey = `${item.estimator}|${td.product_name || td.name || ''}|${td.subcategory || ''}|${td.category || ''}`.toLowerCase().trim();
+          
+          if (!seenItems.has(productKey)) {
+            seenItems.set(productKey, item);
+          } else {
+            // Keep the most recent version of the same logical item
+            const existing = seenItems.get(productKey);
+            if (new Date(item.created_at) > new Date(existing.created_at)) {
+              seenItems.set(productKey, item);
+            }
+          }
+        }
+
+        const items = Array.from(seenItems.values());
 
         res.json({ items });
       } catch (err) {
