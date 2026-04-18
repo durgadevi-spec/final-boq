@@ -779,6 +779,8 @@ export default function CreateSketchPlan() {
   const [showAssignUserDialog, setShowAssignUserDialog] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [categories, setCategories] = useState<any[]>([]);
+  const [showAssignCategoryDialog, setShowAssignCategoryDialog] = useState(false);
+  const [categorySearchTerm, setCategorySearchTerm] = useState("");
   const [rowToConfirm, setRowToConfirm] = useState<{ idx: number, material: any } | null>(null);
   const [showCategoryConfirm, setShowCategoryConfirm] = useState(false);
 
@@ -978,6 +980,29 @@ export default function CreateSketchPlan() {
       setShowAssignDialog(false);
     } catch (err) {
       toast({ title: "Error", description: "Failed to assign items", variant: "destructive" });
+    } finally {
+      setAssigningLoading(false);
+    }
+  };
+
+  const handleAssignToCategory = async (catName: string) => {
+    if (selectedItemIds.size === 0) return;
+
+    setAssigningLoading(true);
+    try {
+      const updatedItems = items.map(item => {
+        if (selectedItemIds.has(item.id)) {
+          return { ...item, category: catName };
+        }
+        return item;
+      });
+
+      setItems(updatedItems);
+      toast({ title: "Success", description: `Assigned category "${catName}" to ${selectedItemIds.size} items` });
+      setSelectedItemIds(new Set());
+      setShowAssignCategoryDialog(false);
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to assign category", variant: "destructive" });
     } finally {
       setAssigningLoading(false);
     }
@@ -2535,6 +2560,14 @@ export default function CreateSketchPlan() {
                 {selectedItemIds.size > 0 && !isSupplier && (
                   <>
                     <Button
+                      onClick={() => { setShowAssignCategoryDialog(true); }}
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1 border-indigo-500 text-indigo-600 hover:bg-blue-50"
+                    >
+                      <Layers className="w-3.5 h-3.5" /> Assign Category ({selectedItemIds.size})
+                    </Button>
+                    <Button
                       onClick={() => { loadUsers(); setShowAssignUserDialog(true); }}
                       size="sm"
                       variant="outline"
@@ -3141,6 +3174,113 @@ export default function CreateSketchPlan() {
               <Button variant="ghost" onClick={() => setShowAssignUserDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-9">
                 Close
               </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Assign Category Dialog */}
+        <Dialog open={showAssignCategoryDialog} onOpenChange={(open) => {
+          setShowAssignCategoryDialog(open);
+          if (!open) setCategorySearchTerm("");
+        }}>
+          <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-none shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white shrink-0">
+              <DialogHeader>
+                <div className="flex items-center justify-between">
+                  <DialogTitle className="text-white flex items-center gap-2 text-xl font-bold">
+                    <Layers className="w-6 h-6 border-2 border-indigo-400 rounded-full p-0.5" />
+                    Assign Category to Items
+                  </DialogTitle>
+                </div>
+                <p className="text-indigo-100 text-sm mt-1">
+                  Assign a category to <span className="font-bold underline decoration-amber-400 underline-offset-4">{selectedItemIds.size}</span> selected items.
+                </p>
+              </DialogHeader>
+            </div>
+
+            <div className="p-4 space-y-4 bg-white flex-1 overflow-hidden flex flex-col">
+              <div className="relative group shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                <Input
+                  placeholder="Search categories..."
+                  className="pl-9 h-11 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
+                  value={categorySearchTerm}
+                  onChange={(e) => setCategorySearchTerm(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2 overflow-y-auto pr-1 flex-1 custom-scrollbar min-h-[100px]">
+                {categories.filter(cat =>
+                  cat.toLowerCase().includes(categorySearchTerm.toLowerCase())
+                ).length === 0 ? (
+                  <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 flex flex-col items-center gap-2 m-2">
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
+                      <Search className="w-6 h-6 text-slate-300" />
+                    </div>
+                    <p className="text-sm text-slate-500 font-medium">No matching categories found.</p>
+                    <Button variant="link" size="sm" onClick={() => setCategorySearchTerm("")} className="text-indigo-600 p-0 h-auto">Clear Search</Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 p-1">
+                    {categories.filter(cat =>
+                      cat.toLowerCase().includes(categorySearchTerm.toLowerCase())
+                    ).sort((a, b) => a.localeCompare(b)).map((cat, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        className="w-full justify-start h-auto py-3 px-4 hover:border-indigo-400 hover:bg-indigo-50 group transition-all duration-200 border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                        onClick={() => handleAssignToCategory(cat)}
+                        disabled={assigningLoading}
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center mr-3 shrink-0 transition-colors">
+                          <Layers className="w-5 h-5 text-slate-500 group-hover:text-indigo-600" />
+                        </div>
+                        <div className="flex flex-col items-start min-w-0 flex-1 text-left">
+                          <span className="font-bold text-slate-700 group-hover:text-indigo-900 truncate w-full text-sm">{cat}</span>
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-all ml-2 shrink-0 translate-x-2 group-hover:translate-x-0">
+                          <Check className="w-5 h-5 text-indigo-600" />
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t flex flex-col gap-3 shrink-0">
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-[10px] uppercase font-bold text-slate-400">Manual Entry</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Type custom category..."
+                    className="h-9 text-xs bg-white"
+                    value={categorySearchTerm}
+                    onChange={(e) => setCategorySearchTerm(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && categorySearchTerm.trim()) {
+                        handleAssignToCategory(categorySearchTerm.trim());
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    className="bg-indigo-600 hover:bg-indigo-700 h-9"
+                    onClick={() => {
+                      if (categorySearchTerm.trim()) {
+                        handleAssignToCategory(categorySearchTerm.trim());
+                      }
+                    }}
+                  >
+                    Assign
+                  </Button>
+                </div>
+              </div>
+              <div className="flex justify-end pt-1 border-t border-slate-200">
+                <Button variant="ghost" onClick={() => setShowAssignCategoryDialog(false)} className="text-slate-500 hover:text-slate-700 font-semibold h-8 text-xs">
+                  Close
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
