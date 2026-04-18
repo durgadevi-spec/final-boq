@@ -107,11 +107,16 @@ const resolveSource = (src: string, ctx: SrcCtx): number => {
 const getItemMetrics = (td: any) => {
   const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
   let itemTotal = 0, itemQty = 0;
-  if (td.materialLines && td.targetRequiredQty !== undefined) {
-    const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
-    const manualTotal = step11.filter((it: any) => it.manual).reduce((s: number, it: any) =>
-      s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
-    itemTotal = res.grandTotal + manualTotal;
+  if (td.targetRequiredQty !== undefined && td.targetRequiredQty !== null) {
+    if (td.materialLines) {
+      const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
+      const manualTotal = step11.filter((it: any) => it.manual).reduce((s: number, it: any) =>
+        s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+      itemTotal = res.grandTotal + manualTotal;
+    } else {
+      itemTotal = step11.reduce((s: number, it: any) =>
+        s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+    }
     itemQty = td.targetRequiredQty;
   } else {
     itemTotal = step11.reduce((s: number, it: any) =>
@@ -3717,12 +3722,17 @@ export default function FinalizeBoq() {
 
                         let total = 0;
                         let rateSqft = 0;
-                        if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
-                          const result = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
-                          const manualTotal = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) =>
-                            s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
-                          total = result.grandTotal + manualTotal;
-                          rateSqft = tableData.targetRequiredQty > 0 ? total / tableData.targetRequiredQty : 0;
+                        if (tableData.targetRequiredQty !== undefined && tableData.targetRequiredQty !== null) {
+                          if (tableData.materialLines) {
+                            const result = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
+                            const manualTotal = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) =>
+                              s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+                            total = result.grandTotal + manualTotal;
+                          } else {
+                            total = currentStep11Items.reduce((s: number, it: any) =>
+                              s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+                          }
+                          rateSqft = tableData.targetRequiredQty > 0 ? total / tableData.targetRequiredQty : total;
                         } else {
                           total = currentStep11Items.reduce((s: number, it: any) =>
                             s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
@@ -3837,7 +3847,7 @@ export default function FinalizeBoq() {
                                   onChange={e => setProductUnits(prev => ({ ...prev, [boqItem.id]: e.target.value }))}
                                   onBlur={() => saveItemLayout(boqItem.id, undefined, undefined, undefined, undefined, undefined, productUnits[boqItem.id])}
                                   className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none ${tableData.is_lump_sum ? 'bg-transparent text-gray-500' : 'bg-transparent'} text-center font-semibold h-7 ${(() => {
-                                    const defaultUnit = (tableData.materialLines && tableData.targetRequiredQty !== undefined)
+                                    const defaultUnit = (tableData.targetRequiredQty !== undefined && tableData.targetRequiredQty !== null)
                                       ? (tableData.configBasis?.requiredUnitType || tableData.unit || "Sqft")
                                       : (currentStep11Items[0]?.unit || tableData.unit || "nos");
                                     return getIsModified(boqItem.id, "unit", productUnits[boqItem.id] ?? defaultUnit);
@@ -3850,11 +3860,11 @@ export default function FinalizeBoq() {
                               <td className="border-r px-2 py-1 text-center font-semibold text-gray-800 align-middle w-32 min-w-[100px]">
                                 <input
                                   type="number"
-                                  value={tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] ?? (tableData.materialLines && tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0)))}
+                                  value={tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] ?? (tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0)))}
                                   disabled={isVersionSubmitted || tableData.is_lump_sum}
                                   onChange={e => setProductQuantities(prev => ({ ...prev, [boqItem.id]: e.target.value }))}
                                   onBlur={async () => { await saveItemLayout(boqItem.id, undefined, undefined, undefined, productQuantities[boqItem.id]); }}
-                                  className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none ${tableData.is_lump_sum ? 'bg-transparent text-gray-500' : 'bg-blue-100/50'} text-center font-semibold h-7 ${getIsModified(boqItem.id, "qty", productQuantities[boqItem.id] ?? (tableData.materialLines && tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0))) ? "text-blue-600 border-b border-blue-400" : ""}`}
+                                  className={`w-full border-none rounded p-0.5 text-[10px] focus:ring-1 ring-blue-300 outline-none ${tableData.is_lump_sum ? 'bg-transparent text-gray-500' : 'bg-blue-100/50'} text-center font-semibold h-7 ${getIsModified(boqItem.id, "qty", productQuantities[boqItem.id] ?? (tableData.targetRequiredQty !== undefined ? tableData.targetRequiredQty : (currentStep11Items[0]?.qty || 0))) ? "text-blue-600 border-b border-blue-400" : ""}`}
                                   placeholder="Qty"
                                 />
                               </td>
@@ -3867,7 +3877,7 @@ export default function FinalizeBoq() {
                              {!hiddenPredefinedCols.system_total && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 align-middle text-[10px] w-32">
                                 ₹{(() => {
-                                  const displayQty = tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.materialLines && tableData.targetRequiredQty !== undefined ? Number(tableData.targetRequiredQty) : Number(currentStep11Items[0]?.qty || 0)));
+                                  const displayQty = tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.targetRequiredQty !== undefined ? Number(tableData.targetRequiredQty) : Number(currentStep11Items[0]?.qty || 0)));
                                   const rawVal = rateSqft * displayQty;
                                   return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
                                 })()}
