@@ -191,7 +191,7 @@ export default function AdminDashboard() {
   const [alerts, setAlerts] = useState<Array<any>>([]);
   const [masterMaterials, setMasterMaterials] = useState<any[]>([]);
   const [supportMsgs, setSupportMsgs] = useState<any[]>([]);
-  
+
   const [newMasterMaterial, setNewMasterMaterial] = useState<{
     name: string;
     code: string;
@@ -1599,9 +1599,6 @@ export default function AdminDashboard() {
   const canApproveReject =
     user?.role === "admin" || user?.role === "software_team" || user?.role === "purchase_team" || isVoltAmpele;
 
-  const canEditDelete =
-    user?.role === "admin" || user?.role === "software_team" || user?.role === "purchase_team" || isVoltAmpele;
-
   const isProductManager = user?.role === "product_manager";
 
   // --- Dynamic Permissions Hook ---
@@ -1643,6 +1640,11 @@ export default function AdminDashboard() {
     if (isCustomManaged) return customModules.has(key);
     return defaultVal;
   };
+
+  const canEditDelete = hasPerm(
+    user?.role === "admin" || user?.role === "software_team" || user?.role === "purchase_team",
+    "create_item"
+  );
 
   // Controlled tab state based on URL ?tab= and location changes
   const [, loc] = useLocation();
@@ -3604,7 +3606,7 @@ export default function AdminDashboard() {
                             </div>
                             {editingMaterialId !== template.id && (
                               <div className="flex items-center gap-2">
-                                
+
                                 {canEditDelete ? (
                                   <>
                                     <Button
@@ -4253,7 +4255,7 @@ export default function AdminDashboard() {
                           return acc;
                         }, {});
 
-                        const sortedConvos = Object.values(conversations).sort((a: any, b: any) => 
+                        const sortedConvos = Object.values(conversations).sort((a: any, b: any) =>
                           new Date(b.lastTime).getTime() - new Date(a.lastTime).getTime()
                         );
 
@@ -4262,7 +4264,7 @@ export default function AdminDashboard() {
                         }
 
                         return sortedConvos.map((convo: any) => (
-                          <div 
+                          <div
                             key={convo.email}
                             onClick={() => setSelectedConversationEmail(convo.email)}
                             className={`
@@ -4294,7 +4296,7 @@ export default function AdminDashboard() {
                       const convoMessages = (supportMessages || [])
                         .filter((m: any) => (m.sender_email || m.sender_name) === selectedConversationEmail)
                         .sort((a: any, b: any) => new Date(a.submitted_at || a.sent_at || a.sentAt).getTime() - new Date(b.submitted_at || b.sent_at || b.sentAt).getTime());
-                      
+
                       const latestMessage = convoMessages[convoMessages.length - 1];
 
                       return (
@@ -4311,29 +4313,29 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                             <div className="flex gap-2">
-                               <Button 
-                                variant="ghost" 
-                                size="sm" 
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 className="text-slate-400 hover:text-red-600"
                                 onClick={() => {
-                                  if(confirm("Delete this entire conversation?")) {
+                                  if (confirm("Delete this entire conversation?")) {
                                     // Normally we'd have a bulk delete, but let's just delete the messages if needed
                                     toast({ title: "Note", description: "Bulk delete not enabled. Please delete messages individually if required." });
                                   }
                                 }}
-                               >
-                                 <Trash2 size={16} />
-                               </Button>
+                              >
+                                <Trash2 size={16} />
+                              </Button>
                             </div>
                           </div>
 
                           {/* Message List */}
-                          <div 
+                          <div
                             ref={adminChatScrollRef}
                             className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#efe7dd] relative scroll-smooth"
                           >
                             <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: "url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')" }} />
-                            
+
                             {convoMessages.map((msg: any) => (
                               <div key={msg.id} className="space-y-4">
                                 {/* Supplier Bubble */}
@@ -4345,7 +4347,7 @@ export default function AdminDashboard() {
                                     </p>
                                   </div>
                                   {canEditDelete && (
-                                    <button 
+                                    <button
                                       onClick={() => deleteMessage?.(msg.id)}
                                       className="ml-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 self-center"
                                     >
@@ -4384,7 +4386,7 @@ export default function AdminDashboard() {
                                   onChange={(e) => setReplyTexts(prev => ({ ...prev, [latestMessage.id]: e.target.value }))}
                                   className="min-h-[80px] bg-white border-slate-200 focus:ring-blue-500 rounded-xl"
                                 />
-                                <Button 
+                                <Button
                                   className="self-end bg-blue-600 hover:bg-blue-700 rounded-xl px-6 h-12"
                                   onClick={() => handleSendReply(latestMessage.id)}
                                 >
@@ -4476,9 +4478,9 @@ export default function AdminDashboard() {
                           <div className="flex-1">
                             <p className="font-semibold">You ({supportSenderName || msg.sender_name})</p>
                             <p className="text-sm text-muted-foreground">
-                              {new Date(msg.submitted_at || msg.sent_at || msg.sentAt).toLocaleString(undefined, { 
-                                dateStyle: 'medium', 
-                                timeStyle: 'short' 
+                              {new Date(msg.submitted_at || msg.sent_at || msg.sentAt).toLocaleString(undefined, {
+                                dateStyle: 'medium',
+                                timeStyle: 'short'
                               })}
                             </p>
                             {msg.info && (
