@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Loader2, Plus, ArrowRight, ArrowLeft, Trash2, Edit, Check, XCircle, Layers, Copy, GripVertical, TrendingUp, TrendingDown, AlertTriangle, Package } from "lucide-react";
 import { Reorder } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
+import * as XLSX from "xlsx";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout/Layout";
@@ -92,6 +93,8 @@ export default function ManageProduct() {
     const [productForTemplate, setProductForTemplate] = useState<Product | null>(null);
     const [templates, setTemplates] = useState<any[]>([]);
     const [supplierShops, setSupplierShops] = useState<any[]>([]);
+    const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+    const [isExporting, setIsExporting] = useState(false);
     const { toast } = useToast();
 
     const searchParams = useMemo(() => new URLSearchParams(location.split('?')[1] || ""), [location]);
@@ -679,6 +682,89 @@ export default function ManageProduct() {
         }
     }, [selectedProduct, configName, selectedCategory, selectedSubcategory, totalCost, requiredUnitType, baseRequiredQty, wastagePctDefault, dimA, dimB, dimC, productDescription, configMaterials, step]);
 
+    const handleExportExcel = async () => {
+        if (selectedProductIds.size === 0) return;
+        setIsExporting(true);
+        try {
+            const workbook = XLSX.utils.book_new();
+            const exportData: any[] = [
+                ["Product Name", "Category", "Material Name", "Unit", "Rate", "Quantity", "Total Amount"]
+            ];
+
+            // Fetch data for each selected product
+            for (const productId of Array.from(selectedProductIds)) {
+                const product = productsData?.find(p => p.id === productId);
+                const res = await apiFetch(`/api/step11-products/${productId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const configurations = data.configurations || [];
+                    // Use the first configuration (usually the latest or approved)
+                    if (configurations.length > 0) {
+                        const config = configurations[0];
+                        const items = config.items || [];
+                        items.forEach((item: any, idx: number) => {
+                            exportData.push([
+                                idx === 0 ? (product?.name || "") : "",
+                                idx === 0 ? (product?.subcategory || "") : "",
+                                item.material_name || "",
+                                item.unit || "",
+                                item.rate || 0,
+                                item.qty || 0,
+                                (Number(item.rate) || 0) * (Number(item.qty) || 0)
+                            ]);
+                        });
+                    } else {
+                        // If no configuration, just add the product row
+                        exportData.push([product?.name || "", product?.subcategory || "", "No materials configured", "", "", "", ""]);
+                    }
+                }
+            }
+
+            const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Products and Materials");
+            XLSX.writeFile(workbook, `Products_Export_${format(new Date(), "yyyy-MM-dd_HHmm")}.xlsx`);
+            toast({ title: "Success", description: `Exported ${selectedProductIds.size} products to Excel.` });
+        } catch (error) {
+            console.error("Export error:", error);
+            toast({ title: "Error", description: "Failed to export to Excel.", variant: "destructive" });
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const toggleSelectProduct = (id: string) => {
+        setSelectedProductIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectEverything = () => {
+        if (!productsData) return;
+        if (selectedProductIds.size === productsData.length) {
+            setSelectedProductIds(new Set());
+        } else {
+            setSelectedProductIds(new Set(productsData.map(p => p.id)));
+        }
+    };
+
+    const toggleSelectAll = (products: Product[]) => {
+        const productIds = products.map(p => p.id);
+        const allSelected = productIds.every(id => selectedProductIds.has(id));
+        
+        setSelectedProductIds(prev => {
+            const next = new Set(prev);
+            if (allSelected) {
+                productIds.forEach(id => next.delete(id));
+            } else {
+                productIds.forEach(id => next.add(id));
+            }
+            return next;
+        });
+    };
+
     const selectProduct = (product: Product) => { setSelectedProduct(product); resetSelection(); loadExistingConfig(product); };
 
     const LayoutComponent = isSupplier ? SupplierLayout : Layout;
@@ -692,6 +778,28 @@ export default function ManageProduct() {
                             <CardTitle className="flex items-center gap-4">
                                 <span className="text-3xl font-extrabold tracking-tight">Manage Product</span>
                                 {selectedProduct && <Badge variant="outline" className="text-sm font-semibold py-1.5 px-4 bg-primary/10 border-primary/20">{selectedProduct.name}</Badge>}
+                                {productsData && productsData.length > 0 && (
+                                    <div className="flex items-center gap-2 ml-4">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={toggleSelectEverything}
+                                            className="h-9 font-bold border-primary/20 hover:bg-primary/5"
+                                        >
+                                            {selectedProductIds.size === productsData.length ? "Deselect All" : "Select All Products"}
+                                        </Button>
+                                        {selectedProductIds.size > 0 && (
+                                            <Button
+                                                onClick={handleExportExcel}
+                                                disabled={isExporting}
+                                                className="bg-green-600 hover:bg-green-700 text-white font-bold gap-2 h-9"
+                                            >
+                                                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Layers className="h-4 w-4" />}
+                                                Export as Excel ({selectedProductIds.size})
+                                            </Button>
+                                        )}
+                                    </div>
+                                )}
                             </CardTitle>
                             {step === 2 && (
                                 <div className="flex flex-wrap items-center gap-4 animate-in fade-in duration-300">
@@ -805,7 +913,12 @@ export default function ManageProduct() {
                                                 <Table>
                                                     <TableHeader className="bg-muted/30 sticky top-0 z-10">
                                                         <TableRow>
-                                                            <TableHead className="w-[60px]"></TableHead>
+                                                            <TableHead className="w-[60px]">
+                                                                <Checkbox
+                                                                    checked={needsWorkProducts.length > 0 && needsWorkProducts.every(p => selectedProductIds.has(p.id))}
+                                                                    onCheckedChange={() => toggleSelectAll(needsWorkProducts)}
+                                                                />
+                                                            </TableHead>
                                                             <TableHead className="font-bold">Product Name</TableHead>
                                                             <TableHead className="font-bold">Created Date</TableHead>
                                                             <TableHead className="font-bold text-center w-[120px]">Status</TableHead>
@@ -821,7 +934,10 @@ export default function ManageProduct() {
                                                             return (
                                                                 <TableRow key={product.id} className={`transition-colors cursor-pointer ${selectedProduct?.id === product.id ? "bg-primary/5 hover:bg-primary/10" : product.has_price_updates ? "bg-amber-200/70 hover:bg-amber-200/90" : "hover:bg-muted/20"}`} onClick={() => selectProduct(product)}>
                                                                     <TableCell onClick={e => e.stopPropagation()}>
-                                                                        <Checkbox checked={selectedProduct?.id === product.id} onCheckedChange={checked => checked ? selectProduct(product) : setSelectedProduct(null)} />
+                                                                        <Checkbox
+                                                                            checked={selectedProductIds.has(product.id)}
+                                                                            onCheckedChange={() => toggleSelectProduct(product.id)}
+                                                                        />
                                                                     </TableCell>
                                                                     <TableCell className="font-semibold text-base py-4">
                                                                         <div className="flex items-center gap-3">
@@ -896,7 +1012,12 @@ export default function ManageProduct() {
                                                 <Table>
                                                     <TableHeader className="bg-muted/30 sticky top-0 z-10">
                                                         <TableRow>
-                                                            <TableHead className="w-[60px]"></TableHead>
+                                                            <TableHead className="w-[60px]">
+                                                                <Checkbox
+                                                                    checked={approvedProducts.length > 0 && approvedProducts.every(p => selectedProductIds.has(p.id))}
+                                                                    onCheckedChange={() => toggleSelectAll(approvedProducts)}
+                                                                />
+                                                            </TableHead>
                                                             <TableHead className="font-bold">Product Name</TableHead>
                                                             <TableHead className="font-bold">Created Date</TableHead>
                                                             <TableHead className="font-bold text-center w-[120px]">Status</TableHead>
@@ -911,7 +1032,10 @@ export default function ManageProduct() {
                                                             return (
                                                                 <TableRow key={product.id} className={`transition-colors cursor-pointer ${selectedProduct?.id === product.id ? "bg-primary/5 hover:bg-primary/10" : product.has_price_updates ? "bg-amber-200/70 hover:bg-amber-200/90" : "bg-green-50/50 hover:bg-green-100"}`} onClick={() => selectProduct(product)}>
                                                                     <TableCell onClick={e => e.stopPropagation()}>
-                                                                        <Checkbox checked={selectedProduct?.id === product.id} onCheckedChange={checked => checked ? selectProduct(product) : setSelectedProduct(null)} />
+                                                                        <Checkbox
+                                                                            checked={selectedProductIds.has(product.id)}
+                                                                            onCheckedChange={() => toggleSelectProduct(product.id)}
+                                                                        />
                                                                     </TableCell>
                                                                     <TableCell className="font-semibold text-base py-4">
                                                                         <div className="flex items-center gap-3">
