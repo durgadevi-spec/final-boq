@@ -70,6 +70,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { postJSON, apiFetch } from "@/lib/api";
 import { Link, useLocation } from "wouter";
+import * as XLSX from "xlsx";
 
 /* 🔴 REQUIRED ASTERISK */
 const Required = () => <span className="text-red-500 ml-1">*</span>;
@@ -1743,6 +1744,52 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleExportMaterials = () => {
+    const exportData = localMaterials.map((mat: any) => [
+      mat.name || "",
+      mat.code || "",
+      mat.rate || 0,
+      mat.unit || "",
+      mat.category || "",
+      mat.subcategory || mat.subCategory || mat.sub_category || "",
+      mat.product || "",
+      mat.brandName || mat.brand_name || mat.brandname || "",
+      mat.modelNumber || mat.model_number || mat.modelnumber || "",
+      mat.technicalSpecification || mat.technicalspecification || mat.technical_specification || "",
+      localShops.find(s => String(s.id) === String(mat.shopId || mat.shop_id))?.name || "Unassigned"
+    ]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["Material Name", "Code", "Rate", "Unit", "Category", "Subcategory", "Product", "Brand", "Model", "Technical Specification", "Shop Name"],
+      ...exportData
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Materials");
+    XLSX.writeFile(workbook, `Materials_Full_Export_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+  };
+
+  const handleExportShops = () => {
+    const exportData = localShops.map((shop: any) => [
+      shop.name || "",
+      shop.location || "",
+      shop.city || "",
+      shop.state || "",
+      shop.country || "",
+      shop.pincode || "",
+      `${shop.phone_country_code || shop.phoneCountryCode || "+91"} ${shop.contact_number || shop.contactNumber || ""}`,
+      shop.gst_no || shop.gstNo || "",
+      shop.vendor_category || shop.vendorCategory || ""
+    ]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["Shop Name", "Address", "City", "State", "Country", "Pincode", "Contact Number", "GST No", "Vendor Category"],
+      ...exportData
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Shops");
+    XLSX.writeFile(workbook, `Shops_Full_Export_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+  };
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -1795,7 +1842,17 @@ export default function AdminDashboard() {
                         <CardTitle className="font-bold text-lg text-foreground flex items-center gap-2">
                           All Shops {showShopsList ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </CardTitle>
-                        <CardDescription className="text-sm">List of registered shops</CardDescription>
+                        <CardDescription className="text-sm flex items-center justify-between">
+                          <span>List of registered shops</span>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={(e) => { e.stopPropagation(); handleExportShops(); }}
+                            className="h-7 text-xs bg-green-50 hover:bg-green-100 border-green-200 text-green-700 font-bold"
+                          >
+                            <Layers className="h-3 w-3 mr-1" /> Download Shops Excel
+                          </Button>
+                        </CardDescription>
                       </div>
                     </div>
                   </CardHeader>
@@ -1969,7 +2026,17 @@ export default function AdminDashboard() {
                         <CardTitle className="font-bold text-lg text-foreground flex items-center gap-2">
                           All Materials {showMaterialsList ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </CardTitle>
-                        <CardDescription className="text-sm">Comprehensive material registry</CardDescription>
+                        <CardDescription className="text-sm flex items-center justify-between">
+                          <span>Comprehensive material registry</span>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={(e) => { e.stopPropagation(); handleExportMaterials(); }}
+                            className="h-7 text-xs bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 font-bold"
+                          >
+                            <Layers className="h-3 w-3 mr-1" /> Download Materials Excel
+                          </Button>
+                        </CardDescription>
                       </div>
                     </div>
                   </CardHeader>
