@@ -260,15 +260,41 @@ const DraggableHeaderCol = ({
       return;
     }
 
+    // 1. Update Global Settings ONCE (outside the loop)
+    if (globalColSettings[oldName] !== undefined || Object.values(globalColSettings).some((s: any) => s.baseSource === oldName || s.multiplierSource === oldName)) {
+      setGlobalColSettings((prev: any) => {
+        const next = { ...prev };
+        if (next[oldName] !== undefined) {
+          next[newName] = next[oldName];
+          delete next[oldName];
+        }
+        // Also update dependent references in other global settings
+        Object.keys(next).forEach(key => {
+          if (next[key].baseSource === oldName) next[key].baseSource = newName;
+          if (next[key].multiplierSource === oldName) next[key].multiplierSource = newName;
+        });
+        return next;
+      });
+    }
+
     const updates = boqItems.map(item => {
-      const itemCols = [...(customColumns[item.id] || [])];
+      // 2. Update column definitions and dependent references
+      const itemCols = [...(customColumns[item.id] || [])].map(c => {
+         let newC = { ...c };
+         if (newC.baseSource === oldName) newC.baseSource = newName;
+         if (newC.multiplierSource === oldName) newC.multiplierSource = newName;
+         return newC;
+      });
+
       const colIdx = itemCols.findIndex(c => c.name === oldName);
-      if (colIdx === -1) return Promise.resolve();
+      if (colIdx !== -1) {
+        // Update column definition name
+        itemCols[colIdx] = { ...itemCols[colIdx], name: newName };
+      } else {
+        return Promise.resolve();
+      }
 
-      // Update column definition
-      itemCols[colIdx] = { ...itemCols[colIdx], name: newName };
-
-      // Update values
+      // 3. Update values
       const itemValues = { ...(customColumnValues[item.id] || {}) };
       Object.keys(itemValues).forEach(r => {
         const ri = parseInt(r);
@@ -282,16 +308,6 @@ const DraggableHeaderCol = ({
 
       setCustomColumns((prev: any) => ({ ...prev, [item.id]: itemCols }));
       setCustomColumnValues((prev: any) => ({ ...prev, [item.id]: itemValues }));
-
-      // Also update global settings if any
-      if (globalColSettings[oldName]) {
-        setGlobalColSettings((prev: any) => {
-          const next = { ...prev };
-          next[newName] = next[oldName];
-          delete next[oldName];
-          return next;
-        });
-      }
 
       return saveItemLayout(item.id, itemCols, itemValues);
     });
@@ -3316,9 +3332,9 @@ export default function FinalizeBoq() {
                       {showColumnTotals ? "Hide Totals Row" : "Show Totals Row"}
                     </Button>
                     <div className="flex items-center gap-2 border border-blue-200 rounded px-3 h-9 bg-blue-50/30">
-                      <Checkbox 
-                        id="round-off-toggle" 
-                        checked={roundOff} 
+                      <Checkbox
+                        id="round-off-toggle"
+                        checked={roundOff}
                         onCheckedChange={(checked) => setRoundOff(!!checked)}
                       />
                       <Label htmlFor="round-off-toggle" className="text-[11px] font-bold text-blue-800 uppercase cursor-pointer">Round Off</Label>
@@ -3869,12 +3885,12 @@ export default function FinalizeBoq() {
                                 />
                               </td>
                             )}
-                             {!hiddenPredefinedCols.rate && (
+                            {!hiddenPredefinedCols.rate && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-500 text-[10px] align-middle">
                                 ₹{(roundOff ? Math.round(rateSqft) : rateSqft).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                               </td>
                             )}
-                             {!hiddenPredefinedCols.system_total && (
+                            {!hiddenPredefinedCols.system_total && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 align-middle text-[10px] w-32">
                                 ₹{(() => {
                                   const displayQty = tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.targetRequiredQty !== undefined ? Number(tableData.targetRequiredQty) : Number(currentStep11Items[0]?.qty || 0)));
@@ -3896,7 +3912,7 @@ export default function FinalizeBoq() {
                                 />
                               </td>
                             )}
-                             {!hiddenPredefinedCols.override_total && (
+                            {!hiddenPredefinedCols.override_total && (
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 align-middle text-[10px] w-32">
                                 ₹{(() => {
                                   const overrideRateVal = parseFloat(overrideRates[boqItem.id] || "0") || 0;
@@ -3962,7 +3978,7 @@ export default function FinalizeBoq() {
                                 // Render the cell only if not hidden
                                 if (isTotalColumn) {
                                   return (
-                                     <td key={`${col.name}-${idx}`} className={`border-r px-2 py-1.5 text-right font-semibold text-green-900 bg-green-100/40 text-[10px] ${getIsModified(boqItem.id, "columns", col.name) ? "text-blue-600 border-2 border-blue-100" : ""}`}>
+                                    <td key={`${col.name}-${idx}`} className={`border-r px-2 py-1.5 text-right font-semibold text-green-900 bg-green-100/40 text-[10px] ${getIsModified(boqItem.id, "columns", col.name) ? "text-blue-600 border-2 border-blue-100" : ""}`}>
                                       ₹{(roundOff ? Math.round(valNum) : valNum).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                                     </td>
                                   );
@@ -3973,7 +3989,7 @@ export default function FinalizeBoq() {
                                   const currentBaseSource = (itemCol as any).baseSource || "Total Value (₹)";
                                   const isCalculated = currentBaseSource && currentBaseSource !== "manual";
 
-                                   const displayVal = isCalculated
+                                  const displayVal = isCalculated
                                     ? (roundOff ? Math.round(valNum).toString() : valNum.toFixed(2))
                                     : ((savedVal !== undefined && savedVal !== null && savedVal !== "") ? String(savedVal) : "");
                                   const itemMultiplier = (itemCol as any).percentageValue || 0;
@@ -4131,7 +4147,7 @@ export default function FinalizeBoq() {
                           )}
                           {!hiddenPredefinedCols.rate && (
                             <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-600 bg-gray-50/50 text-[11px] w-32">
-                               ₹{calculatedColumnTotals.totalRateSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
+                              ₹{calculatedColumnTotals.totalRateSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                             </td>
                           )}
                           {!hiddenPredefinedCols.unit && (
@@ -4148,7 +4164,7 @@ export default function FinalizeBoq() {
                             <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 group/total relative text-[11px] w-32">
                               {!hideSystemTotalFooter ? (
                                 <>
-                                   ₹{calculatedColumnTotals.totalValueSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
+                                  ₹{calculatedColumnTotals.totalValueSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                                   <button
                                     onClick={() => handleSetSystemTotalVisibility(false)}
                                     className="absolute left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/total:opacity-100 transition-opacity text-red-400 hover:text-red-600"
@@ -4174,7 +4190,7 @@ export default function FinalizeBoq() {
                           )}
                           {!hiddenPredefinedCols.override_total && (
                             <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 text-[11px] w-32">
-                               ₹{calculatedColumnTotals.overrideTotalSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
+                              ₹{calculatedColumnTotals.overrideTotalSum.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                             </td>
                           )}
                           {allCols.map((col, realIdx) => {
@@ -4272,7 +4288,7 @@ export default function FinalizeBoq() {
                             `${grandTotalColumn} Total`}
                       </span>
                       <span className="text-2xl font-black text-green-400 font-mono tracking-tighter">
-                         ₹{currentProjectValue.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
+                        ₹{currentProjectValue.toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 })}
                       </span>
                     </div>
                   </div>
