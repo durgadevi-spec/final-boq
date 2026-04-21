@@ -2153,7 +2153,8 @@ export async function registerRoutes(
       const result = await query(
         `SELECT m.*, s.name as shop_name, 
                 mt.tax_code_type, mt.tax_code_value,
-                mt.hsn_code as template_hsn_code, mt.sac_code as template_sac_code 
+                mt.hsn_code as template_hsn_code, mt.sac_code as template_sac_code,
+                m.brandname as "brandName", m.modelnumber as "modelNumber"
          FROM materials m 
          LEFT JOIN shops s ON m.shop_id = s.id 
          LEFT JOIN material_templates mt ON m.template_id = mt.id 
@@ -4937,8 +4938,11 @@ export async function registerRoutes(
       try {
         const { projectId } = req.params;
 
+        // Ensure is_disabled column exists
+        await query("ALTER TABLE boq_versions ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN DEFAULT FALSE");
+
         const { type } = req.query;
-        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, created_at, updated_at 
+        let q = `SELECT id, project_id, project_name, project_client, project_location, version_number, status, type, is_locked, is_last_final, is_disabled, created_at, updated_at 
                  FROM boq_versions 
                  WHERE project_id = $1`;
         const params = [projectId];
@@ -5042,35 +5046,10 @@ export async function registerRoutes(
           const archivedIds = archiveService.getArchivedItemIds('boq_items');
           const trashedIds = archiveService.getTrashedItemIds('boq_items');
 
-          // Deduplicate items before copying to the new version to ensure it remains clean
-          const seenProducts = new Map<string, any>();
           for (const item of itemsResult.rows) {
             // Skip archived or trashed items
             if (archivedIds.includes(item.id) || trashedIds.includes(item.id)) continue;
 
-            let td = item.table_data;
-            if (typeof td === "string") {
-              try { td = JSON.parse(td); } catch (e) { /* ignore */ }
-            }
-
-            const productKey = (td?.product_name || item.estimator || item.id).toLowerCase().trim();
-            const existing = seenProducts.get(productKey);
-
-            if (!existing) {
-              seenProducts.set(productKey, item);
-            } else {
-              const existingDate = new Date(existing.created_at).getTime();
-              const newDate = new Date(item.created_at).getTime();
-              if (newDate > existingDate) {
-                seenProducts.set(productKey, item);
-              }
-            }
-          }
-
-          const deduplicatedItems = Array.from(seenProducts.values());
-          console.log(`Deduplicated copy: ${deduplicatedItems.length} items from ${itemsResult.rows.length} raw rows.`);
-
-          for (const item of deduplicatedItems) {
             const newItemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             await query(
               `INSERT INTO boq_items (id, project_id, estimator, table_data, version_id, sort_order, user_added, created_at)
@@ -5332,7 +5311,14 @@ export async function registerRoutes(
     async (req: Request, res: Response) => {
       try {
         const { versionId } = req.params;
-        const { status, column_config, is_locked, type: newType, is_boq_submission } = req.body;
+        const { status, column_config, is_locked, type: newType, is_boq_submission, is_disabled } = req.body;
+
+        if (is_disabled !== undefined) {
+          await query(
+            `UPDATE boq_versions SET is_disabled = $1, updated_at = NOW() WHERE id = $2`,
+            [is_disabled, versionId]
+          );
+        }
 
         if (status && !["draft", "submitted", "pending_approval", "approved", "rejected", "edit_requested"].includes(status)) {
           res.status(400).json({ message: "Invalid status" });
@@ -6307,25 +6293,7 @@ export async function registerRoutes(
             created_at: row.created_at,
           }));
 
-        // Deduplicate items to ensure clean display (same logic as in copy-version)
-        const seenItems = new Map<string, any>();
-        for (const item of rawItems) {
-          const td = item.table_data || {};
-          // Construct a unique key for the logical item: estimator + name + subcategory + category
-          const productKey = `${item.estimator}|${td.product_name || td.name || ''}|${td.subcategory || ''}|${td.category || ''}`.toLowerCase().trim();
-          
-          if (!seenItems.has(productKey)) {
-            seenItems.set(productKey, item);
-          } else {
-            // Keep the most recent version of the same logical item
-            const existing = seenItems.get(productKey);
-            if (new Date(item.created_at) > new Date(existing.created_at)) {
-              seenItems.set(productKey, item);
-            }
-          }
-        }
-
-        const items = Array.from(seenItems.values());
+        const items = rawItems;
 
         res.json({ items });
       } catch (err) {
