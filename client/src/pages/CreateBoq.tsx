@@ -321,6 +321,8 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
   const { toast } = useToast();
   const tableData = parseTableData(boqItem.table_data);
   const [localTarget, setLocalTarget] = useState(tableData.targetRequiredQty || 0);
+  const [showDescTooltip, setShowDescTooltip] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     setLocalTarget(tableData.targetRequiredQty || 0);
@@ -626,23 +628,39 @@ function BoqItemCard({ boqItem, boqIdx, isVersionSubmitted, expandedProductIds, 
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap mt-2">
-                <Input
-                  placeholder="Enter product description..."
-                  className="h-8 text-xs w-full max-w-md mt-1"
-                  defaultValue={tableData.finalize_description || ""}
-                  disabled={isVersionSubmitted}
-                  onFocus={checkBudgetEarly}
-                  onBlur={async e => {
-                    const newDesc = e.target.value;
-                    if (newDesc === (tableData.finalize_description || "")) return;
-                    try {
-                      const updatedTd = { ...tableData, finalize_description: newDesc };
-                      const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
-                      if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
-                    } catch (err) { console.error("Failed to save description", err); }
+              <div className="flex items-center gap-2 flex-wrap mt-2 relative">
+                <div
+                  onMouseEnter={(e) => {
+                    if (tableData.finalize_description) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setTooltipPos({ x: rect.left, y: rect.bottom + 5 });
+                      setShowDescTooltip(true);
+                    }
                   }}
-                />
+                  onMouseLeave={() => setShowDescTooltip(false)}
+                >
+                  <Input
+                    placeholder="Enter product description..."
+                    className="h-8 text-xs w-full max-w-md mt-1 hover:bg-blue-50 cursor-help"
+                    defaultValue={tableData.finalize_description || ""}
+                    disabled={isVersionSubmitted}
+                    onFocus={checkBudgetEarly}
+                    onBlur={async e => {
+                      const newDesc = e.target.value;
+                      if (newDesc === (tableData.finalize_description || "")) return;
+                      try {
+                        const updatedTd = { ...tableData, finalize_description: newDesc };
+                        const resp = await apiFetch(`/api/boq-items/${boqItem.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ table_data: updatedTd }) });
+                        if (resp.ok) { setBoqItems((prev: BOMItem[]) => prev.map((i: BOMItem) => i.id === boqItem.id ? { ...i, table_data: updatedTd } : i)); }
+                      } catch (err) { console.error("Failed to save description", err); }
+                    }}
+                  />
+                  {showDescTooltip && tableData.finalize_description && (
+                    <div className="fixed bg-gray-900 text-white text-xs rounded px-3 py-2 shadow-lg z-50 max-w-xs break-words" style={{ left: `${tooltipPos.x}px`, top: `${tooltipPos.y}px` }}>
+                      {tableData.finalize_description}
+                    </div>
+                  )}
+                </div>
                 <EditableHsnSac
                   tableData={tableData}
                   onUpdate={async (hsn, sac) => {
@@ -991,7 +1009,7 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           </td>
         )}
         {!isCompactView && <td className="border px-2 py-2 text-left w-32 text-gray-600">{item.shop_name || "-"}</td>}
-        {!isCompactView && <td className="border px-2 py-2 text-left w-[300px] text-gray-600 truncate max-w-[300px]">{item.description || "-"}</td>}
+        {!isCompactView && <td className="border px-2 py-2 text-left w-[300px] text-gray-600 truncate max-w-[300px] hover:cursor-help hover:bg-blue-50" title={item.description || "-"}>{item.description || "-"}</td>}
         <td className="border px-2 py-2 text-center w-16">{item.unit || "-"}</td>
         <td className="border px-2 py-2 text-center w-20 font-medium">{(item.qtyPerSqf ?? 0).toFixed(3)}</td>
         <td className="border px-2 py-2 text-center w-24 text-blue-600 font-medium">{(item.requiredQty ?? 0).toFixed(2)}</td>
@@ -1155,7 +1173,8 @@ function BoqItemRow({ item, itemIdx, boqItem, tableData, isEngineBased, isVersio
           onChange={(e) => setLocalDesc(e.target.value)}
           onBlur={() => { setIsFocused(false); updateEditedField(itemKey, "description", localDesc); }}
           placeholder="Description..."
-          className="h-7 text-xs border-gray-200 focus:border-blue-400"
+          title={localDesc}
+          className="h-7 text-xs border-gray-200 focus:border-blue-400 hover:bg-blue-50"
           disabled={isVersionSubmitted || (item.freezeAndEdit || item.freeze_and_edit)}
           onFocus={() => { setIsFocused(true); checkBudgetEarly(); }}
         />
