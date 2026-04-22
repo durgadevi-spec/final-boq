@@ -12,8 +12,9 @@ import { Reorder, useDragControls } from "framer-motion";
 import { SketchPad } from "@/components/SketchPad";
 import apiFetch from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import Draggable from "react-draggable";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -219,6 +220,7 @@ const SketchPlanRow = ({
   const [itemSearchTab, setItemSearchTab] = useState<"all" | "material" | "product">("all");
   const dragControls = useDragControls();
   const isSupplier = userRole === "supplier";
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const dims = item.dimensions?.length ? item.dimensions : [{ id: "def", length: item.length, width: item.width, height: item.height, note: item.description }];
 
@@ -428,7 +430,7 @@ const SketchPlanRow = ({
         </Popover>
       </td>
       <td className={cn("px-2", isCompact ? "py-0 w-[120px] min-w-[120px] max-w-[120px]" : "py-2 w-[160px] min-w-[160px] max-w-[160px]")}>
-        <Dialog open={openPopoverIdx === idx} onOpenChange={(open) => {
+        <Dialog modal={false} open={openPopoverIdx === idx} onOpenChange={(open) => {
           if (open) {
             setOpenPopoverIdx(idx);
             setMaterialSearch("");
@@ -447,10 +449,16 @@ const SketchPlanRow = ({
               <Search className={cn("ml-auto opacity-50", isCompact ? "h-2 w-2" : "h-3 w-3")} />
             </Button>
           </DialogTrigger>
-          <DialogContent className="p-0 sm:max-w-[500px]">
-            <DialogHeader className="p-4 border-b">
-              <DialogTitle>Select Item for Row #{idx + 1}</DialogTitle>
-            </DialogHeader>
+          <DialogContent hideOverlay className="p-0 sm:max-w-[500px] bg-transparent border-none shadow-none [&>button]:hidden pointer-events-none">
+            <Draggable nodeRef={dialogRef} handle=".drag-handle">
+              <div ref={dialogRef} className="bg-white border shadow-lg sm:rounded-lg pointer-events-auto flex flex-col w-full relative">
+                <DialogHeader className="p-4 border-b drag-handle cursor-move bg-slate-50 hover:bg-slate-100 transition-colors select-none rounded-t-lg flex flex-row items-center justify-between">
+                  <DialogTitle>Select Item for Row #{idx + 1}</DialogTitle>
+                  <DialogClose className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Close</span>
+                  </DialogClose>
+                </DialogHeader>
             <Command shouldFilter={false}>
               <CommandInput
                 placeholder="Search materials, products..."
@@ -535,6 +543,8 @@ const SketchPlanRow = ({
                 }}
               />
             </div>
+              </div>
+            </Draggable>
           </DialogContent>
         </Dialog>
       </td>
