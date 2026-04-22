@@ -67,7 +67,8 @@ import {
   Type,
   Mail,
   Download,
-  Save
+  Save,
+  RefreshCw
 } from "lucide-react";
 
 /** Helper to generate Excel-style column names (A, B, C... Z, AA, AB...) */
@@ -488,6 +489,7 @@ export default function FinalizeBoq() {
   const [isSaveTemplateDialogOpen, setIsSaveTemplateDialogOpen] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState("");
   const [showDisabledVersionsDialog, setShowDisabledVersionsDialog] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Delete Confirmation Dialog State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -997,12 +999,14 @@ export default function FinalizeBoq() {
           setBomVersions(bomList);
           setBoqVersions(boqList);
 
+          let approved: any = null;
+
           // Logic for selecting initial BOM version
           if (selectedBomVersionId && bomList.some((v: BOQVersion) => v.id === selectedBomVersionId)) {
             // keep existing
           } else {
             const selectable = bomList.filter((v: BOQVersion) => v.status === "approved" && !v.is_disabled);
-            const approved = selectable[0] || null;
+            approved = selectable[0] || null;
 
             if (approved) {
               setSelectedBomVersionId(approved.id);
@@ -1016,7 +1020,8 @@ export default function FinalizeBoq() {
             // keep existing
           } else {
             const selectableBoqs = boqList.filter((v: BOQVersion) => !v.is_disabled);
-            if (selectableBoqs.length > 0) {
+            // ONLY auto-select a BOQ if no approved BOM was selected above to prevent conflicting data views
+            if (selectableBoqs.length > 0 && !approved) {
               setSelectedBoqVersionId(selectableBoqs[0].id);
             } else {
               setSelectedBoqVersionId(null);
@@ -1182,9 +1187,36 @@ export default function FinalizeBoq() {
     }
   }, [toast]);
 
+  // Refresh both versions list + item data for the current selection
+  const handleRefreshBomData = useCallback(async () => {
+    if (selectedProjectId) {
+      // Clear items while refreshing to show loading state
+      setBoqItems([]);
+      try {
+        const [bomResp, boqResp] = await Promise.all([
+          apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=bom`),
+          apiFetch(`/api/boq-versions/${encodeURIComponent(selectedProjectId)}?type=boq`)
+        ]);
+        if (bomResp.ok) {
+          const bomData = await bomResp.json();
+          setBomVersions(bomData.versions || []);
+        }
+        if (boqResp.ok) {
+          const boqData = await boqResp.json();
+          setBoqVersions(boqData.versions || []);
+        }
+      } catch (err) {
+        console.error("Failed to refresh versions:", err);
+      }
+    }
+    // Increment key to force item reload even if version ID hasn't changed
+    setRefreshKey(prev => prev + 1);
+    toast({ title: "Refreshed", description: "BOM data reloaded from server." });
+  }, [selectedProjectId, toast]);
+
   useEffect(() => {
     loadBoqItemsAndEdits(selectedBoqVersionId || selectedBomVersionId);
-  }, [selectedBomVersionId, selectedBoqVersionId, loadBoqItemsAndEdits]);
+  }, [selectedBomVersionId, selectedBoqVersionId, loadBoqItemsAndEdits, refreshKey]);
 
   useEffect(() => {
     try {
@@ -1194,7 +1226,11 @@ export default function FinalizeBoq() {
       const projectParam = params.get("project");
       if (projectParam && projectParam !== selectedProjectId) {
         const exists = projects.find((p) => p.id === projectParam);
-        if (exists) setSelectedProjectId(projectParam);
+        if (exists) {
+          setSelectedProjectId(projectParam);
+          setSelectedBomVersionId(null);
+          setSelectedBoqVersionId(null);
+        }
       }
     } catch (e) {
       // ignore
@@ -2785,7 +2821,14 @@ export default function FinalizeBoq() {
                     <EyeOff className="h-2.5 w-2.5 mr-1" /> Disabled Versions
                   </Button>
                 </div>
-                <Select onValueChange={(v) => setSelectedProjectId(v || null)} value={selectedProjectId || ""}>
+                <Select 
+                  onValueChange={(v) => { 
+                    setSelectedProjectId(v || null);
+                    setSelectedBomVersionId(null);
+                    setSelectedBoqVersionId(null);
+                  }} 
+                  value={selectedProjectId || ""}
+                >
                   <SelectTrigger className="w-full bg-slate-50 border-slate-200 h-9 px-3 hover:bg-slate-100/50 transition-colors">
                     <SelectValue placeholder={projects.length === 0 ? "No projects" : "Choose from filtered list..."} />
                   </SelectTrigger>
@@ -2880,6 +2923,16 @@ export default function FinalizeBoq() {
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-slate-400 hover:text-green-600 border border-slate-200 hover:bg-green-50 bg-white shadow-sm shrink-0"
+                        title="Refresh BOM data — use this after a version has been edited and re-approved in Generate BOM"
+                        disabled={!selectedBomVersionId && !selectedBoqVersionId}
+                        onClick={handleRefreshBomData}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
