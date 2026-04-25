@@ -109,21 +109,30 @@ const resolveSource = (src: string, ctx: SrcCtx): number => {
 const getItemMetrics = (td: any) => {
   const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
   let itemTotal = 0, itemQty = 0;
+  const isLumpSum = td.is_lump_sum === true;
+
   if (td.targetRequiredQty !== undefined && td.targetRequiredQty !== null) {
+    const calcQty = isLumpSum ? 1 : td.targetRequiredQty;
     if (td.materialLines) {
-      const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
-      const manualTotal = step11.filter((it: any) => it.manual).reduce((s: number, it: any) =>
-        s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+      const res = computeBoq(td.configBasis, td.materialLines, calcQty);
+      const manualTotal = step11.filter((it: any) => it.manual).reduce((s: number, it: any) => {
+        const mQty = isLumpSum ? 1 : (Number(it.qty) || 0);
+        return s + mQty * (Number(it.supply_rate || 0) + Number(it.install_rate || 0));
+      }, 0);
       itemTotal = res.grandTotal + manualTotal;
     } else {
-      itemTotal = step11.reduce((s: number, it: any) =>
-        s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+      itemTotal = step11.reduce((s: number, it: any) => {
+        const iQty = isLumpSum ? 1 : (it.qty || 0);
+        return s + iQty * ((it.supply_rate || 0) + (it.install_rate || 0));
+      }, 0);
     }
-    itemQty = td.targetRequiredQty;
+    itemQty = calcQty;
   } else {
-    itemTotal = step11.reduce((s: number, it: any) =>
-      s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
-    itemQty = step11[0]?.qty || 0;
+    itemTotal = step11.reduce((s: number, it: any) => {
+      const iQty = isLumpSum ? 1 : (it.qty || 0);
+      return s + iQty * ((it.supply_rate || 0) + (it.install_rate || 0));
+    }, 0);
+    itemQty = isLumpSum ? 1 : (step11[0]?.qty || 0);
   }
   const itemRate = itemQty > 0 ? itemTotal / itemQty : itemTotal;
   return { itemTotal, itemQty, itemRate, step11 };
@@ -285,10 +294,10 @@ const DraggableHeaderCol = ({
     const updates = boqItems.map(item => {
       // 2. Update column definitions and dependent references
       const itemCols = [...(customColumns[item.id] || [])].map(c => {
-         let newC = { ...c };
-         if (newC.baseSource === oldName) newC.baseSource = newName;
-         if (newC.multiplierSource === oldName) newC.multiplierSource = newName;
-         return newC;
+        let newC = { ...c };
+        if (newC.baseSource === oldName) newC.baseSource = newName;
+        if (newC.multiplierSource === oldName) newC.multiplierSource = newName;
+        return newC;
       });
 
       const colIdx = itemCols.findIndex(c => c.name === oldName);
@@ -568,12 +577,12 @@ export default function FinalizeBoq() {
 
   // BOQ versions: show draft and approved so users can work on them
   const filteredBoqVersions = React.useMemo(() => {
-    return boqVersions.filter(v => 
-      v.status === "draft" || 
-      v.status === "approved" || 
-      v.status === "submitted" || 
-      v.status === "pending_approval" || 
-      v.status === "rejected" || 
+    return boqVersions.filter(v =>
+      v.status === "draft" ||
+      v.status === "approved" ||
+      v.status === "submitted" ||
+      v.status === "pending_approval" ||
+      v.status === "rejected" ||
       v.status === "edit_requested"
     );
   }, [boqVersions]);
@@ -777,9 +786,9 @@ export default function FinalizeBoq() {
       const { itemRate, itemQty } = getItemMetrics(td);
 
       const manualQtyStr = productQuantities[item.id];
-      const displayQty = manualQtyStr !== undefined
+      const displayQty = td.is_lump_sum ? 1 : (manualQtyStr !== undefined
         ? (parseFloat(manualQtyStr) || 0)
-        : itemQty;
+        : itemQty);
 
       const baseTotalValue = roundOff ? Math.round(itemRate * displayQty) : itemRate * displayQty;
       totalValueSum += baseTotalValue;
@@ -866,7 +875,8 @@ export default function FinalizeBoq() {
     if (typeof td === 'string') try { td = JSON.parse(td); } catch { td = {}; }
     let total = 0;
     if (td.materialLines && td.targetRequiredQty !== undefined) {
-      total = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty).grandTotal;
+      const calcQty = td.is_lump_sum ? 1 : td.targetRequiredQty;
+      total = computeBoq(td.configBasis, td.materialLines, calcQty).grandTotal;
     } else {
       const items = Array.isArray(td.step11_items) ? td.step11_items : [];
       total = items.reduce((s: number, it: any) =>
@@ -1433,7 +1443,7 @@ export default function FinalizeBoq() {
       let td = item.table_data || {};
       if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
       const { itemRate, itemQty } = getItemMetrics(td);
-      const displayQty = productQuantities[item.id] !== undefined ? (parseFloat(productQuantities[item.id]) || 0) : itemQty;
+      const displayQty = td.is_lump_sum ? 1 : (productQuantities[item.id] !== undefined ? (parseFloat(productQuantities[item.id]) || 0) : itemQty);
       const baseTotalValue = itemRate * displayQty;
 
       let itemCols = [...(customColumns[item.id] || [])];
@@ -1496,7 +1506,7 @@ export default function FinalizeBoq() {
       let td = item.table_data || {};
       if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
       const { itemRate, itemQty } = getItemMetrics(td);
-      const displayQty = productQuantities[item.id] !== undefined ? (parseFloat(productQuantities[item.id]) || 0) : itemQty;
+      const displayQty = td.is_lump_sum ? 1 : (productQuantities[item.id] !== undefined ? (parseFloat(productQuantities[item.id]) || 0) : itemQty);
 
       const overrideRate = parseFloat(overrideRates[item.id] || "0") || 0;
       const srcCtx: SrcCtx = {
@@ -1553,7 +1563,7 @@ export default function FinalizeBoq() {
     let td = item.table_data || {};
     if (typeof td === "string") try { td = JSON.parse(td); } catch { td = {}; }
     const { itemRate, itemQty } = getItemMetrics(td);
-    const displayQty = productQuantities[item.id] !== undefined ? (parseFloat(productQuantities[item.id]) || 0) : itemQty;
+    const displayQty = td.is_lump_sum ? 1 : (productQuantities[item.id] !== undefined ? (parseFloat(productQuantities[item.id]) || 0) : itemQty);
     const overrideRate = parseFloat(overrideRates[item.id] || "0") || 0;
     const srcCtx: SrcCtx = {
       totalVal: itemRate * displayQty, rate: itemRate, qty: displayQty,
@@ -1903,7 +1913,7 @@ export default function FinalizeBoq() {
         let td = item.table_data || {};
         if (typeof td === 'string') try { td = JSON.parse(td); } catch { td = {}; }
         const { itemRate, itemQty } = getItemMetrics(td);
-        const displayQty = parseFloat(productQuantities[item.id] ?? td.finalize_qty ?? itemQty) || 0;
+        const displayQty = td.is_lump_sum ? 1 : (parseFloat(productQuantities[item.id] ?? td.finalize_qty ?? itemQty) || 0);
         const totalVal = itemRate * displayQty;
         const oRate = parseFloat(overrideRates[item.id] ?? td.finalize_override_rate ?? "0") || 0;
 
@@ -2056,15 +2066,20 @@ export default function FinalizeBoq() {
         let _exTotal = 0;
         let _exRate = 0;
         if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
-          const _res = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
-          const _manTot = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) =>
-            s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+          const _calcQty = isLumpSum ? 1 : tableData.targetRequiredQty;
+          const _res = computeBoq(tableData.configBasis, tableData.materialLines, _calcQty);
+          const _manTot = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) => {
+            const mQty = isLumpSum ? 1 : (Number(it.qty) || 0);
+            return s + mQty * (Number(it.supply_rate || 0) + Number(it.install_rate || 0));
+          }, 0);
           _exTotal = _res.grandTotal + _manTot;
-          _exRate = tableData.targetRequiredQty > 0 ? _exTotal / tableData.targetRequiredQty : 0;
+          _exRate = _calcQty > 0 ? _exTotal / _calcQty : 0;
         } else {
-          _exTotal = currentStep11Items.reduce((s: number, it: any) =>
-            s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
-          _exRate = (currentStep11Items[0]?.qty ?? 0) > 0 ? _exTotal / (currentStep11Items[0]?.qty || 1) : _exTotal;
+          _exTotal = currentStep11Items.reduce((s: number, it: any) => {
+            const iQty = isLumpSum ? 1 : (it.qty || 0);
+            return s + iQty * ((it.supply_rate || 0) + (it.install_rate || 0));
+          }, 0);
+          _exRate = isLumpSum ? _exTotal : ((currentStep11Items[0]?.qty ?? 0) > 0 ? _exTotal / (currentStep11Items[0]?.qty || 1) : _exTotal);
         }
         const rateSqft = isLumpSum ? _exTotal : _exRate;
         const totalVal = rateSqft * displayQty;
@@ -2348,15 +2363,20 @@ export default function FinalizeBoq() {
         let _total = 0;
         let _rateSqft = 0;
         if (tableData.materialLines && tableData.targetRequiredQty !== undefined) {
-          const _result = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
-          const _manualTotal = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) =>
-            s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+          const _calcQty = isLumpSum ? 1 : tableData.targetRequiredQty;
+          const _result = computeBoq(tableData.configBasis, tableData.materialLines, _calcQty);
+          const _manualTotal = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) => {
+            const mQty = isLumpSum ? 1 : (Number(it.qty) || 0);
+            return s + mQty * (Number(it.supply_rate || 0) + Number(it.install_rate || 0));
+          }, 0);
           _total = _result.grandTotal + _manualTotal;
-          _rateSqft = tableData.targetRequiredQty > 0 ? _total / tableData.targetRequiredQty : 0;
+          _rateSqft = _calcQty > 0 ? _total / _calcQty : 0;
         } else {
-          _total = currentStep11Items.reduce((s: number, it: any) =>
-            s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
-          _rateSqft = (currentStep11Items[0]?.qty ?? 0) > 0 ? _total / (currentStep11Items[0]?.qty || 1) : _total;
+          _total = currentStep11Items.reduce((s: number, it: any) => {
+            const iQty = isLumpSum ? 1 : (it.qty || 0);
+            return s + iQty * ((it.supply_rate || 0) + (it.install_rate || 0));
+          }, 0);
+          _rateSqft = isLumpSum ? _total : ((currentStep11Items[0]?.qty ?? 0) > 0 ? _total / (currentStep11Items[0]?.qty || 1) : _total);
         }
         const rateSqft = isLumpSum ? _total : _rateSqft;
         const totalVal = rateSqft * displayQty;
@@ -2716,7 +2736,8 @@ export default function FinalizeBoq() {
 
       if (td.materialLines && td.targetRequiredQty !== undefined) {
         try {
-          const res = computeBoq(td.configBasis, td.materialLines, td.targetRequiredQty);
+          const _calcQty = td.is_lump_sum ? 1 : td.targetRequiredQty;
+          const res = computeBoq(td.configBasis, td.materialLines, _calcQty);
           if (Array.isArray(res.computed)) {
             res.computed.forEach((l: any) => {
               const lineAmount = Number(l.lineTotal ?? ((Number(l.scaledQty) || 0) * (Number(l.supplyRate) + Number(l.installRate)))) || 0;
@@ -2727,7 +2748,7 @@ export default function FinalizeBoq() {
         // include manual step11 items (user-added)
         step11.filter((i: any) => i.manual).forEach((i: any, idx: number) => {
           const key = i.itemKey || `${bi.id}-manual-${i._s11Idx ?? idx}`;
-          const qty = Number(getEditedValue(key, "qty", i.qty ?? 0)) || 0;
+          const qty = td.is_lump_sum ? 1 : (Number(getEditedValue(key, "qty", i.qty ?? 0)) || 0);
           const sr = Number(getEditedValue(key, "supply_rate", i.supply_rate ?? 0)) || 0;
           const ir = Number(getEditedValue(key, "install_rate", i.install_rate ?? 0)) || 0;
           const amt = Number(i.amount ?? (qty * (sr + ir))) || 0;
@@ -2736,7 +2757,7 @@ export default function FinalizeBoq() {
       } else {
         step11.forEach((it: any, idx: number) => {
           const key = it.itemKey || `${bi.id}-${idx}`;
-          const qty = Number(getEditedValue(key, "qty", it.qty ?? 0)) || 0;
+          const qty = td.is_lump_sum ? 1 : (Number(getEditedValue(key, "qty", it.qty ?? 0)) || 0);
           const sr = Number(getEditedValue(key, "supply_rate", it.supply_rate ?? 0)) || 0;
           const ir = Number(getEditedValue(key, "install_rate", it.install_rate ?? 0)) || 0;
           const amt = Number(it.amount ?? (qty * (sr + ir))) || 0;
@@ -2812,21 +2833,21 @@ export default function FinalizeBoq() {
               <div className="flex flex-col space-y-1">
                 <div className="flex items-center justify-between ml-1">
                   <Label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Select Project</Label>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="h-5 text-[9px] px-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-bold uppercase tracking-tight"
                     onClick={() => setShowDisabledVersionsDialog(true)}
                   >
                     <EyeOff className="h-2.5 w-2.5 mr-1" /> Disabled Versions
                   </Button>
                 </div>
-                <Select 
-                  onValueChange={(v) => { 
+                <Select
+                  onValueChange={(v) => {
                     setSelectedProjectId(v || null);
                     setSelectedBomVersionId(null);
                     setSelectedBoqVersionId(null);
-                  }} 
+                  }}
                   value={selectedProjectId || ""}
                 >
                   <SelectTrigger className="w-full bg-slate-50 border-slate-200 h-9 px-3 hover:bg-slate-100/50 transition-colors">
@@ -3902,16 +3923,21 @@ export default function FinalizeBoq() {
                         let total = 0;
                         let rateSqft = 0;
                         if (tableData.targetRequiredQty !== undefined && tableData.targetRequiredQty !== null) {
+                          const calcQty = tableData.is_lump_sum ? 1 : tableData.targetRequiredQty;
                           if (tableData.materialLines) {
-                            const result = computeBoq(tableData.configBasis, tableData.materialLines, tableData.targetRequiredQty);
-                            const manualTotal = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) =>
-                              s + (Number(it.qty) || 0) * (Number(it.supply_rate || 0) + Number(it.install_rate || 0)), 0);
+                            const result = computeBoq(tableData.configBasis, tableData.materialLines, calcQty);
+                            const manualTotal = currentStep11Items.filter((it: any) => it.manual).reduce((s: number, it: any) => {
+                              const mQty = tableData.is_lump_sum ? 1 : (Number(it.qty) || 0);
+                              return s + mQty * (Number(it.supply_rate || 0) + Number(it.install_rate || 0));
+                            }, 0);
                             total = result.grandTotal + manualTotal;
                           } else {
-                            total = currentStep11Items.reduce((s: number, it: any) =>
-                              s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
+                            total = currentStep11Items.reduce((s: number, it: any) => {
+                              const iQty = tableData.is_lump_sum ? 1 : (it.qty || 0);
+                              return s + iQty * ((it.supply_rate || 0) + (it.install_rate || 0));
+                            }, 0);
                           }
-                          rateSqft = tableData.targetRequiredQty > 0 ? total / tableData.targetRequiredQty : total;
+                          rateSqft = calcQty > 0 ? total / calcQty : total;
                         } else {
                           total = currentStep11Items.reduce((s: number, it: any) =>
                             s + (it.qty || 0) * ((it.supply_rate || 0) + (it.install_rate || 0)), 0);
@@ -4079,7 +4105,7 @@ export default function FinalizeBoq() {
                               <td className="border-r px-2 py-1.5 text-right font-semibold text-gray-800 bg-gray-50 align-middle text-[10px] w-32">
                                 ₹{(() => {
                                   const overrideRateVal = parseFloat(overrideRates[boqItem.id] || "0") || 0;
-                                  const displayQty = productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.targetRequiredQty || currentStep11Items[0]?.qty || 0);
+                                  const displayQty = tableData.is_lump_sum ? 1 : (productQuantities[boqItem.id] !== undefined ? parseFloat(productQuantities[boqItem.id]) || 0 : (tableData.targetRequiredQty || currentStep11Items[0]?.qty || 0));
                                   const rawVal = overrideRateVal * displayQty;
                                   return (roundOff ? Math.round(rawVal) : rawVal).toLocaleString(undefined, { minimumFractionDigits: roundOff ? 0 : 2, maximumFractionDigits: roundOff ? 0 : 2 });
                                 })()}
@@ -4480,7 +4506,7 @@ export default function FinalizeBoq() {
                   >
                     Save Draft
                   </Button>
-                  
+
                   {isFinanceTeam && (
                     <Button
                       onClick={handleFinanceSubmitForApproval}
