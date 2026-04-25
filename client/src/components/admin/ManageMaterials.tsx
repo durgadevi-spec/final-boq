@@ -33,8 +33,10 @@ interface MaterialTemplate {
   name: string;
   code: string;
   category?: string;
+  subcategory?: string;
   vendor_category?: string;
   created_at: string;
+  image?: string;
 }
 
 interface Shop {
@@ -70,6 +72,7 @@ export default function ManageMaterials() {
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const [entriesList, setEntriesList] = useState<any[]>([]);
 
@@ -78,6 +81,7 @@ export default function ManageMaterials() {
     text: string;
   }>({ type: "none", text: "" });
   const [loadingRate, setLoadingRate] = useState(false);
+  const [intendedSubcategory, setIntendedSubcategory] = useState<string | null>(null);
   const [rateDate, setRateDate] = useState<string | null>(null);
 
   // Edit entry state
@@ -183,15 +187,31 @@ export default function ManageMaterials() {
       setSubcategories([]);
       return;
     }
+
     try {
+      const token = localStorage.getItem("authToken");
       const response = await fetch(
-        `/api/material-subcategories/${encodeURIComponent(category)}`
+        `/api/material-subcategories/${encodeURIComponent(category)}`,
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
       );
-      const data = await response.json();
-      setSubcategories(data.subcategories || []);
-    } catch (error) {
-      console.error("Error loading subcategories:", error);
-      setSubcategories([]);
+      if (response.ok) {
+        const data = await response.json();
+        const loadedSubs = data.subcategories || [];
+        setSubcategories(loadedSubs);
+
+        // If we had an intended subcategory, check if it's in the loaded list (case-insensitive)
+        if (intendedSubcategory) {
+          const match = loadedSubs.find((s: string) => s.toLowerCase() === intendedSubcategory.toLowerCase());
+          if (match) {
+            setFormData(prev => ({ ...prev, subcategory: match }));
+          }
+          setIntendedSubcategory(null);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading subcategories:", err);
     }
   };
 
@@ -221,25 +241,35 @@ export default function ManageMaterials() {
 
   const handleSelectTemplate = (template: MaterialTemplate) => {
     setSelectedTemplate(template);
+    const rawCategory = template.category || (template as any).category_name || (template as any).Category || (template as any).categoryName || (template as any).vendor_category || "";
+    const rawSubcategory = template.subcategory || (template as any).subCategory || (template as any).subcategory_name || (template as any).Subcategory || (template as any).subcategoryName || "";
+
+    // Normalize category match from master list
+    const matchedCategory = categories.find(c => c.toLowerCase() === rawCategory.toLowerCase()) || rawCategory;
+
     setFormData({
       rate: "",
-      unit: "",
+      unit: (template as any).unit || "",
       brandname: (template as any).brandname || (template as any).brandName || "",
-      modelnumber: "",
-      category: template.category || "",
-      subcategory: (template as any).subcategory || (template as any).subCategory || "",
+      modelnumber: (template as any).modelnumber || (template as any).modelNumber || "",
+      category: matchedCategory,
+      subcategory: rawSubcategory,
       product: "",
       technicalspecification: (template as any).technicalspecification || (template as any).technicalSpecification || "",
       dimensions: (template as any).dimensions || (template as any).Dimensions || "",
       finishtype: (template as any).finishtype || (template as any).finishType || "",
-      materialtype: (template as any).metaltype || (template as any).metalType || (template as any).materialtype || "",
+      materialtype: (template as any).metaltype || (template as any).metalType || (template as any).materialtype || (template as any).materialType || "",
     });
+
+    if (rawSubcategory) {
+      setIntendedSubcategory(rawSubcategory);
+    }
     // Always reset shop and date when switching templates so stale data doesn't carry over
     setSelectedShop("");
     setRateDate(null);
 
-    if (template.category) {
-      loadSubcategories(template.category);
+    if (matchedCategory) {
+      loadSubcategories(matchedCategory);
     }
 
     setTimeout(() => {
@@ -308,21 +338,28 @@ export default function ManageMaterials() {
           // Select the cheapest shop; this will trigger the existing useEffect to fetch
           // and prefill rate. Also prefill immediately for snappier UX.
           setSelectedShop(best.shop_id);
-          // Prefill immediately
-          setFormData((prev) => ({
-            ...prev,
-            rate: best.material.rate != null ? String(best.material.rate) : prev.rate || "",
-            unit: best.material.unit || prev.unit || "",
-            brandname: best.material.brandname || prev.brandname || "",
-            modelnumber: best.material.modelnumber || prev.modelnumber || "",
-            category: best.material.category || prev.category || "",
-            subcategory: best.material.subcategory || best.material.subCategory || prev.subcategory || "",
-            product: best.material.product || prev.product || "",
-            technicalspecification: best.material.technicalspecification || prev.technicalspecification || "",
-            dimensions: best.material.dimensions || prev.dimensions || "",
-            finishtype: best.material.finishtype || prev.finishtype || "",
-            materialtype: best.material.materialtype || best.material.metaltype || prev.materialtype || "",
-          }));
+          setFormData((prev) => {
+            const rawCat = best.material.category || (best.material as any).category_name || (best.material as any).Category || (best.material as any).categoryName || prev.category || "";
+            const rawSub = best.material.subcategory || (best.material as any).subCategory || (best.material as any).subcategory_name || (best.material as any).Subcategory || (best.material as any).subcategoryName || prev.subcategory || "";
+
+            const matchedCat = categories.find(c => c.toLowerCase() === rawCat.toLowerCase()) || rawCat;
+            if (rawSub) setIntendedSubcategory(rawSub);
+
+            return {
+              ...prev,
+              rate: best.material.rate != null ? String(best.material.rate) : prev.rate || "",
+              unit: best.material.unit || prev.unit || "",
+              brandname: best.material.brandname || prev.brandname || "",
+              modelnumber: best.material.modelnumber || (best.material as any).modelNumber || prev.modelnumber || "",
+              category: matchedCat,
+              subcategory: rawSub,
+              product: best.material.product || prev.product || "",
+              technicalspecification: best.material.technicalspecification || (best.material as any).technicalSpecification || prev.technicalspecification || "",
+              dimensions: best.material.dimensions || (best.material as any).Dimensions || prev.dimensions || "",
+              finishtype: best.material.finishtype || (best.material as any).finishType || prev.finishtype || "",
+              materialtype: best.material.materialtype || best.material.metaltype || (best.material as any).metalType || (best.material as any).materialType || prev.materialtype || "",
+            };
+          });
           setRateMessage({ type: "success", text: `✓ Existing Rate Loaded (${best.source === "approved" ? "Approved" : "Pending"})` });
           setRateDate(best.material.created_at || best.material.submitted_at || null);
           if (best.material.category) await loadSubcategories(best.material.category);
@@ -359,20 +396,28 @@ export default function ManageMaterials() {
 
         if (data.found && data.material) {
           // Prefill form fields with the existing material's values
-          setFormData((prev) => ({
-            ...prev,
-            rate: data.material.rate != null ? String(data.material.rate) : "",
-            unit: data.material.unit || prev.unit || "",
-            brandname: data.material.brandname || prev.brandname || "",
-            modelnumber: data.material.modelnumber || prev.modelnumber || "",
-            category: data.material.category || prev.category || "",
-            subcategory: data.material.subcategory || data.material.subCategory || prev.subcategory || "",
-            product: data.material.product || prev.product || "",
-            technicalspecification: data.material.technicalspecification || prev.technicalspecification || "",
-            dimensions: data.material.dimensions || prev.dimensions || "",
-            finishtype: data.material.finishtype || prev.finishtype || "",
-            materialtype: data.material.materialtype || data.material.metaltype || prev.materialtype || "",
-          }));
+          setFormData((prev) => {
+            const rawCat = data.material.category || (data.material as any).category_name || (data.material as any).Category || (data.material as any).categoryName || prev.category || "";
+            const rawSub = data.material.subcategory || (data.material as any).subCategory || (data.material as any).subcategory_name || (data.material as any).Subcategory || (data.material as any).subcategoryName || prev.subcategory || "";
+
+            const matchedCat = categories.find(c => c.toLowerCase() === rawCat.toLowerCase()) || rawCat;
+            if (rawSub) setIntendedSubcategory(rawSub);
+
+            return {
+              ...prev,
+              rate: data.material.rate != null ? String(data.material.rate) : "",
+              unit: data.material.unit || prev.unit || "",
+              brandname: data.material.brandname || prev.brandname || "",
+              modelnumber: data.material.modelnumber || (data.material as any).modelNumber || prev.modelnumber || "",
+              category: matchedCat,
+              subcategory: rawSub,
+              product: data.material.product || prev.product || "",
+              technicalspecification: data.material.technicalspecification || (data.material as any).technicalSpecification || prev.technicalspecification || "",
+              dimensions: data.material.dimensions || (data.material as any).Dimensions || prev.dimensions || "",
+              finishtype: data.material.finishtype || (data.material as any).finishType || prev.finishtype || "",
+              materialtype: data.material.materialtype || data.material.metaltype || (data.material as any).metalType || (data.material as any).materialType || prev.materialtype || "",
+            };
+          });
           setRateDate(data.material.created_at || null);
 
           // Load subcategories if category is present
@@ -412,6 +457,7 @@ export default function ManageMaterials() {
 
   const handleSubmitMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     if (!selectedTemplate || !selectedShop) {
       toast({
@@ -449,6 +495,7 @@ export default function ManageMaterials() {
     }
 
     setSubmitting(true);
+    submittingRef.current = true;
     try {
       const token = localStorage.getItem("authToken");
       const headers: Record<string, string> = {
@@ -493,6 +540,7 @@ export default function ManageMaterials() {
       });
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
@@ -859,7 +907,7 @@ export default function ManageMaterials() {
                         <SelectContent>
                           {products
                             .filter((p: any) =>
-                              (p.subcategory || p.subcategory_name)?.toLowerCase().trim() === formData.subcategory?.toLowerCase().trim()
+                              (p.subcategory || p.subcategory_name || "").toLowerCase().trim() === (formData.subcategory || "").toLowerCase().trim()
                             )
                             .map((p: any) => (
                               <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
