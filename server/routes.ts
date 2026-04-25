@@ -2280,6 +2280,31 @@ export async function registerRoutes(
           } catch (e) { console.warn("[POST /api/materials] Could not fetch template for fallback codes", e); }
         }
 
+        // Check for duplicate material within last 10 seconds with exact field matching
+        const duplicateCheck = await query(
+          `SELECT id FROM materials 
+           WHERE name = $1 AND shop_id = $2 AND rate = $3 
+           AND COALESCE(brandname, '') = COALESCE($4, '')
+           AND COALESCE(modelnumber, '') = COALESCE($5, '')
+           AND COALESCE(dimensions, '') = COALESCE($6, '')
+           AND created_at > NOW() - INTERVAL '10 seconds'
+           LIMIT 1`,
+          [
+            body.name || null, 
+            shop_id, 
+            parseSafeNumeric(body.rate) || 0,
+            body.brandname || '',
+            body.modelnumber || '',
+            body.dimensions || ''
+          ]
+        );
+
+        if (duplicateCheck.rows.length > 0) {
+          console.log("[POST /api/materials] Blocking exact duplicate material detected within 10s window");
+          res.status(409).json({ message: "Duplicate material detected. Please wait a moment." });
+          return;
+        }
+
         const result = await query(
           `INSERT INTO materials (id, template_id, name, code, rate, shop_id, unit, category, brandname, modelnumber, subcategory, product, technicalspecification, dimensions, finishtype, metaltype, image, attributes, master_material_id, hsn_code, sac_code, approved, created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22, now()) RETURNING *`,
@@ -4296,6 +4321,25 @@ export async function registerRoutes(
         // Ensure metaltype/materialtype handled consistently
         let final_metaltype = metaltype || (req.body as any).materialtype || (req.body as any).materialType || (req.body as any).metalType || null;
 
+        // Check for duplicate submission within last 10 seconds with exact field matching
+        const duplicateCheck = await query(
+          `SELECT id FROM material_submissions 
+           WHERE template_id = $1 AND shop_id = $2 AND rate = $3 
+           AND COALESCE(brandname, '') = COALESCE($4, '')
+           AND COALESCE(modelnumber, '') = COALESCE($5, '')
+           AND COALESCE(dimensions, '') = COALESCE($6, '')
+           AND COALESCE(unit, '') = COALESCE($7, '')
+           AND submitted_at > NOW() - INTERVAL '10 seconds'
+           LIMIT 1`,
+          [template_id, shop_id, rate, brandname || '', modelnumber || '', dimensions || '', unit || '']
+        );
+
+        if (duplicateCheck.rows.length > 0) {
+          console.log("[POST /api/material-submissions] Blocking exact duplicate submission detected within 10s window");
+          res.status(409).json({ message: "Duplicate submission detected. Please wait a moment." });
+          return;
+        }
+
         const id = randomUUID();
         const result = await query(
           `INSERT INTO material_submissions (id, template_id, shop_id, rate, unit, brandname, modelnumber, subcategory, category, product, technicalspecification, dimensions, finishtype, metaltype, image, hsn_code, sac_code, submitted_by, submitted_at, approved)
@@ -4464,6 +4508,12 @@ export async function registerRoutes(
         }
 
         const submission = submissionResult.rows[0];
+        
+        if (submission.approved === true) {
+          console.log(`[POST /api/material-submissions/:id/approve] Submission ${id} already approved, skipping creation.`);
+          res.status(400).json({ message: "This submission has already been approved." });
+          return;
+        }
         const templateResult = await query(
           "SELECT * FROM material_templates WHERE id = $1",
           [submission.template_id],
@@ -4510,6 +4560,68 @@ export async function registerRoutes(
           .json({ message: "failed to approve material submission" });
       }
     },
+  );
+
+  // GET /api/admin/duplicates/materials - Find duplicate materials
+  app.get(
+    "/api/admin/duplicates/materials",
+    authMiddleware,
+    requireRole("admin", "software_team"),
+    async (_req, res) => {
+      try {
+        const result = await query(
+          `SELECT 
+            name, shop_id, rate, unit, category, subcategory, product, 
+            brandname, modelnumber, dimensions, finishtype, technicalspecification,
+            COUNT(*) as duplicate_count,
+            ARRAY_AGG(id ORDER BY created_at ASC) as ids,
+            ARRAY_AGG(created_at ORDER BY created_at ASC) as creation_dates
+          FROM materials
+          GROUP BY 
+            name, shop_id, rate, unit, category, subcategory, product, 
+            brandname, modelnumber, dimensions, finishtype, technicalspecification
+          HAVING COUNT(*) > 1
+          ORDER BY duplicate_count DESC`
+        );
+        res.json({ duplicates: result.rows });
+      } catch (err) {
+        console.error("GET /api/admin/duplicates/materials error", err);
+        res.status(500).json({ message: "failed to fetch duplicates" });
+      }
+    }
+  );
+
+  // POST /api/admin/duplicates/materials/cleanup - Delete duplicates (keep oldest)
+  app.post(
+    "/api/admin/duplicates/materials/cleanup",
+    authMiddleware,
+    requireRole("admin", "software_team"),
+    async (req, res) => {
+      try {
+        const { groups } = req.body; // Array of { ids: string[] }
+        if (!groups || !Array.isArray(groups)) {
+          return res.status(400).json({ message: "groups array is required" });
+        }
+
+        let totalDeleted = 0;
+        for (const group of groups) {
+          if (group.ids && group.ids.length > 1) {
+            // Keep the first ID (oldest), delete the rest
+            const toDelete = group.ids.slice(1);
+            const deleteResult = await query(
+              "DELETE FROM materials WHERE id = ANY($1)",
+              [toDelete]
+            );
+            totalDeleted += deleteResult.rowCount || 0;
+          }
+        }
+
+        res.json({ message: `Successfully cleaned up ${totalDeleted} duplicate items.` });
+      } catch (err) {
+        console.error("POST /api/admin/duplicates/materials/cleanup error", err);
+        res.status(500).json({ message: "failed to cleanup duplicates" });
+      }
+    }
   );
 
   // POST /api/material-submissions/:id/reject - Reject a material submission
@@ -4595,6 +4707,43 @@ export async function registerRoutes(
       }
     },
   );
+
+  // ====== SYSTEM SETTINGS ROUTES ======
+  app.get("/api/system-settings/:key", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const { key } = req.params;
+      const result = await query("SELECT value FROM system_settings WHERE key = $1", [key]);
+      if (result.rows.length === 0) {
+        // Default values if not found
+        if (key === "bom_buttons_enabled") {
+          return res.json({ value: "true" });
+        }
+        return res.status(404).json({ message: "Setting not found" });
+      }
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error("Failed to fetch system setting:", err);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/system-settings", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+    try {
+      const { key, value } = req.body;
+      if (!key || value === undefined) {
+        return res.status(400).json({ message: "Key and value are required" });
+      }
+
+      const result = await query(
+        "INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, now()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now() RETURNING *",
+        [key, String(value)]
+      );
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error("Failed to update system setting:", err);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
 
   // ====== BOQ PROJECTS ROUTES ======
 
