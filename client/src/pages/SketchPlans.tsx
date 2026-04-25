@@ -251,10 +251,10 @@ export default function SketchPlans() {
         setLocation(`/edit-sketch-plan/${data.id}`);
       } else {
         const data = await res.json();
-        toast({ 
-          title: "Error", 
-          description: data.details ? `Failed: ${data.details}` : (data.message || "Failed to clone plan"), 
-          variant: "destructive" 
+        toast({
+          title: "Error",
+          description: data.details ? `Failed: ${data.details}` : (data.message || "Failed to clone plan"),
+          variant: "destructive"
         });
       }
     } catch (error) {
@@ -319,9 +319,9 @@ export default function SketchPlans() {
               )}
               {!isSupplier && (
                 <>
-                  <Button 
-                    variant={showTasksMode ? "default" : "outline"} 
-                    onClick={() => setShowTasksMode(!showTasksMode)} 
+                  <Button
+                    variant={showTasksMode ? "default" : "outline"}
+                    onClick={() => setShowTasksMode(!showTasksMode)}
                     className={`flex items-center gap-2 ${showTasksMode ? 'bg-indigo-600 text-white' : ''}`}
                   >
                     <Check className="w-4 h-4" /> Assigned Tasks
@@ -339,6 +339,9 @@ export default function SketchPlans() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="sticky top-0 z-20 bg-white shadow-sm border-b border-slate-200 p-4 rounded-lg mb-4">
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -370,8 +373,8 @@ export default function SketchPlans() {
                       </div>
                       <div className="flex items-center gap-2">
                         {task.user_task_status !== 'completed' ? (
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             className="h-7 text-[10px] bg-green-600 hover:bg-green-700 text-white font-bold"
                             onClick={() => updateTaskStatus(task.id, 'completed')}
                           >
@@ -548,11 +551,10 @@ export default function SketchPlans() {
                         <button
                           key={v.id}
                           onClick={() => setSelectedVersions(prev => ({ ...prev, [group.rootId]: v.id }))}
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border transition-all whitespace-nowrap ${
-                            v.id === selectedId
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-white text-slate-500 border-slate-200 hover:bg-indigo-50 hover:text-indigo-600'
-                          }`}
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border transition-all whitespace-nowrap ${v.id === selectedId
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-500 border-slate-200 hover:bg-indigo-50 hover:text-indigo-600'
+                            }`}
                         >
                           V{v.version_number || 1}
                           {v.is_locked ? ' 🔒' : v.version_status === 'approved' ? ' ✅' : ''}
@@ -673,9 +675,9 @@ export default function SketchPlans() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCloneDialog(null)} disabled={isCloning}>Cancel</Button>
-            <Button 
-              className="bg-amber-600 hover:bg-amber-700 text-white" 
-              onClick={handleClonePlan} 
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={handleClonePlan}
               disabled={isCloning || !cloneDialog?.name}
             >
               {isCloning ? "Cloning..." : "Confirm Clone"}
