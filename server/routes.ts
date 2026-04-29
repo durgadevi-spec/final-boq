@@ -2290,8 +2290,8 @@ export async function registerRoutes(
            AND created_at > NOW() - INTERVAL '10 seconds'
            LIMIT 1`,
           [
-            body.name || null, 
-            shop_id, 
+            body.name || null,
+            shop_id,
             parseSafeNumeric(body.rate) || 0,
             body.brandname || '',
             body.modelnumber || '',
@@ -4508,7 +4508,7 @@ export async function registerRoutes(
         }
 
         const submission = submissionResult.rows[0];
-        
+
         if (submission.approved === true) {
           console.log(`[POST /api/material-submissions/:id/approve] Submission ${id} already approved, skipping creation.`);
           res.status(400).json({ message: "This submission has already been approved." });
@@ -6450,6 +6450,48 @@ export async function registerRoutes(
         res.status(500).json({ message: "Failed to fetch BOQ items" });
       }
     },
+  );
+
+  // GET /api/boq-items/history/:productName - Fetch product usage history across projects
+  app.get(
+    "/api/boq-items/history/:productName",
+    authMiddleware,
+    async (req: Request, res: Response) => {
+      try {
+        const { productName } = req.params;
+
+        console.log(`[HistoryAPI] Fetching history for: "${productName}"`);
+        const result = await query(
+          `SELECT bi.id, p.name as project_name, 
+                  (bi.table_data::jsonb->>'category') as project_area,
+                  bi.table_data, bi.created_at
+           FROM boq_items bi
+           JOIN boq_projects p ON bi.project_id = p.id
+           WHERE bi.estimator ILIKE $1 
+              OR (bi.table_data::jsonb->>'product_name') ILIKE $1
+           ORDER BY bi.created_at DESC
+           LIMIT 50`,
+          [productName]
+        );
+        console.log(`[HistoryAPI] Found ${result.rows.length} records`);
+
+        const items = result.rows.map(row => {
+          const td = typeof row.table_data === 'string' ? JSON.parse(row.table_data) : row.table_data;
+          return {
+            id: row.id,
+            project_name: row.project_name,
+            project_area: row.project_area || td.category || "Main Area",
+            table_data: td,
+            created_at: row.created_at
+          };
+        });
+
+        res.json({ items });
+      } catch (err) {
+        console.error("GET /api/boq-items/history error", err);
+        res.status(500).json({ message: "Failed to fetch product history" });
+      }
+    }
   );
 
   // PUT /api/boq-items/:id - Update BOM item data
@@ -10156,6 +10198,13 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
       await query("BEGIN");
 
       try {
+        // Lock the plan row to prevent concurrent updates from causing item duplication
+        const lockRes = await query("SELECT id FROM sketch_plans WHERE id = $1 FOR UPDATE", [id]);
+        if (lockRes.rows.length === 0) {
+          await query("ROLLBACK");
+          return res.status(404).json({ message: "Plan not found" });
+        }
+
         const finalPlanDate = (plan_date && plan_date.trim() !== "") ? plan_date : null;
         console.log(`[api/sketch-plans] Updating plan: id=${id}, name=${name}, date=${finalPlanDate}, project_id=${project_id}`);
         await query(
@@ -11117,17 +11166,86 @@ ${list.rows.map((row: any) => `- ${row.name}`).join('\n')}`;
     }
   });
 
-  // GET /api/proposals/approved/:projectId - Fetch approved proposals for BOM
-  app.get("/api/proposals/approved/:projectId", authMiddleware, async (req: Request, res: Response) => {
+  // GET /api/boq-analysis/comparison - Fetch last 3 approved BOQ projects for comparison
+  app.get("/api/boq-analysis/comparison", authMiddleware, async (_req: Request, res: Response) => {
     try {
-      const result = await query(
-        "SELECT * FROM proposals WHERE project_id = $1 AND status = 'approved' ORDER BY vendor_name, version_number DESC",
-        [req.params.projectId]
-      );
-      res.json(result.rows);
+      // 1. Fetch last 3 projects with approved BOQ versions
+      const projectsResult = await query(`
+        SELECT p.id as project_id, p.name as project_name, v.id as version_id, v.updated_at as completed_date, v.project_value as final_total
+        FROM boq_projects p
+        JOIN boq_versions v ON p.id = v.project_id
+        WHERE v.type = 'boq' AND v.status = 'approved'
+        ORDER BY v.updated_at DESC
+        LIMIT 3
+      `);
+
+      if (projectsResult.rows.length === 0) {
+        return res.json({ projects: [] });
+      }
+
+      const comparisonData = [];
+
+      for (const proj of projectsResult.rows) {
+        // 2. Fetch items for each version
+        const itemsResult = await query(
+          "SELECT table_data FROM boq_items WHERE version_id = $1",
+          [proj.version_id]
+        );
+
+        let overrideTotal = 0;
+        let overrideRateTotal = 0;
+        let supplyRateTotal = 0;
+        let supplyAmountTotal = 0;
+        let labourRateTotal = 0;
+        let labourAmountTotal = 0;
+
+        for (const itemRow of itemsResult.rows) {
+          let td = itemRow.table_data;
+          if (typeof td === 'string') {
+            try { td = JSON.parse(td); } catch (e) { continue; }
+          }
+
+          const step11 = Array.isArray(td.step11_items) ? td.step11_items : [];
+
+          const finalizeQty = td.finalize_qty !== undefined && td.finalize_qty !== null ? parseFloat(td.finalize_qty) : null;
+          const finalizeOverrideRate = td.finalize_override_rate !== undefined && td.finalize_override_rate !== null ? parseFloat(td.finalize_override_rate) : null;
+
+          for (const it of step11) {
+            const qty = finalizeQty !== null ? finalizeQty : (parseFloat(it.qty) || 0);
+            const supplyRate = parseFloat(it.supply_rate || it.rate || 0);
+            const installRate = parseFloat(it.install_rate || 0);
+
+            supplyRateTotal += supplyRate;
+            supplyAmountTotal += qty * supplyRate;
+            labourRateTotal += installRate;
+            labourAmountTotal += qty * installRate;
+
+            if (finalizeOverrideRate !== null) {
+              overrideRateTotal += finalizeOverrideRate;
+              overrideTotal += qty * finalizeOverrideRate;
+            } else {
+              overrideTotal += qty * (supplyRate + installRate);
+            }
+          }
+        }
+
+        comparisonData.push({
+          projectName: proj.project_name,
+          overrideTotal,
+          overrideRateTotal,
+          supplyRateTotal,
+          supplyAmountTotal,
+          labourRateTotal,
+          labourAmountTotal,
+          finalTotal: parseFloat(proj.final_total || "0"),
+          completedDate: proj.completed_date
+        });
+      }
+
+      res.json({ projects: comparisonData });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Failed to fetch approved proposals" });
+      console.error("GET /api/boq-analysis/comparison error", err);
+      res.status(500).json({ message: "Failed to fetch comparison data" });
     }
   });
 
