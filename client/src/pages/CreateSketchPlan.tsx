@@ -212,7 +212,7 @@ const SketchPlanRow = ({
   item, idx, itemsLength, updateItem, removeItem, moveItemToPosition, selectMaterial,
   searchResults, searching, loadMaterials, materialSearch, setMaterialSearch,
   openPopoverIdx, setOpenPopoverIdx, renameRowImage, removeRowImage,
-  handleRowImageUpload, isLocked, isFiltering, isCompact, setPreviewImage,
+  handleRowImageUpload, isLocked, isCompact, setPreviewImage,
   setSketchTarget, setSketchInitialData, lastSketchItemIdxRef, toast, setSketchDialogOpen,
   isSelected, toggleSelect, userRole, onImageDragStart, onImageDrop,
   addDimension, removeDimension, updateDimension, cloneItem, categories
@@ -229,7 +229,7 @@ const SketchPlanRow = ({
       as="tr"
       key={item.id}
       value={item}
-      dragListener={!isLocked && !isFiltering}
+      dragListener={!isLocked}
       dragControls={dragControls}
       className="border-b hover:bg-slate-50/30 transition-colors bg-white"
     >
@@ -459,90 +459,90 @@ const SketchPlanRow = ({
                     <span className="sr-only">Close</span>
                   </DialogClose>
                 </DialogHeader>
-                <Command shouldFilter={false}>
-                  <CommandInput
-                    placeholder="Search materials, products..."
-                    value={materialSearch}
-                    onValueChange={setMaterialSearch}
-                    className="h-10"
-                  />
-                  <div className="flex border-b">
-                    <button
-                      onClick={() => setItemSearchTab("all")}
-                      className={cn(
-                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                        itemSearchTab === "all" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                      )}
-                    >
-                      All
-                    </button>
-                    <button
-                      onClick={() => setItemSearchTab("material")}
-                      className={cn(
-                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                        itemSearchTab === "material" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                      )}
-                    >
-                      Materials
-                    </button>
-                    <button
-                      onClick={() => setItemSearchTab("product")}
-                      className={cn(
-                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                        itemSearchTab === "product" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                      )}
-                    >
-                      Products
-                    </button>
-                  </div>
-                  <CommandList className="max-h-[280px]">
-                    {searching && <CommandEmpty>Loading...</CommandEmpty>}
-                    {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
-                    {!searching && searchResults.length > 0 && (
-                      <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => (itemSearchTab === 'all' && m.type !== 'Template') || (itemSearchTab === 'material' && m.type === 'Material') || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
-                        {searchResults
-                          .filter((m: any) => {
-                            if (itemSearchTab === "all") return m.type !== "Template";
-                            if (itemSearchTab === "material") return m.type === "Material";
-                            if (itemSearchTab === "product") return m.type === "Product";
-                            return true;
-                          })
-                          .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
-                          .map((m: any) => (
-                            <CommandItem
-                              key={`${m.type}-${m.id}`}
-                              onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
-                              className="cursor-pointer"
-                            >
-                              <div className="flex flex-col">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-sm">{m.name}</span>
-                                  <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
-                                </div>
-                                <div className="flex gap-2 text-[10px] text-slate-500">
-                                  {m.code && <span>Code: {m.code}</span>}
-                                  {m.category && <span>Category: {m.category}</span>}
-                                </div>
-                              </div>
-                            </CommandItem>
-                          ))}
-                      </CommandGroup>
-                    )}
-                  </CommandList>
-                </Command>
-                <div className="p-3 border-t bg-slate-50 flex flex-col gap-2">
-                  <p className="text-[10px] uppercase font-bold text-slate-400">Custom Item</p>
-                  <Input
-                    placeholder="Or type a custom name and press Enter..."
-                    className="h-10 text-sm"
-                    onChange={(e) => updateItem(idx, "item_name", e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        setOpenPopoverIdx(null);
-                      }
-                    }}
-                  />
-                </div>
+            <Command shouldFilter={false}>
+              <CommandInput
+                placeholder="Search materials, products..."
+                value={materialSearch}
+                onValueChange={setMaterialSearch}
+                className="h-10"
+              />
+              <div className="flex border-b">
+                <button
+                  onClick={() => setItemSearchTab("all")}
+                  className={cn(
+                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                    itemSearchTab === "all" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                  )}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setItemSearchTab("material")}
+                  className={cn(
+                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                    itemSearchTab === "material" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                  )}
+                >
+                  Materials
+                </button>
+                <button
+                  onClick={() => setItemSearchTab("product")}
+                  className={cn(
+                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                    itemSearchTab === "product" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                  )}
+                >
+                  Products
+                </button>
+              </div>
+              <CommandList className="max-h-[280px]">
+                {searching && <CommandEmpty>Loading...</CommandEmpty>}
+                {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
+                {!searching && searchResults.length > 0 && (
+                  <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => (itemSearchTab === 'all' && m.type !== 'Template') || (itemSearchTab === 'material' && m.type === 'Material') || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
+                    {searchResults
+                      .filter((m: any) => {
+                        if (itemSearchTab === "all") return m.type !== "Template";
+                        if (itemSearchTab === "material") return m.type === "Material";
+                        if (itemSearchTab === "product") return m.type === "Product";
+                        return true;
+                      })
+                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
+                      .map((m: any) => (
+                        <CommandItem
+                          key={`${m.type}-${m.id}`}
+                          onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
+                          className="cursor-pointer"
+                        >
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">{m.name}</span>
+                              <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
+                            </div>
+                            <div className="flex gap-2 text-[10px] text-slate-500">
+                              {m.code && <span>Code: {m.code}</span>}
+                              {m.category && <span>Category: {m.category}</span>}
+                            </div>
+                          </div>
+                        </CommandItem>
+                      ))}
+                  </CommandGroup>
+                )}
+              </CommandList>
+            </Command>
+            <div className="p-3 border-t bg-slate-50 flex flex-col gap-2">
+              <p className="text-[10px] uppercase font-bold text-slate-400">Custom Item</p>
+              <Input
+                placeholder="Or type a custom name and press Enter..."
+                className="h-10 text-sm"
+                onChange={(e) => updateItem(idx, "item_name", e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setOpenPopoverIdx(null);
+                  }
+                }}
+              />
+            </div>
               </div>
             </Draggable>
           </DialogContent>
@@ -800,11 +800,11 @@ export default function CreateSketchPlan() {
   const [sketchInitialData, setSketchInitialData] = useState<string | undefined>(undefined);
   const lastSketchItemIdxRef = useRef<number | null>(null); // To track which image we are "continously" auto-saving
   const lastSketchPlanImgIdxRef = useRef<number | null>(null);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [sketchDialogOpen, setSketchDialogOpen] = useState(false);
-  const [sketchPdfUrl, setSketchPdfUrl] = useState<string | undefined>(undefined);
-  const [sketchDrafts, setSketchDrafts] = useState<Record<string, string>>({});
-
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const lastSavedRef = useRef<string>("");
+  const isSavingRef = useRef<boolean>(false);
+  
   // Lock & Approval State
   const [isLocked, setIsLocked] = useState(false);
   const [requestStatus, setRequestStatus] = useState<string>("none");
@@ -816,13 +816,18 @@ export default function CreateSketchPlan() {
   const userRole = user?.role || "user";
   const isSupplier = userRole === "supplier";
   const isAdmin = userRole === "admin";
-  const lastSavedRef = useRef<string>("");
 
   // Versioning State
   const [siblingVersions, setSiblingVersions] = useState<any[]>([]);
   const [currentVersionNumber, setCurrentVersionNumber] = useState<number>(1);
   const [showNewVersionDialog, setShowNewVersionDialog] = useState(false);
   const [creatingVersion, setCreatingVersion] = useState(false);
+
+  // Duplicate Check State
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<any[][]>([]);
+  const [selectedDuplicateIndices, setSelectedDuplicateIndices] = useState<Set<number>>(new Set());
+
 
   // Memoized Sketch Editor Handlers
   const handleSketchAutoSave = useCallback((dataUrl: string) => {
@@ -860,23 +865,7 @@ export default function CreateSketchPlan() {
         });
       }
     }
-    setAutoSaveStatus("saving");
-    // Update local drafts instead of main state
-    setSketchDrafts(prev => ({ ...prev, [sketchTarget]: dataUrl }));
-    setTimeout(() => setAutoSaveStatus("saved"), 1000);
-  }, [sketchTarget]);
-
-  const handleSketchPdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type === "application/pdf") {
-      const url = URL.createObjectURL(file);
-      setSketchPdfUrl(url);
-      setSketchInitialData(undefined); // Clear image background if PDF is uploaded
-      toast({ title: "PDF Uploaded", description: "PDF set as background for sketch" });
-    } else {
-      toast({ title: "Invalid File", description: "Please upload a valid PDF file", variant: "destructive" });
-    }
-  };
+  }, [sketchTarget, items.length]);
 
   const handleSketchSave = useCallback((dataUrl: string) => {
     const fileName = `Sketch_${new Date().getTime()}`;
@@ -915,12 +904,6 @@ export default function CreateSketchPlan() {
     lastSketchItemIdxRef.current = null;
     lastSketchPlanImgIdxRef.current = null;
     setSketchInitialData(undefined);
-    setSketchPdfUrl(undefined);
-    setSketchDrafts(prev => {
-      const next = { ...prev };
-      delete next[sketchTarget];
-      return next;
-    });
     setSketchDialogOpen(false);
   }, [sketchTarget, items.length, toast]);
 
@@ -1617,19 +1600,60 @@ export default function CreateSketchPlan() {
     setSearchResults([]);
   };
 
-  const performSave = async (showToast: boolean = true) => {
-    if (isLocked) return;
-    if (!name.trim()) {
-      if (showToast) {
-        toast({
-          title: "Validation Error",
-          description: "Please enter a Plan Name before saving.",
-          variant: "destructive"
-        });
+  const findDuplicatesInCurrentPlan = () => {
+    const groups: Record<string, PlanItem[]> = {};
+    items.forEach(item => {
+      // Create a composite key for comparison
+      const dimsStr = JSON.stringify(item.dimensions?.map(d => ({ l: d.length, w: d.width, h: d.height, note: d.note })) || []);
+      const key = `${item.item_name || ''}|${item.description || ''}|${item.qty || ''}|${item.unit || ''}|${item.category || ''}|${dimsStr}`;
+      
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+    });
+
+    const duplicates = Object.values(groups).filter(group => group.length > 1);
+    setDuplicateGroups(duplicates);
+    setSelectedDuplicateIndices(new Set(duplicates.map((_, i) => i)));
+    setShowDuplicateDialog(true);
+  };
+
+  const cleanUpDuplicates = () => {
+    // Keep the first item of each duplicate group, delete the rest
+    const idsToRemove = new Set<string>();
+    duplicateGroups.forEach((group, idx) => {
+      if (selectedDuplicateIndices.has(idx)) {
+        // Keep group[0], remove from group[1] to end
+        for (let i = 1; i < group.length; i++) {
+          idsToRemove.add(group[i].id);
+        }
       }
+    });
+
+    if (idsToRemove.size > 0) {
+      const newItems = items.filter(item => !idsToRemove.has(item.id));
+      setItems(newItems);
+      toast({ title: "Duplicates Cleaned", description: `Removed ${idsToRemove.size} redundant rows.` });
+      setDuplicateGroups([]);
+      setSelectedDuplicateIndices(new Set());
+      setShowDuplicateDialog(false);
+      if (sortBy !== "none") setSortBy("none");
+      // Trigger a save so the user doesn't lose the cleanup
+      setTimeout(() => performSave(false), 500);
+    } else {
+      setShowDuplicateDialog(false);
+    }
+  };
+
+
+  const performSave = async (showToast: boolean = true) => {
+    if (isSavingRef.current) return;
+    
+    if (!name.trim()) {
+      if (showToast) toast({ title: "Validation Error", description: "Please enter a Plan Name before saving.", variant: "destructive" });
       return;
     }
 
+    isSavingRef.current = true;
     if (!showToast) setAutoSaveStatus("saving");
     else setSaving(true);
 
@@ -1659,6 +1683,7 @@ export default function CreateSketchPlan() {
       if (jsonStr === lastSavedRef.current) {
         if (!showToast) {
           setAutoSaveStatus("saved");
+          setTimeout(() => setAutoSaveStatus("idle"), 2000);
           return;
         }
         // If it's a manual save and already identical, just treat as success
@@ -1679,8 +1704,6 @@ export default function CreateSketchPlan() {
 
         if (!currentId && data.id) {
           setCurrentId(data.id);
-          // Update URL without full reload if possible, or just let it stay as is for now
-          // For now, let's just update common state
         }
 
         if (showToast) {
@@ -1688,24 +1711,26 @@ export default function CreateSketchPlan() {
           setLocation("/sketch-plans");
         } else {
           setAutoSaveStatus("saved");
+          setTimeout(() => setAutoSaveStatus("idle"), 2000);
         }
       } else {
         const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
         if (showToast) {
           toast({ title: "Error", description: errorData.message || "Failed to save plan", variant: "destructive" });
         } else {
-          setAutoSaveStatus("error");
+          setAutoSaveStatus("idle");
         }
       }
     } catch (err) {
-      console.error("Save error", err);
+      console.error("Save error:", err);
       if (showToast) {
         toast({ title: "Error", description: "Failed to save plan", variant: "destructive" });
       } else {
-        setAutoSaveStatus("error");
+        setAutoSaveStatus("idle");
       }
     } finally {
       setSaving(false);
+      isSavingRef.current = false;
     }
   };
 
@@ -1713,14 +1738,14 @@ export default function CreateSketchPlan() {
 
   // Debounced auto-save
   useEffect(() => {
-    if (isLocked || !name.trim()) return;
-
-    // Don't auto-save if we are already in the middle of a manual save
-    if (saving) return;
+    if (isLocked) return;
+    if (!name.trim() || items.length === 0) return;
+    
+    if (saving || isSavingRef.current) return;
 
     const timer = setTimeout(() => {
       performSave(false);
-    }, 3000); // 3 second debounce for auto-save
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [name, projectId, locationStr, planDate, items, planImages, isLocked]);
@@ -1998,8 +2023,6 @@ export default function CreateSketchPlan() {
           const row: any = {};
           if (selectedPdfCols.includes("#")) row["S.No"] = dIdx === 0 ? idx + 1 : "";
           if (selectedPdfCols.includes("Item")) row["Item Name"] = dIdx === 0 ? item.item_name : "";
-          // Always include Category (on the first row of each item, blank for sub-note rows)
-          row["Category"] = dIdx === 0 ? (item.category || "") : "";
           if (selectedPdfCols.includes("Notes")) row["Notes"] = dIdx === 0 ? item.description : (dim.note || "");
           if (selectedPdfCols.includes("L")) row["L"] = dim.length || "";
           if (selectedPdfCols.includes("W")) row["W"] = dim.width || "";
@@ -2025,7 +2048,6 @@ export default function CreateSketchPlan() {
       const colWidths = [
         { wch: 8 },  // S.No
         { wch: 25 }, // Item Name
-        { wch: 20 }, // Category
         { wch: 35 }, // Notes
         { wch: 8 },  // L
         { wch: 8 },  // W
@@ -2300,6 +2322,11 @@ export default function CreateSketchPlan() {
                 }
               }} className="gap-1.5 h-8 text-[10px]">
                 <Layers className="w-3 h-3" /> Save as Template
+              </Button>
+            )}
+            {userRole !== "supplier" && (
+              <Button variant="outline" size="sm" onClick={findDuplicatesInCurrentPlan} className="gap-1.5 h-8 text-[10px] border-amber-200 text-amber-600 hover:bg-amber-50">
+                <Copy className="w-3 h-3" /> Check Duplicates
               </Button>
             )}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-md border border-slate-100 min-w-[140px] justify-center transition-all">
@@ -2669,8 +2696,7 @@ export default function CreateSketchPlan() {
                         item={item}
                         idx={items.indexOf(item)}
                         itemsLength={items.length}
-                        isLocked={isLocked || userRole === "supplier"}
-                        isFiltering={isFiltering}
+                        isLocked={isLocked || userRole === "supplier" || isFiltering}
                         isCompact={isCompact}
                         updateItem={updateItem}
                         removeItem={removeItem}
@@ -2853,22 +2879,11 @@ export default function CreateSketchPlan() {
                     <p className="text-[9px] text-slate-500">Draw once and attach it to any row or main plan photos.</p>
                   </div>
                 </div>
-                <Dialog open={sketchDialogOpen} onOpenChange={(open) => {
-                  setSketchDialogOpen(open);
-                  if (!open) {
-                    setSketchInitialData(undefined);
-                    setSketchPdfUrl(undefined);
-                    lastSketchItemIdxRef.current = null;
-                    lastSketchPlanImgIdxRef.current = null;
-                  }
-                }}>
+                <Dialog open={sketchDialogOpen} onOpenChange={setSketchDialogOpen}>
                   <DialogTrigger asChild>
                     <Button onClick={() => {
-                      // Check for draft first, then initial data
-                      const draft = sketchDrafts[sketchTarget];
-                      if (draft) {
-                        setSketchInitialData(draft);
-                      } else if (!sketchInitialData) {
+                      // Clear initial data if opening fresh
+                      if (!sketchInitialData) {
                         setSketchInitialData(undefined);
                         lastSketchItemIdxRef.current = null;
                         lastSketchPlanImgIdxRef.current = null;
@@ -2891,26 +2906,7 @@ export default function CreateSketchPlan() {
                         </div>
                         <div className="flex items-center gap-2 text-[10px] sm:text-xs font-normal">
                           <span className="text-slate-500">Save to:</span>
-                          <Select value={sketchTarget} onValueChange={(val) => {
-                            setSketchTarget(val);
-                            // Auto-load draft or existing image for the new target
-                            const draft = sketchDrafts[val];
-                            if (draft) {
-                              setSketchInitialData(draft);
-                            } else {
-                              if (val === "main") {
-                                setSketchInitialData(undefined);
-                                lastSketchPlanImgIdxRef.current = null;
-                              } else {
-                                const isPre = val.startsWith("pre-");
-                                const idx = parseInt(val.replace(/^(pre-|post-)/, ""));
-                                const field = isPre ? "preImages" : "postImages";
-                                const existing = items[idx]?.[field]?.[0]?.url;
-                                setSketchInitialData(existing);
-                                lastSketchItemIdxRef.current = existing ? 0 : null;
-                              }
-                            }
-                          }}>
+                          <Select value={sketchTarget} onValueChange={setSketchTarget}>
                             <SelectTrigger className="w-[140px] h-7 text-[10px]">
                               <SelectValue />
                             </SelectTrigger>
@@ -2925,33 +2921,12 @@ export default function CreateSketchPlan() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="file"
-                            accept=".pdf"
-                            id="sketch-pdf-upload"
-                            className="hidden"
-                            onChange={handleSketchPdfUpload}
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-[10px] border-red-200 text-red-600 hover:bg-red-50"
-                            asChild
-                          >
-                            <label htmlFor="sketch-pdf-upload" className="cursor-pointer flex items-center gap-1">
-                              <FileUp className="w-3.5 h-3.5" /> Upload PDF
-                            </label>
-                          </Button>
-                        </div>
                       </DialogTitle>
                     </DialogHeader>
                     <div className="py-2">
                       <SketchPad
-                        key={sketchTarget}
                         readOnly={isLocked || userRole === "supplier"}
                         initialData={sketchInitialData}
-                        pdfUrl={sketchPdfUrl}
                         unitPrefix={sketchTarget === "main" ? (items[0]?.dimension_unit || "ft") as string : (items[parseInt(sketchTarget.replace(/^(pre-|post-)/, ""))]?.dimension_unit || "ft") as string}
                         onAutoSave={handleSketchAutoSave}
                         onSave={handleSketchSave}
@@ -3413,6 +3388,70 @@ export default function CreateSketchPlan() {
             <Button onClick={confirmCategoryReplace} className="bg-amber-600 hover:bg-amber-700 text-white flex-1 sm:flex-none">
               Replace Category
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Checker Dialog */}
+      <Dialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+              Duplicate Rows Found
+            </DialogTitle>
+            <DialogDescription>
+              {duplicateGroups.length > 0
+                ? `Found ${duplicateGroups.length} groups of exact duplicate rows. Cleaning up will keep one instance and remove the rest.`
+                : "Great! No exact duplicates were found in your plan."}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {duplicateGroups.length > 0 && (
+            <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+              {duplicateGroups.map((group, idx) => (
+                <div key={idx} className={`border rounded-md p-3 flex gap-3 transition-colors ${selectedDuplicateIndices.has(idx) ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-slate-50 opacity-70'}`}>
+                  <div className="pt-1">
+                    <Checkbox
+                      checked={selectedDuplicateIndices.has(idx)}
+                      onCheckedChange={(checked) => {
+                        const next = new Set(selectedDuplicateIndices);
+                        if (checked) next.add(idx);
+                        else next.delete(idx);
+                        setSelectedDuplicateIndices(next);
+                      }}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className={`font-bold text-sm ${selectedDuplicateIndices.has(idx) ? 'text-amber-800' : 'text-slate-700'}`}>{group[0].item_name || "Unnamed Item"}</h4>
+                        <p className={`text-xs ${selectedDuplicateIndices.has(idx) ? 'text-amber-600' : 'text-slate-500'}`}>Repeated <strong>{group.length} times</strong></p>
+                      </div>
+                      <Badge variant="outline" className="bg-white">Qty: {group[0].qty} {group[0].unit}</Badge>
+                    </div>
+                    {group[0].description && (
+                      <p className="text-xs text-slate-600 italic line-clamp-2 mt-1">"{group[0].description}"</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter className="mt-4 pt-4 border-t">
+            <Button variant="outline" onClick={() => setShowDuplicateDialog(false)}>
+              {duplicateGroups.length > 0 ? "Cancel" : "Close"}
+            </Button>
+            {duplicateGroups.length > 0 && (
+              <Button 
+                onClick={cleanUpDuplicates} 
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={selectedDuplicateIndices.size === 0}
+              >
+                Clean Up {selectedDuplicateIndices.size === duplicateGroups.length ? "All" : "Selected"} Duplicates
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
