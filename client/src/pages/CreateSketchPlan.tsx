@@ -459,90 +459,90 @@ const SketchPlanRow = ({
                     <span className="sr-only">Close</span>
                   </DialogClose>
                 </DialogHeader>
-            <Command shouldFilter={false}>
-              <CommandInput
-                placeholder="Search materials, products..."
-                value={materialSearch}
-                onValueChange={setMaterialSearch}
-                className="h-10"
-              />
-              <div className="flex border-b">
-                <button
-                  onClick={() => setItemSearchTab("all")}
-                  className={cn(
-                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                    itemSearchTab === "all" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                  )}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setItemSearchTab("material")}
-                  className={cn(
-                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                    itemSearchTab === "material" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                  )}
-                >
-                  Materials
-                </button>
-                <button
-                  onClick={() => setItemSearchTab("product")}
-                  className={cn(
-                    "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
-                    itemSearchTab === "product" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
-                  )}
-                >
-                  Products
-                </button>
-              </div>
-              <CommandList className="max-h-[280px]">
-                {searching && <CommandEmpty>Loading...</CommandEmpty>}
-                {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
-                {!searching && searchResults.length > 0 && (
-                  <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => (itemSearchTab === 'all' && m.type !== 'Template') || (itemSearchTab === 'material' && m.type === 'Material') || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
-                    {searchResults
-                      .filter((m: any) => {
-                        if (itemSearchTab === "all") return m.type !== "Template";
-                        if (itemSearchTab === "material") return m.type === "Material";
-                        if (itemSearchTab === "product") return m.type === "Product";
-                        return true;
-                      })
-                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
-                      .map((m: any) => (
-                        <CommandItem
-                          key={`${m.type}-${m.id}`}
-                          onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
-                          className="cursor-pointer"
-                        >
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-sm">{m.name}</span>
-                              <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
-                            </div>
-                            <div className="flex gap-2 text-[10px] text-slate-500">
-                              {m.code && <span>Code: {m.code}</span>}
-                              {m.category && <span>Category: {m.category}</span>}
-                            </div>
-                          </div>
-                        </CommandItem>
-                      ))}
-                  </CommandGroup>
-                )}
-              </CommandList>
-            </Command>
-            <div className="p-3 border-t bg-slate-50 flex flex-col gap-2">
-              <p className="text-[10px] uppercase font-bold text-slate-400">Custom Item</p>
-              <Input
-                placeholder="Or type a custom name and press Enter..."
-                className="h-10 text-sm"
-                onChange={(e) => updateItem(idx, "item_name", e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setOpenPopoverIdx(null);
-                  }
-                }}
-              />
-            </div>
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Search materials, products..."
+                    value={materialSearch}
+                    onValueChange={setMaterialSearch}
+                    className="h-10"
+                  />
+                  <div className="flex border-b">
+                    <button
+                      onClick={() => setItemSearchTab("all")}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                        itemSearchTab === "all" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                      )}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setItemSearchTab("material")}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                        itemSearchTab === "material" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                      )}
+                    >
+                      Materials
+                    </button>
+                    <button
+                      onClick={() => setItemSearchTab("product")}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2",
+                        itemSearchTab === "product" ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:bg-slate-50"
+                      )}
+                    >
+                      Products
+                    </button>
+                  </div>
+                  <CommandList className="max-h-[280px]">
+                    {searching && <CommandEmpty>Loading...</CommandEmpty>}
+                    {!searching && searchResults.length === 0 && <CommandEmpty>No items found.</CommandEmpty>}
+                    {!searching && searchResults.length > 0 && (
+                      <CommandGroup heading={`${itemSearchTab === 'all' ? 'All Items' : itemSearchTab === 'material' ? 'Materials' : 'Products'} (${searchResults.filter((m: any) => (itemSearchTab === 'all' && m.type !== 'Template') || (itemSearchTab === 'material' && m.type === 'Material') || (itemSearchTab === 'product' && m.type === 'Product')).length})`}>
+                        {searchResults
+                          .filter((m: any) => {
+                            if (itemSearchTab === "all") return m.type !== "Template";
+                            if (itemSearchTab === "material") return m.type === "Material";
+                            if (itemSearchTab === "product") return m.type === "Product";
+                            return true;
+                          })
+                          .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
+                          .map((m: any) => (
+                            <CommandItem
+                              key={`${m.type}-${m.id}`}
+                              onSelect={() => { selectMaterial(idx, m); setOpenPopoverIdx(null); }}
+                              className="cursor-pointer"
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-sm">{m.name}</span>
+                                  <Badge variant="outline" className="text-[10px] scale-90">{m.type}</Badge>
+                                </div>
+                                <div className="flex gap-2 text-[10px] text-slate-500">
+                                  {m.code && <span>Code: {m.code}</span>}
+                                  {m.category && <span>Category: {m.category}</span>}
+                                </div>
+                              </div>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+                <div className="p-3 border-t bg-slate-50 flex flex-col gap-2">
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Custom Item</p>
+                  <Input
+                    placeholder="Or type a custom name and press Enter..."
+                    className="h-10 text-sm"
+                    onChange={(e) => updateItem(idx, "item_name", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        setOpenPopoverIdx(null);
+                      }
+                    }}
+                  />
+                </div>
               </div>
             </Draggable>
           </DialogContent>
@@ -804,7 +804,7 @@ export default function CreateSketchPlan() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const lastSavedRef = useRef<string>("");
   const isSavingRef = useRef<boolean>(false);
-  
+
   // Lock & Approval State
   const [isLocked, setIsLocked] = useState(false);
   const [requestStatus, setRequestStatus] = useState<string>("none");
@@ -1606,7 +1606,7 @@ export default function CreateSketchPlan() {
       // Create a composite key for comparison
       const dimsStr = JSON.stringify(item.dimensions?.map(d => ({ l: d.length, w: d.width, h: d.height, note: d.note })) || []);
       const key = `${item.item_name || ''}|${item.description || ''}|${item.qty || ''}|${item.unit || ''}|${item.category || ''}|${dimsStr}`;
-      
+
       if (!groups[key]) groups[key] = [];
       groups[key].push(item);
     });
@@ -1638,16 +1638,17 @@ export default function CreateSketchPlan() {
       setShowDuplicateDialog(false);
       if (sortBy !== "none") setSortBy("none");
       // Trigger a save so the user doesn't lose the cleanup
-      setTimeout(() => performSave(false), 500);
+      // IMPORTANT: Pass newItems directly to avoid stale closure issues
+      performSave(false, newItems);
     } else {
       setShowDuplicateDialog(false);
     }
   };
 
 
-  const performSave = async (showToast: boolean = true) => {
+  const performSave = async (showToast: boolean = true, itemsToSave?: PlanItem[]) => {
     if (isSavingRef.current) return;
-    
+
     if (!name.trim()) {
       if (showToast) toast({ title: "Validation Error", description: "Please enter a Plan Name before saving.", variant: "destructive" });
       return;
@@ -1658,12 +1659,13 @@ export default function CreateSketchPlan() {
     else setSaving(true);
 
     try {
+      const payloadItems = itemsToSave || items;
       const payload = {
         name,
         project_id: projectId === "none" ? null : projectId,
         location: locationStr,
         plan_date: planDate,
-        items: items.map(it => {
+        items: payloadItems.map(it => {
           const flattenedImages = [
             ...(it.preImages || []).map(img => ({ ...img, name: `PRE_${img.name}` })),
             ...(it.postImages || []).map(img => ({ ...img, name: `POST_${img.name}` }))
@@ -1740,7 +1742,7 @@ export default function CreateSketchPlan() {
   useEffect(() => {
     if (isLocked) return;
     if (!name.trim() || items.length === 0) return;
-    
+
     if (saving || isSavingRef.current) return;
 
     const timer = setTimeout(() => {
@@ -3406,7 +3408,7 @@ export default function CreateSketchPlan() {
                 : "Great! No exact duplicates were found in your plan."}
             </DialogDescription>
           </DialogHeader>
-          
+
           {duplicateGroups.length > 0 && (
             <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
               {duplicateGroups.map((group, idx) => (
@@ -3444,8 +3446,8 @@ export default function CreateSketchPlan() {
               {duplicateGroups.length > 0 ? "Cancel" : "Close"}
             </Button>
             {duplicateGroups.length > 0 && (
-              <Button 
-                onClick={cleanUpDuplicates} 
+              <Button
+                onClick={cleanUpDuplicates}
                 className="bg-amber-600 hover:bg-amber-700 text-white"
                 disabled={selectedDuplicateIndices.size === 0}
               >
